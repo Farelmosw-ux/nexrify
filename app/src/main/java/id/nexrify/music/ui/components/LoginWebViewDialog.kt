@@ -58,6 +58,8 @@ fun LoginWebViewDialog(
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     var pageProgress by remember { mutableFloatStateOf(0f) }
     var isLoading by remember { mutableStateOf(true) }
+    // Login hanya boleh diproses satu kali, walaupun halaman selesai dimuat berkali-kali.
+    val handled = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
 
     androidx.compose.runtime.DisposableEffect(Unit) {
         onDispose {
@@ -181,14 +183,23 @@ fun LoginWebViewDialog(
                                     isLoading = false
 
                                     val currentUrl = url ?: ""
-                                    val cookies = cookieManager.getCookie("https://music.youtube.com")
-                                        ?: cookieManager.getCookie("https://www.youtube.com")
-                                        ?: cookieManager.getCookie(currentUrl)
-                                        ?: ""
+                                    // Hanya halaman YouTube sungguhan yang dihitung. URL login Google yang cuma memuat
+                                    // "youtube.com" di parameter ("continue=...") tidak boleh dianggap berhasil.
+                                    val host = runCatching { android.net.Uri.parse(currentUrl).host.orEmpty().lowercase() }.getOrDefault("")
+                                    val onYoutube = host == "youtube.com" || host.endsWith(".youtube.com")
+                                    if (!onYoutube || handled.get()) return
 
-                                    val hasAuth = cookies.contains("SAPISID") ||
-                                            cookies.contains("LOGIN_INFO") ||
-                                            cookies.contains("__Secure-3PAPISID")
+                                    // Cookie gabungan YouTube Music dan YouTube, tanpa duplikat nama.
+                                    val merged = LinkedHashMap<String, String>()
+                                    listOf("https://music.youtube.com", "https://www.youtube.com").forEach { origin ->
+                                        cookieManager.getCookie(origin)?.split(";")?.forEach { part ->
+                                            val i = part.indexOf('=')
+                                            if (i > 0) merged[part.substring(0, i).trim()] = part.substring(i + 1).trim()
+                                        }
+                                    }
+                                    val cookies = merged.entries.joinToString("; ") { "${it.key}=${it.value}" }
+                                    val hasAuth = AuthManager.getInstance().hasAuthCookies(cookies)
+                                    if (!hasAuth) return
 
                                     // Extract Google avatar and name directly from DOM!
                                     view?.evaluateJavascript(
@@ -232,23 +243,11 @@ fun LoginWebViewDialog(
                                             }
                                         } catch (_: Exception) {}
 
-                                        if (hasAuth && (currentUrl.contains("music.youtube.com") || currentUrl.contains("youtube.com"))) {
+                                        if (handled.compareAndSet(false, true)) {
                                             AuthManager.getInstance().handleLoginSuccess(cookies, extractedName, extractedAvatar)
                                             onLoginSuccess()
                                             onDismiss()
                                         }
-                                    }
-                                }
-
-                                override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
-                                    super.doUpdateVisitedHistory(view, url, isReload)
-                                    val currentUrl = url ?: ""
-                                    val cookies = cookieManager.getCookie(currentUrl) ?: ""
-                                    if ((cookies.contains("SAPISID") || cookies.contains("LOGIN_INFO")) &&
-                                        (currentUrl.contains("music.youtube.com") || currentUrl.contains("youtube.com"))) {
-                                        AuthManager.getInstance().handleLoginSuccess(cookies)
-                                        onLoginSuccess()
-                                        onDismiss()
                                     }
                                 }
                             }
