@@ -114,6 +114,9 @@ dependencies {
     // OkHttp (for networking & downloader)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // Potong latar foto untuk Poster lagu (model ikut di APK, jalan offline)
+    implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta6")
+
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
