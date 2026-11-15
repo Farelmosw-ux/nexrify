@@ -164,6 +164,8 @@ class Strings(val english: Boolean) {
     val coverTitle get() = t("Sampul playlist", "Playlist cover")
     val coverHint get() = t("Pilih gambar dari galeri sebagai sampul. Tanpa sampul, playlist memakai kolase lagunya.", "Pick an image from your gallery as the cover. Without a cover, the playlist uses a collage of its songs.")
     val coverPick get() = t("Pilih dari galeri", "Choose from gallery")
+    val posterMake get() = t("Buat poster", "Make poster")
+    val posterMakeHint get() = t("Foto dengan sampai 5 lagu", "A photo with up to 5 songs")
     val coverRemove get() = t("Pakai kolase lagu", "Use song collage")
     val importSub get() = t("Bawa playlist Spotify-mu ke Nexrify", "Bring your Spotify playlist to Nexrify")
     val importStep1 get() = t("Buka playlist di Spotify lalu salin link-nya", "Open the playlist in Spotify and copy its link")
