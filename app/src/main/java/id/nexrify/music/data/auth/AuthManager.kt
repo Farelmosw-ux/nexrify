@@ -34,7 +34,7 @@ class AuthManager private constructor(private val context: Context) {
     val authState: StateFlow<UserAccount?> = _authState.asStateFlow()
 
     private fun loadStoredAccount(): UserAccount? {
-        val cookie = prefs.getString(KEY_COOKIE, null) ?: return null
+        val cookie = sanitizeCookie(prefs.getString(KEY_COOKIE, null).orEmpty()).takeIf { it.isNotBlank() } ?: return null
         var name = prefs.getString(KEY_NAME, "") ?: ""
         var email = prefs.getString(KEY_EMAIL, "") ?: ""
         var handle = prefs.getString(KEY_HANDLE, "") ?: ""
@@ -88,10 +88,24 @@ class AuthManager private constructor(private val context: Context) {
     fun getSapisidHash(origin: String = "https://music.youtube.com"): String? {
         val cookie = getCookie() ?: return null
         val map = parseCookies(cookie)
-        val sapisid = map["SAPISID"] ?: map["__Secure-3PAPISID"] ?: return null
         val time = System.currentTimeMillis() / 1000
-        val sha1 = sha1Hex("$time $sapisid $origin")
-        return "SAPISIDHASH ${time}_$sha1"
+        fun hash(secret: String) = "${time}_${sha1Hex("$time $secret $origin")}"
+        val main = map["SAPISID"] ?: map["__Secure-3PAPISID"] ?: map["__Secure-1PAPISID"] ?: return null
+        // YouTube terbaru memeriksa tiga hash sekaligus bila cookie-nya ada; yang tidak ada dilewati.
+        val parts = mutableListOf("SAPISIDHASH ${hash(main)}")
+        map["__Secure-1PAPISID"]?.let { parts += "SAPISID1PHASH ${hash(it)}" }
+        map["__Secure-3PAPISID"]?.let { parts += "SAPISID3PHASH ${hash(it)}" }
+        return parts.joinToString(" ")
+    }
+
+    /** Header Cookie hanya boleh berisi ASCII yang bisa dicetak; karakter lain membuat OkHttp melempar exception. */
+    fun sanitizeCookie(raw: String): String =
+        raw.filter { it.code in 0x20..0x7E }.trim().trim(';').trim()
+
+    /** Apakah cookie memuat kunci yang dibutuhkan untuk permintaan terautentikasi. */
+    fun hasAuthCookies(cookie: String): Boolean {
+        val m = parseCookies(cookie)
+        return m.containsKey("SAPISID") || m.containsKey("__Secure-3PAPISID") || m.containsKey("__Secure-1PAPISID")
     }
 
     private fun sha1Hex(input: String): String {
@@ -99,7 +113,9 @@ class AuthManager private constructor(private val context: Context) {
         return bytes.joinToString("") { "%02x".format(it) }
     }
 
-    fun handleLoginSuccess(cookie: String, initialName: String = "", initialAvatar: String = "") {
+    fun handleLoginSuccess(rawCookie: String, initialName: String = "", initialAvatar: String = "") {
+        val cookie = sanitizeCookie(rawCookie)
+        if (cookie.isBlank() || !hasAuthCookies(cookie)) return
         val savedName = if (initialName.isNotBlank()) initialName else (prefs.getString(KEY_NAME, "YouTube User") ?: "YouTube User")
         val savedAvatar = if (initialAvatar.isNotBlank()) initialAvatar else (prefs.getString(KEY_AVATAR, "") ?: "")
 
@@ -192,9 +208,10 @@ class AuthManager private constructor(private val context: Context) {
                 reqBuilder.header("Authorization", sapisidHash)
             }
 
-            val resp = httpClient.newCall(reqBuilder.build()).execute()
-            val respString = resp.body?.string().orEmpty()
-            if (resp.isSuccessful && respString.isNotBlank()) {
+            val (ok, respString) = httpClient.newCall(reqBuilder.build()).execute().use { r ->
+                r.isSuccessful to r.body?.string().orEmpty()
+            }
+            if (ok && respString.isNotBlank()) {
                 val json = JSONObject(respString)
                 val actions = json.optJSONArray("actions")
                 val openPopup = actions?.optJSONObject(0)?.optJSONObject("openPopupAction")
@@ -255,8 +272,10 @@ class AuthManager private constructor(private val context: Context) {
         prefs.edit().clear().apply()
         _authState.value = null
         try {
-            android.webkit.CookieManager.getInstance().removeAllCookies(null)
-            android.webkit.CookieManager.getInstance().flush()
+            val cm = android.webkit.CookieManager.getInstance()
+            cm.removeAllCookies { cm.flush() }
+            cm.flush()
+            android.webkit.WebStorage.getInstance().deleteAllData()
         } catch (e: Exception) {
             Log.e("NexrifyAuth", "Failed to clear WebView cookies: ${e.message}")
         }
