@@ -16,7 +16,9 @@ data class Playlist(
     val createdAt: Long = System.currentTimeMillis(),
     val tracks: List<Track> = emptyList(),
     /** Sampul kustom: URL https (hasil import) atau file:// (dipilih dari galeri). Kosong = kolase lagu. */
-    val coverUrl: String = ""
+    val coverUrl: String = "",
+    /** Id tautan berbagi (https://nexrify.biz.id/playlist/usr/<id>). Kosong = belum dibagikan. */
+    val shareId: String = ""
 )
 
 class PlaylistManager private constructor(context: Context) {
@@ -59,7 +61,7 @@ class PlaylistManager private constructor(context: Context) {
                         )
                     )
                 }
-                list.add(Playlist(id = id, name = name, createdAt = createdAt, tracks = tracks, coverUrl = pObj.optString("coverUrl", "")))
+                list.add(Playlist(id = id, name = name, createdAt = createdAt, tracks = tracks, coverUrl = pObj.optString("coverUrl", ""), shareId = pObj.optString("shareId", "")))
             }
             _playlists.value = list
         } catch (_: Exception) {
@@ -76,6 +78,7 @@ class PlaylistManager private constructor(context: Context) {
                 put("name", p.name)
                 put("createdAt", p.createdAt)
                 put("coverUrl", p.coverUrl)
+                put("shareId", p.shareId)
                 val tArr = JSONArray()
                 for (t in p.tracks) {
                     val tObj = JSONObject().apply {
@@ -163,6 +166,18 @@ class PlaylistManager private constructor(context: Context) {
         current[index] = p.copy(tracks = newTracks)
         savePlaylists(current)
     }
+
+    @Synchronized
+    fun setShareId(playlistId: String, shareId: String) {
+        val current = _playlists.value
+        if (current.none { it.id == playlistId }) return
+        savePlaylists(current.map { if (it.id == playlistId) it.copy(shareId = shareId) else it })
+    }
+
+    /** Simpan salinan playlist orang lain (dari tautan) sebagai playlist milik sendiri. Tidak ikut shareId, jadi tidak bisa menimpa tautan pemilik asli. */
+    @Synchronized
+    fun importPlaylist(name: String, tracks: List<Track>, coverUrl: String): Playlist =
+        createPlaylistWithTracks(name, tracks, coverUrl)
 
     /** Ganti sampul (URL atau file://). Kosong = kembali ke kolase lagu. Sampul lokal lama dihapus. */
     @Synchronized
