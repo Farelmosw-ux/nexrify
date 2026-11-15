@@ -15,6 +15,7 @@ import id.nexrify.music.ui.screens.MailboxScreen
 import id.nexrify.music.ui.components.UpdateDialog
 
 import id.nexrify.music.data.mailbox.MailboxManager
+import id.nexrify.music.data.playlist.PlaylistShareNav
 
 import id.nexrify.music.data.update.UpdateManager
 
@@ -149,8 +150,8 @@ class MainActivity : ComponentActivity() {
     /** Tautan playlist (https://nexrify.biz.id/playlist/usr/<id>) yang dibuka dari browser, chat, dll. */
     private fun handleLinkIntent(intent: android.content.Intent?) {
         if (intent?.action != android.content.Intent.ACTION_VIEW) return
-        val playlistId = id.nexrify.music.data.playlist.PlaylistShareNav.parseId(intent.data) ?: return
-        id.nexrify.music.data.playlist.PlaylistShareNav.request.value = playlistId
+        val playlistId = PlaylistShareNav.parseId(intent.data) ?: return
+        PlaylistShareNav.request.value = playlistId
         intent.data = null // jangan diproses ulang saat Activity dibuat ulang
     }
 
@@ -553,8 +554,8 @@ fun MainAppScreen(viewModel: MusicViewModel) {
                     composable(Screen.Search.route) {
                         SearchScreen(onOpenSearchPage = { q ->
                             // Tautan playlist yang ditempel di kolom cari langsung dibuka sebagai playlist.
-                            val shared = id.nexrify.music.data.playlist.PlaylistShareNav.parseText(q)
-                            if (shared != null) id.nexrify.music.data.playlist.PlaylistShareNav.request.value = shared
+                            val shared = PlaylistShareNav.parseText(q)
+                            if (shared != null) PlaylistShareNav.request.value = shared
                             else navController.navigate(Screen.SearchPage.route(q))
                         })
                     }
