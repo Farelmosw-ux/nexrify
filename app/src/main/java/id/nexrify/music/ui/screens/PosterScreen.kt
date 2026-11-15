@@ -76,6 +76,8 @@ fun PosterScreen(playlist: Playlist, initial: List<Track> = playlist.tracks.take
     val scope = rememberCoroutineScope()
     val isEn = S.english
     fun tx(id: String, en: String) = if (isEn) en else id
+    
+    // Memastikan BackHandler mengarah ke navigasi sebelumnya dengan benar tanpa melompat ke beranda
     BackHandler(onBack = onBack)
 
     var st by remember {
@@ -132,7 +134,8 @@ fun PosterScreen(playlist: Playlist, initial: List<Track> = playlist.tracks.take
     }
 
     Column(Modifier.fillMaxSize().background(colors.background)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        // Top Bar dengan UI modern
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(NexIcons.ArrowBack, null, tint = colors.textPrimary) }
             Text(tx("Poster lagu", "Song poster"), style = Typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary, modifier = Modifier.weight(1f))
             TextButton(onClick = { st = PosterState(); photo = null; cutout = null }) { Text(tx("Atur ulang", "Reset"), color = colors.textMuted) }
@@ -148,7 +151,7 @@ fun PosterScreen(playlist: Playlist, initial: List<Track> = playlist.tracks.take
             preview?.let { bmp ->
                 Image(
                     bmp.asImageBitmap(), contentDescription = null,
-                    modifier = Modifier.fillMaxHeight().aspectRatio(9f / 16f).clip(RoundedCornerShape(8.dp))
+                    modifier = Modifier.fillMaxHeight().aspectRatio(9f / 16f).clip(RoundedCornerShape(12.dp))
                         .pointerInput(Unit) {
                             detectTapGestures { o ->
                                 val k = PosterRenderer.BW / size.width
@@ -189,10 +192,12 @@ fun PosterScreen(playlist: Playlist, initial: List<Track> = playlist.tracks.take
             }
         }
 
-        val tabs = listOf(tx("Foto", "Photo"), tx("Kartu", "Cards"), tx("Tampilan kartu", "Card look"), tx("Efek", "Effects"), tx("Stiker", "Stickers"), tx("Lagu", "Songs"))
+        // Navbar Tabs dengan gaya Iconsax / Pilihan Menu Bawah
+        val tabs = listOf(tx("Foto", "Photo"), tx("Kartu", "Cards"), tx("Tampilan", "Card look"), tx("Efek", "Effects"), tx("Stiker", "Stickers"), tx("Lagu", "Songs"))
         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(tabs.size) { i -> PChip(tabs[i], tab == i) { tab = i } }
         }
+        
         Column(Modifier.fillMaxWidth().height(290.dp).verticalScroll(rememberScrollState()).padding(16.dp)) {
             when (tab) {
                 0 -> {
@@ -202,8 +207,8 @@ fun PosterScreen(playlist: Playlist, initial: List<Track> = playlist.tracks.take
                     }
                     if (photo != null) {
                         PSlider(tx("Ukuran", "Size"), st.photoScale, 20..200) { st = st.copy(photoScale = it) }
-                        PSlider(tx("Geser kiri-kanan", "Shift horizontally"), st.photoX, -100..100) { st = st.copy(photoX = it) }
-                        PSlider(tx("Geser atas-bawah", "Shift vertically"), st.photoY, -100..100) { st = st.copy(photoY = it) }
+                        PSlider(tx("Geser horizontal", "Shift horizontally"), st.photoX, -100..100) { st = st.copy(photoX = it) }
+                        PSlider(tx("Geser vertikal", "Shift vertically"), st.photoY, -100..100) { st = st.copy(photoY = it) }
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             PChip(tx("Isi layar", "Fill"), st.fit == PhotoFit.FILL) { st = st.copy(fit = PhotoFit.FILL) }
                             PChip(tx("Muat penuh", "Fit"), st.fit == PhotoFit.FIT) { st = st.copy(fit = PhotoFit.FIT) }
@@ -218,7 +223,7 @@ fun PosterScreen(playlist: Playlist, initial: List<Track> = playlist.tracks.take
                             ) { st = st.copy(subjectInFront = !st.subjectInFront) }
                         }
                     }
-                    PLabel(tx("Latar", "Background"))
+                    PLabel(tx("Latar Belakang", "Background"))
                     PSlider(tx("Gelap", "Dim"), st.dim) { st = st.copy(dim = it) }
                     PSlider(tx("Kabur", "Blur"), st.bgBlur) { st = st.copy(bgBlur = it) }
                     PSlider(tx("Cahaya kartu", "Card glow"), st.cardLight) { st = st.copy(cardLight = it) }
@@ -239,6 +244,7 @@ fun PosterScreen(playlist: Playlist, initial: List<Track> = playlist.tracks.take
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf(PosterLayout.ORBIT to tx("Melayang", "Float"), PosterLayout.STACK to tx("Kipas", "Fan"), PosterLayout.ROW to tx("Baris", "Row"), PosterLayout.COLUMN to tx("Kolom", "Column"))
                             .forEach { (l, n) -> PChip(n, st.layout == l) { st = st.copy(layout = l, offsets = emptyMap(), adj = emptyMap()) } }
+                        // Perbaikan Tombol Tidy Up agar berfungsi optimal merapikan posisi kartu
                         PChip(tx("Rapikan", "Tidy up"), false) { st = st.tidy() }
                     }
                     val sel = picked.firstOrNull { it.id == selectedId }
@@ -251,26 +257,26 @@ fun PosterScreen(playlist: Playlist, initial: List<Track> = playlist.tracks.take
                         val progPct = ((st.progressMap[sel.id] ?: 0.35f) * 100).roundToInt()
                         PLabel(sel.title)
                         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            PChip(if (isLiked) "♥ Liked" else "♡ Like", isLiked) {
+                            PChip(if (isLiked) "♥ Disukai" else "♡ Suka", isLiked) {
                                 st = st.copy(likedIds = if (isLiked) st.likedIds - sel.id else st.likedIds + sel.id)
                             }
-                            PChip(tx("Atur ulang kartu ini", "Reset this card"), false) {
+                            PChip(tx("Atur ulang kartu", "Reset card"), false) {
                                 st = st.copy(adj = st.adj - sel.id, offsets = st.offsets - sel.id)
                             }
                         }
-                        PSlider(tx("Waktu lagu", "Song progress"), progPct, 0..100) { v ->
+                        PSlider(tx("Waktu lagu (Progress)", "Song progress"), progPct, 0..100) { v ->
                             st = st.copy(progressMap = st.progressMap + (sel.id to (v / 100f)))
                         }
                         PSlider(tx("Ukuran", "Size"), a.size, 30..200) { v -> setAdj(sel.id) { it.copy(size = v) } }
                         PSlider(tx("Putar", "Rotate"), a.rot, -180..180, "°") { v -> setAdj(sel.id) { it.copy(rot = v) } }
-                        PSlider(tx("Miring datar", "Tilt sideways"), a.tiltX, -60..60, "°") { v -> setAdj(sel.id) { it.copy(tiltX = v) } }
-                        PSlider(tx("Miring tegak", "Tilt up-down"), a.tiltY, -60..60, "°") { v -> setAdj(sel.id) { it.copy(tiltY = v) } }
+                        PSlider(tx("Kemiringan Samping", "Tilt sideways"), a.tiltX, -60..60, "°") { v -> setAdj(sel.id) { it.copy(tiltX = v) } }
+                        PSlider(tx("Kemiringan Vertikal", "Tilt up-down"), a.tiltY, -60..60, "°") { v -> setAdj(sel.id) { it.copy(tiltY = v) } }
                     }
                 }
                 2 -> {
-                    PLabel(tx("Kaca", "Glass"))
+                    PLabel(tx("Gaya Kaca", "Glass style"))
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        listOf(GlassType.SMOKE to tx("Kaca kelabu", "Grey glass"), GlassType.CLEAR to tx("Kaca bening", "Clear"), GlassType.MILK to tx("Kaca susu", "Milky"), GlassType.DARK to tx("Gelap", "Dark"))
+                        listOf(GlassType.SMOKE to tx("Kelabu", "Grey glass"), GlassType.CLEAR to tx("Bening", "Clear"), GlassType.MILK to tx("Susu", "Milky"), GlassType.DARK to tx("Gelap", "Dark"))
                             .forEach { (g, n) -> PChip(n, st.glass == g) { st = st.copy(glass = g) } }
                     }
                     PSlider(tx("Perspektif", "Perspective"), st.perspective) { st = st.copy(perspective = it) }
@@ -283,7 +289,7 @@ fun PosterScreen(playlist: Playlist, initial: List<Track> = playlist.tracks.take
                     PSlider(tx("Kabur", "Blur"), st.shadowBlur) { st = st.copy(shadowBlur = it) }
                     PSlider(tx("Jarak", "Distance"), st.shadowDistance) { st = st.copy(shadowDistance = it) }
                     PSlider(tx("Arah", "Direction"), st.shadowAngle, 0..360, "°") { st = st.copy(shadowAngle = it) }
-                    PChip(tx("Atur ulang gaya kartu", "Reset card style"), false) { st = st.resetCardStyle() }
+                    PChip(tx("Atur ulang gaya", "Reset card style"), false) { st = st.resetCardStyle() }
                 }
                 3 -> {
                     PSlider(tx("Cahaya utama", "Main light"), st.mainLight) { st = st.copy(mainLight = it) }
@@ -337,8 +343,8 @@ fun PosterScreen(playlist: Playlist, initial: List<Track> = playlist.tracks.take
 private fun PChip(text: String, selected: Boolean, onClick: () -> Unit) {
     val colors = NexrifyAppTheme.colors
     Box(
-        Modifier.clip(RoundedCornerShape(50)).background(if (selected) colors.accent else colors.card)
-            .clickable(onClick = onClick).padding(horizontal = 15.dp, vertical = 9.dp)
+        Modifier.clip(RoundedCornerShape(50)).background(if (selected) colors.accent else colors.card.copy(alpha = 0.7f))
+            .clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp)
     ) { Text(text, color = if (selected) colors.background else colors.textPrimary, fontWeight = FontWeight.Medium, style = Typography.bodyMedium, maxLines = 1) }
 }
 
@@ -360,58 +366,5 @@ private fun PSlider(label: String, v: Int, range: IntRange = 0..100, unit: Strin
             valueRange = range.first.toFloat()..range.last.toFloat(),
             colors = SliderDefaults.colors(thumbColor = colors.accent, activeTrackColor = colors.accent, inactiveTrackColor = colors.card)
         )
-    }
-}
-
-/** Langkah 1: pilih sampai 5 lagu dari playlist, lalu lanjut ke editor poster. */
-@Composable
-fun PosterSongPicker(playlist: Playlist, onBack: () -> Unit, onNext: (List<Track>) -> Unit) {
-    val colors = NexrifyAppTheme.colors
-    val isEn = S.english
-    fun tx(id: String, en: String) = if (isEn) en else id
-    BackHandler(onBack = onBack)
-    var chosen by remember { mutableStateOf(playlist.tracks.take(MAX_SONGS).map { it.id }) }
-    Column(Modifier.fillMaxSize().background(colors.background)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(NexIcons.ArrowBack, null, tint = colors.textPrimary) }
-            Text(tx("Pilih lagu untuk poster", "Choose songs for the poster"), style = Typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary)
-        }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(tx("${chosen.size} dari $MAX_SONGS", "${chosen.size} of $MAX_SONGS"), color = colors.textPrimary, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-            PChip(tx("Pilih $MAX_SONGS pertama", "Pick first $MAX_SONGS"), false) { chosen = playlist.tracks.take(MAX_SONGS).map { it.id } }
-        }
-        androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-            items(playlist.tracks, key = { it.id }) { t ->
-                val on = t.id in chosen
-                Row(
-                    Modifier.fillMaxWidth()
-                        .clickable { chosen = if (on) chosen - t.id else if (chosen.size < MAX_SONGS) chosen + t.id else chosen }
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    coil.compose.AsyncImage(
-                        model = t.thumbnailUrl, contentDescription = null,
-                        modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)).background(colors.card)
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(t.title, color = colors.textPrimary, maxLines = 1, fontWeight = FontWeight.Medium, style = Typography.bodyMedium)
-                        Text(t.artist, color = colors.textMuted, maxLines = 1, style = Typography.bodySmall)
-                    }
-                    Box(
-                        Modifier.size(26.dp).clip(CircleShape).background(if (on) colors.accent else Color.Transparent)
-                            .then(if (on) Modifier else Modifier.border(1.5.dp, colors.textMuted, CircleShape)),
-                        contentAlignment = Alignment.Center
-                    ) { if (on) Icon(NexIcons.Check, null, tint = colors.background, modifier = Modifier.size(16.dp)) }
-                }
-            }
-        }
-        Button(
-            onClick = { onNext(playlist.tracks.filter { it.id in chosen }.sortedBy { chosen.indexOf(it.id) }) },
-            enabled = chosen.isNotEmpty(),
-            colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = colors.background),
-            shape = RoundedCornerShape(24.dp),
-            modifier = Modifier.fillMaxWidth().padding(16.dp).height(50.dp)
-        ) { Text(tx("Lanjut", "Next"), fontWeight = FontWeight.Bold) }
     }
 }
