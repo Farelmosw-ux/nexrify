@@ -34,7 +34,7 @@ class MusicRepository {
         const val MIN_YTM_RESULTS = 5
         val YTM_TYPE_LABELS = setOf("song", "video", "single", "ep", "album", "lagu", "playlist", "artist", "artis")
     }
-    private val streamUrlCache = LruCache<String, Pair<String, Long>>(50)
+    private val streamUrlCache = LruCache<String, Pair<ResolvedStream, Long>>(50)
     private val CACHE_EXPIRY_MS = 3 * 60 * 60 * 1000L
 
     private var homeCache: Pair<List<HomeSection>, Long>? = null
@@ -690,58 +690,72 @@ class MusicRepository {
         return null
     }
 
-    suspend fun getAudioStreamUrl(
+    /** Buang URL stream yang tersimpan (misalnya setelah gagal diputar / kedaluwarsa) supaya pemutaran berikutnya mengambil yang baru. */
+    fun invalidateStream(url: String) {
+        synchronized(streamUrlCache) {
+            streamUrlCache.snapshot().keys.filter { it.startsWith("$url#") }.forEach { streamUrlCache.remove(it) }
+        }
+    }
+
+    private fun isHttpAudio(s: org.schabi.newpipe.extractor.stream.AudioStream) = s.content?.startsWith("http") == true
+
+    private fun isM4a(s: org.schabi.newpipe.extractor.stream.AudioStream) =
+        s.format == org.schabi.newpipe.extractor.MediaFormat.M4A || s.format?.suffix.equals("m4a", ignoreCase = true)
+
+    /** Bitrate yang bisa dipercaya; stream yang tidak melaporkan bitrate dianggap 0. */
+    private fun bitrateOf(s: org.schabi.newpipe.extractor.stream.AudioStream) = s.averageBitrate.coerceAtLeast(0)
+
+    private fun pickAudio(
+        streams: List<org.schabi.newpipe.extractor.stream.AudioStream>,
+        quality: id.nexrify.music.data.settings.AudioQuality
+    ): org.schabi.newpipe.extractor.stream.AudioStream? {
+        val http = streams.filter { isHttpAudio(it) }
+        if (http.isEmpty()) return null
+        return when (quality) {
+            id.nexrify.music.data.settings.AudioQuality.LOW ->
+                http.filter { bitrateOf(it) > 0 }.minByOrNull { bitrateOf(it) } ?: http.first()
+            id.nexrify.music.data.settings.AudioQuality.MEDIUM -> {
+                val known = http.filter { bitrateOf(it) > 0 }
+                // Terdekat ke 128 kbps, M4A didahulukan kalau selisihnya sama.
+                known.minWithOrNull(compareBy({ kotlin.math.abs(bitrateOf(it) - 128) }, { if (isM4a(it)) 0 else 1 }))
+                    ?: http.first()
+            }
+            id.nexrify.music.data.settings.AudioQuality.HIGH -> {
+                // Bitrate tertinggi apa pun formatnya (Opus 160 kbps sering lebih bagus dari AAC 128 kbps).
+                // M4A dipilih kalau selisihnya kurang dari 10%, karena paling kompatibel.
+                val best = http.maxByOrNull { bitrateOf(it) } ?: return http.first()
+                val bestM4a = http.filter { isM4a(it) }.maxByOrNull { bitrateOf(it) }
+                if (bestM4a != null && bitrateOf(bestM4a) >= bitrateOf(best) * 0.9) bestM4a else best
+            }
+        }
+    }
+
+    private fun mimeFor(s: org.schabi.newpipe.extractor.stream.AudioStream): String? =
+        runCatching { s.format?.mimeType }.getOrNull()?.takeIf { it.startsWith("audio/") || it.startsWith("video/") }
+
+    suspend fun getAudioStream(
         url: String,
         quality: id.nexrify.music.data.settings.AudioQuality = id.nexrify.music.data.settings.AudioQuality.HIGH
-    ): String? = withContext(Dispatchers.IO) {
+    ): ResolvedStream? = withContext(Dispatchers.IO) {
         val cacheKey = "$url#${quality.name}"
         val now = System.currentTimeMillis()
         synchronized(streamUrlCache) {
-            streamUrlCache.get(cacheKey)?.let { (cachedUrl, timestamp) ->
-                if (now - timestamp < CACHE_EXPIRY_MS) {
-                    return@withContext cachedUrl
-                }
+            streamUrlCache.get(cacheKey)?.let { (cached, timestamp) ->
+                if (now - timestamp < CACHE_EXPIRY_MS) return@withContext cached
             }
         }
-
         try {
             val streamInfo = StreamInfo.getInfo(service, url)
-            val audioStreams = streamInfo.audioStreams
-            val httpAudios = audioStreams.filter { it.content != null && it.content.startsWith("http") }
-
-            val chosenAudio = when (quality) {
-                id.nexrify.music.data.settings.AudioQuality.LOW -> {
-                    httpAudios.filter { it.averageBitrate > 0 }.minByOrNull { it.averageBitrate }
-                        ?: httpAudios.firstOrNull()
-                }
-                id.nexrify.music.data.settings.AudioQuality.MEDIUM -> {
-                    httpAudios.filter { it.averageBitrate in 90..180 }
-                        .minByOrNull { kotlin.math.abs(it.averageBitrate - 128) }
-                        ?: httpAudios.sortedBy { it.averageBitrate }.getOrNull(httpAudios.size / 2)
-                }
-                id.nexrify.music.data.settings.AudioQuality.HIGH -> {
-                    val m4aStreams = httpAudios.filter {
-                        it.format == org.schabi.newpipe.extractor.MediaFormat.M4A ||
-                        it.format?.name.equals("m4a", ignoreCase = true) ||
-                        it.format?.suffix.equals("m4a", ignoreCase = true) ||
-                        it.format.toString().contains("M4A", ignoreCase = true)
-                    }
-                    m4aStreams.maxByOrNull { it.averageBitrate }
-                        ?: httpAudios.maxByOrNull { it.averageBitrate }
-                }
-            } ?: httpAudios.maxByOrNull { it.averageBitrate } ?: httpAudios.firstOrNull()
-
-            val resolved = chosenAudio?.content ?: run {
-                // Fallback to muxed video/audio stream if separate audio stream is unavailable
-                streamInfo.videoStreams
-                    .filter { it.content != null && it.content.startsWith("http") }
-                    .firstOrNull()?.content
+            val chosen = pickAudio(streamInfo.audioStreams, quality)
+            val resolved = if (chosen != null) {
+                // MIME diambil dari format stream yang benar-benar dipilih, bukan ditebak dari URL.
+                ResolvedStream(chosen.content, mimeFor(chosen))
+            } else {
+                // Tidak ada stream audio terpisah: pakai stream video bergabung sebagai jalan terakhir.
+                streamInfo.videoStreams.firstOrNull { it.content?.startsWith("http") == true }
+                    ?.let { ResolvedStream(it.content, null) }
             }
-            if (resolved != null) {
-                synchronized(streamUrlCache) {
-                    streamUrlCache.put(cacheKey, Pair(resolved, now))
-                }
-            }
+            if (resolved != null) synchronized(streamUrlCache) { streamUrlCache.put(cacheKey, Pair(resolved, now)) }
             resolved
         } catch (e: Exception) {
             Log.e("MusicRepository", "Failed to get audio stream for $url: ${e.message}", e)
@@ -749,39 +763,27 @@ class MusicRepository {
         }
     }
 
-    suspend fun getAudioStream(
+    suspend fun getAudioStreamUrl(
         url: String,
         quality: id.nexrify.music.data.settings.AudioQuality = id.nexrify.music.data.settings.AudioQuality.HIGH
-    ): ResolvedStream? = withContext(Dispatchers.IO) {
-        val streamUrl = getAudioStreamUrl(url, quality) ?: return@withContext null
-        val mime = if (streamUrl.contains("audio%2Fwebm") || streamUrl.contains("audio/webm")) {
-            "audio/webm"
-        } else if (streamUrl.contains("audio%2Fmp4") || streamUrl.contains("audio/mp4") || streamUrl.contains("itag=140") || streamUrl.contains("itag=141") || streamUrl.contains("itag=139")) {
-            "audio/mp4"
-        } else if (quality == id.nexrify.music.data.settings.AudioQuality.HIGH) {
-            "audio/mp4"
-        } else {
-            null
-        }
-        ResolvedStream(streamUrl, mime)
-    }
+    ): String? = getAudioStream(url, quality)?.url
 
-    suspend fun getFallbackStreamUrl(url: String): String? = withContext(Dispatchers.IO) {
+    /** Stream cadangan saat stream utama gagal: pilih format lain (Opus/WebM dulu), tanpa memakai cache. */
+    suspend fun getFallbackStream(url: String, failedUrl: String? = null): ResolvedStream? = withContext(Dispatchers.IO) {
         try {
-            val streamInfo = StreamInfo.getInfo(service, url)
-            val audioStreams = streamInfo.audioStreams
-            val httpAudios = audioStreams.filter { it.content != null && it.content.startsWith("http") }
-            val opusStream = httpAudios.filter {
+            val http = StreamInfo.getInfo(service, url).audioStreams.filter { isHttpAudio(it) && it.content != failedUrl }
+            val webm = http.filter {
                 it.format == org.schabi.newpipe.extractor.MediaFormat.WEBMA_OPUS ||
-                it.format == org.schabi.newpipe.extractor.MediaFormat.WEBMA ||
-                it.format?.name.equals("webm", ignoreCase = true) ||
-                it.format?.name.equals("opus", ignoreCase = true)
-            }.maxByOrNull { it.averageBitrate }
-            opusStream?.content ?: httpAudios.maxByOrNull { it.averageBitrate }?.content
+                    it.format == org.schabi.newpipe.extractor.MediaFormat.WEBMA
+            }.maxByOrNull { bitrateOf(it) }
+            val chosen = webm ?: http.maxByOrNull { bitrateOf(it) }
+            chosen?.let { ResolvedStream(it.content, mimeFor(it)) }
         } catch (_: Exception) {
             null
         }
     }
+
+    suspend fun getFallbackStreamUrl(url: String): String? = getFallbackStream(url)?.url
 
     suspend fun getLikedTracks(): List<Track> = withContext(Dispatchers.IO) {
         val auth = id.nexrify.music.data.auth.AuthManager.getInstance()
