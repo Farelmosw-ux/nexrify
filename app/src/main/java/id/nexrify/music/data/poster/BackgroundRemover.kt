@@ -37,7 +37,7 @@ object BackgroundRemover {
             val mw = mask.width
             val mh = mask.height
             val buf = mask.buffer.also { it.rewind() }
-            val conf = FloatArray(mw * mh).also { buf.get(it) }
+            val conf = FloatArray(mw * mh).also { buf.asFloatBuffer().get(it) }
             val px = IntArray(w * h)
             src.getPixels(px, 0, w, 0, 0, w, h)
             for (y in 0 until h) {
