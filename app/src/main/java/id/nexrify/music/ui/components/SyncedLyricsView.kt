@@ -57,11 +57,13 @@ fun SyncedLyricsView(
     onSeekTo: (Long) -> Unit,
     isExpanded: Boolean = false,
     onExpandToggle: (() -> Unit)? = null,
+    onRetry: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val currentPositionMs by playbackPositionFlow.collectAsState()
     var showTranslation by remember { mutableStateOf(true) }
-    val listState = rememberLazyListState()
+    // Daftar lirik dibuat baru untuk tiap lagu, supaya posisi gulir lagu sebelumnya tidak terbawa.
+    val listState = remember(lyricsData?.trackId) { androidx.compose.foundation.lazy.LazyListState() }
 
     // Derived active index dynamically reacts to currentPositionMs
     val activeIndex by remember(lyricsData) {
@@ -71,10 +73,13 @@ fun SyncedLyricsView(
     }
 
     // Auto-scroll to center current lyric smoothly
-    LaunchedEffect(activeIndex) {
+    LaunchedEffect(activeIndex, listState) {
         if (activeIndex >= 0) {
             val targetScroll = (activeIndex - 1).coerceAtLeast(0)
-            listState.animateScrollToItem(targetScroll)
+            // Pengguna sedang menggulir sendiri: jangan ditarik paksa kembali ke baris aktif.
+            if (!listState.isScrollInProgress) {
+                try { listState.animateScrollToItem(targetScroll) } catch (_: Exception) {}
+            }
         }
     }
 
@@ -193,11 +198,28 @@ fun SyncedLyricsView(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = S.noLyrics,
-                        style = Typography.bodyMedium,
-                        color = colors.textMuted
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = S.noLyrics,
+                            style = Typography.bodyMedium,
+                            color = colors.textMuted
+                        )
+                        if (onRetry != null) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .border(1.dp, colors.border, RoundedCornerShape(12.dp))
+                                    .clickable { onRetry() }
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(NexIcons.Refresh, contentDescription = null, tint = colors.textPrimary, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(S.retryLyrics, style = Typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold), color = colors.textPrimary)
+                            }
+                        }
+                    }
                 }
             } else {
                 LazyColumn(
