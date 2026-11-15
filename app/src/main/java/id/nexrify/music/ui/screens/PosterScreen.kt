@@ -15,7 +15,6 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
@@ -78,7 +77,13 @@ fun PosterScreen(playlist: Playlist, initial: List<Track> = playlist.tracks.take
     fun tx(id: String, en: String) = if (isEn) en else id
     BackHandler(onBack = onBack)
 
-    var st by remember { mutableStateOf(PosterState()) }
+    var st by remember {
+        mutableStateOf(
+            PosterState(
+                likedIds = initial.filter { it.isFavorite }.map { it.id }.toSet()
+            )
+        )
+    }
     var picked by remember { mutableStateOf(initial.take(MAX_SONGS)) }
     var tab by remember { mutableStateOf(0) }
     var photo by remember { mutableStateOf<Bitmap?>(null) }
@@ -112,7 +117,7 @@ fun PosterScreen(playlist: Playlist, initial: List<Track> = playlist.tracks.take
         if (busy) return
         busy = true
         scope.launch {
-            val bmp = withContext(Dispatchers.Default) { PosterRenderer.render(st, picked, covers, photo, cutout, 1080) } // tanpa garis pilihan
+            val bmp = withContext(Dispatchers.Default) { PosterRenderer.render(st, picked, covers, photo, cutout, 1080) }
             val uri = withContext(Dispatchers.IO) { PosterExport.save(ctx, bmp) }
             busy = false
             if (uri == null) { Toast.makeText(ctx, tx("Gagal menyimpan poster", "Could not save the poster"), Toast.LENGTH_SHORT).show(); return@launch }
@@ -222,7 +227,6 @@ fun PosterScreen(playlist: Playlist, initial: List<Track> = playlist.tracks.take
                         LIGHT_COLORS.forEach { col ->
                             Box(
                                 Modifier.size(34.dp).clip(CircleShape).background(Color(col))
-                                    .then(if (st.lightColor == col) Modifier.background(Color.Transparent) else Modifier)
                                     .clickable { st = st.copy(lightColor = col) },
                                 contentAlignment = Alignment.Center
                             ) { if (st.lightColor == col) Text("✓", color = Color.Black, fontWeight = FontWeight.Bold) }
@@ -239,17 +243,27 @@ fun PosterScreen(playlist: Playlist, initial: List<Track> = playlist.tracks.take
                     val sel = picked.firstOrNull { it.id == selectedId }
                     if (sel == null) {
                         Spacer(Modifier.height(10.dp))
-                        Text(tx("Ketuk kartu di gambar untuk mengatur ukuran, putaran, dan kemiringannya. Seret untuk memindahkan.", "Tap a card on the poster to set its size, rotation and tilt. Drag to move it."), color = colors.textMuted, style = Typography.bodyMedium)
+                        Text(tx("Ketuk kartu di gambar untuk mengatur ukuran, putaran, like, waktu lagu, dan kemiringannya. Seret untuk memindahkan.", "Tap a card on the poster to set its size, rotation, like, song time and tilt. Drag to move it."), color = colors.textMuted, style = Typography.bodyMedium)
                     } else {
                         val a = st.adj[sel.id] ?: CardAdj()
+                        val isLiked = sel.id in st.likedIds
+                        val progPct = ((st.progressMap[sel.id] ?: 0.35f) * 100).roundToInt()
                         PLabel(sel.title)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            PChip(if (isLiked) "♥ Liked" else "♡ Like", isLiked) {
+                                st = st.copy(likedIds = if (isLiked) st.likedIds - sel.id else st.likedIds + sel.id)
+                            }
+                            PChip(tx("Atur ulang kartu ini", "Reset this card"), false) {
+                                st = st.copy(adj = st.adj - sel.id, offsets = st.offsets - sel.id)
+                            }
+                        }
+                        PSlider(tx("Waktu lagu", "Song progress"), progPct, 0..100) { v ->
+                            st = st.copy(progressMap = st.progressMap + (sel.id to (v / 100f)))
+                        }
                         PSlider(tx("Ukuran", "Size"), a.size, 30..200) { v -> setAdj(sel.id) { it.copy(size = v) } }
                         PSlider(tx("Putar", "Rotate"), a.rot, -180..180, "°") { v -> setAdj(sel.id) { it.copy(rot = v) } }
                         PSlider(tx("Miring datar", "Tilt sideways"), a.tiltX, -60..60, "°") { v -> setAdj(sel.id) { it.copy(tiltX = v) } }
                         PSlider(tx("Miring tegak", "Tilt up-down"), a.tiltY, -60..60, "°") { v -> setAdj(sel.id) { it.copy(tiltY = v) } }
-                        PChip(tx("Atur ulang kartu ini", "Reset this card"), false) {
-                            st = st.copy(adj = st.adj - sel.id, offsets = st.offsets - sel.id)
-                        }
                     }
                 }
                 2 -> {
@@ -287,11 +301,15 @@ fun PosterScreen(playlist: Playlist, initial: List<Track> = playlist.tracks.take
                 }
                 else -> {
                     picked.forEachIndexed { i, t ->
+                        val isLiked = t.id in st.likedIds
                         Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(t.title, color = colors.textPrimary, maxLines = 1, style = Typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                                 Text(t.artist, color = colors.textMuted, maxLines = 1, style = Typography.bodySmall)
                             }
+                            TextButton(onClick = {
+                                st = st.copy(likedIds = if (isLiked) st.likedIds - t.id else st.likedIds + t.id)
+                            }) { Text(if (isLiked) "♥" else "♡", color = if (isLiked) Color(0xFFFF3B30) else colors.textMuted) }
                             fun swap(j: Int) { if (j in picked.indices) picked = picked.toMutableList().also { l -> val x = l[i]; l[i] = l[j]; l[j] = x } }
                             TextButton(onClick = { swap(i - 1) }) { Text("▲", color = colors.textMuted) }
                             TextButton(onClick = { swap(i + 1) }) { Text("▼", color = colors.textMuted) }
