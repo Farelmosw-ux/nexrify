@@ -525,11 +525,13 @@ fun FullPlayerSheet(
             val hasLyrics = currentLyrics != null && currentLyrics!!.lines.isNotEmpty() &&
                     currentLyrics!!.lines.none { it.text.trim().equals("null", ignoreCase = true) }
 
-            if (hasLyrics) {
-                val lyricsHeight = if (isLyricsExpanded) 380.dp else 160.dp
+            // Kartu lirik selalu tampil: ada indikator saat memuat dan tombol "Cari lirik lagi" saat tidak ditemukan.
+            run {
+                val lyricsHeight = if (!hasLyrics && !isLoadingLyrics) 140.dp else if (isLyricsExpanded) 380.dp else 160.dp
                 SyncedLyricsView(
                     lyricsData = currentLyrics,
                     isLoading = isLoadingLyrics,
+                    onRetry = { viewModel.retryLyrics() },
                     playbackPositionFlow = viewModel.playbackPosition,
                     onSeekTo = { viewModel.seekTo(it) },
                     isExpanded = isLyricsExpanded,
@@ -546,8 +548,6 @@ fun FullPlayerSheet(
                         .height(lyricsHeight)
                 )
                 Spacer(modifier = Modifier.height(36.dp))
-            } else {
-                Spacer(modifier = Modifier.height(36.dp))
             }
         }
         OutlinedButton(
@@ -557,7 +557,7 @@ fun FullPlayerSheet(
         ) {
             Icon(NexIcons.ChatBubbleOutline, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text("Komentar lagu")
+            Text(S.songComments)
         }
     }
 
