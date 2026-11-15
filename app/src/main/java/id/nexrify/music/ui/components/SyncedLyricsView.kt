@@ -1,9 +1,7 @@
 package id.nexrify.music.ui.components
 
 import id.nexrify.music.i18n.S
-
 import id.nexrify.music.ui.icons.NexIcons
-
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -23,8 +21,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -41,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -62,21 +59,17 @@ fun SyncedLyricsView(
 ) {
     val currentPositionMs by playbackPositionFlow.collectAsState()
     var showTranslation by remember { mutableStateOf(true) }
-    // Daftar lirik dibuat baru untuk tiap lagu, supaya posisi gulir lagu sebelumnya tidak terbawa.
     val listState = remember(lyricsData?.trackId) { androidx.compose.foundation.lazy.LazyListState() }
 
-    // Derived active index dynamically reacts to currentPositionMs
     val activeIndex by remember(lyricsData) {
         derivedStateOf {
             lyricsData?.getCurrentLineIndex(currentPositionMs) ?: -1
         }
     }
 
-    // Auto-scroll to center current lyric smoothly
-    LaunchedEffect(activeIndex, listState) {
+    LaunchedEffect(activeIndex, listState, lyricsData?.trackId) {
         if (activeIndex >= 0) {
             val targetScroll = (activeIndex - 1).coerceAtLeast(0)
-            // Pengguna sedang menggulir sendiri: jangan ditarik paksa kembali ke baris aktif.
             if (!listState.isScrollInProgress) {
                 try { listState.animateScrollToItem(targetScroll) } catch (_: Exception) {}
             }
@@ -84,13 +77,27 @@ fun SyncedLyricsView(
     }
 
     val colors = NexrifyAppTheme.colors
+    val isV2 = NexrifyAppTheme.isV2
+
+    // Pastikan kontras kartu lirik selalu solid & terbaca jelas pada Tema V1, V2, maupun tema aksen
+    val cardSurface = if (colors.isDark) {
+        colors.surface.copy(alpha = 0.94f)
+    } else {
+        colors.surface.copy(alpha = 0.96f)
+    }
+    val cardBorderBrush = Brush.verticalGradient(
+        listOf(
+            colors.accent.copy(alpha = if (isV2) 0.42f else 0.25f),
+            colors.border.copy(alpha = 0.85f)
+        )
+    )
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .background(colors.card)
-            .border(1.dp, colors.border, RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(22.dp))
+            .background(cardSurface)
+            .border(1.dp, cardBorderBrush, RoundedCornerShape(22.dp))
             .padding(16.dp)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -112,14 +119,15 @@ fun SyncedLyricsView(
                     Spacer(modifier = Modifier.width(8.dp))
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(colors.border)
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(colors.accent.copy(alpha = 0.16f))
+                            .border(1.dp, colors.accent.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 7.dp, vertical = 2.dp)
                     ) {
                         Text(
                             text = if (lyricsData?.isSynced == true) S.karaokeSync else S.lyricsPlain,
                             style = Typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
-                            color = colors.textSecondary
+                            color = colors.accent
                         )
                     }
                 }
@@ -128,12 +136,11 @@ fun SyncedLyricsView(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Bilingual Translation Toggle Pill: "文A ID: ON" / "ID: OFF" (from Design Spec)
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(12.dp))
-                            .background(if (showTranslation) colors.textPrimary else colors.background)
-                            .border(1.dp, if (showTranslation) colors.textPrimary else colors.border, RoundedCornerShape(12.dp))
+                            .background(if (showTranslation) colors.accent else colors.card)
+                            .border(1.dp, if (showTranslation) colors.accent else colors.border, RoundedCornerShape(12.dp))
                             .clickable { showTranslation = !showTranslation }
                             .padding(horizontal = 10.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -155,7 +162,6 @@ fun SyncedLyricsView(
                         )
                     }
 
-                    // Expand / Collapse Chevron Button
                     if (onExpandToggle != null) {
                         IconButton(
                             onClick = onExpandToggle,
@@ -172,7 +178,7 @@ fun SyncedLyricsView(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             if (isLoading) {
                 Box(
@@ -181,7 +187,7 @@ fun SyncedLyricsView(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(
-                            color = colors.textPrimary,
+                            color = colors.accent,
                             modifier = Modifier.size(32.dp),
                             strokeWidth = 2.dp
                         )
@@ -209,12 +215,13 @@ fun SyncedLyricsView(
                             Row(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(12.dp))
-                                    .border(1.dp, colors.border, RoundedCornerShape(12.dp))
+                                    .background(colors.accent.copy(alpha = 0.14f))
+                                    .border(1.dp, colors.accent.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
                                     .clickable { onRetry() }
                                     .padding(horizontal = 14.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(NexIcons.Refresh, contentDescription = null, tint = colors.textPrimary, modifier = Modifier.size(16.dp))
+                                Icon(NexIcons.Refresh, contentDescription = null, tint = colors.accent, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(S.retryLyrics, style = Typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.SemiBold), color = colors.textPrimary)
                             }
@@ -225,8 +232,8 @@ fun SyncedLyricsView(
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(vertical = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    contentPadding = PaddingValues(vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     itemsIndexed(
                         items = lyricsData.lines,
@@ -234,7 +241,7 @@ fun SyncedLyricsView(
                     ) { index, line ->
                         val isActive = index == activeIndex
                         val textColor by animateColorAsState(
-                            targetValue = if (isActive) colors.textPrimary else colors.textSecondary.copy(alpha = 0.45f),
+                            targetValue = if (isActive) colors.textPrimary else colors.textPrimary.copy(alpha = 0.56f),
                             animationSpec = tween(durationMillis = 200),
                             label = "textColor"
                         )
@@ -243,15 +250,15 @@ fun SyncedLyricsView(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (isActive) colors.accent.copy(alpha = 0.10f) else colors.surface.copy(alpha = 0f))
                                 .clickable {
                                     if (line.timeMs >= 0) {
                                         onSeekTo(line.timeMs)
                                     }
                                 }
-                                .padding(vertical = 4.dp)
+                                .padding(horizontal = if (isActive) 8.dp else 2.dp, vertical = 5.dp)
                         ) {
-                            // Active Accent Indicator Bar on the left (Design Spec)
                             if (isActive) {
                                 Box(
                                     modifier = Modifier
@@ -267,10 +274,10 @@ fun SyncedLyricsView(
                                 Text(
                                     text = line.text,
                                     style = Typography.headlineMedium,
-                                    fontSize = if (isActive) 19.sp else 15.sp,
+                                    fontSize = if (isActive) 18.sp else 15.sp,
                                     fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
                                     color = textColor,
-                                    lineHeight = if (isActive) 26.sp else 22.sp
+                                    lineHeight = if (isActive) 25.sp else 21.sp
                                 )
 
                                 if (showTranslation && line.translation != null) {
@@ -280,8 +287,8 @@ fun SyncedLyricsView(
                                         style = Typography.bodyMedium,
                                         fontSize = if (isActive) 13.sp else 12.sp,
                                         fontWeight = if (isActive) FontWeight.Medium else FontWeight.Normal,
-                                        color = if (isActive) colors.textPrimary.copy(alpha = 0.85f) else colors.textSecondary.copy(alpha = 0.35f),
-                                        lineHeight = if (isActive) 19.sp else 16.sp
+                                        color = if (isActive) colors.accent else colors.textMuted,
+                                        lineHeight = if (isActive) 18.sp else 16.sp
                                     )
                                 }
                             }
