@@ -74,7 +74,8 @@ fun PosterScreen(playlist: Playlist, initial: List<Track> = playlist.tracks.take
     val colors = NexrifyAppTheme.colors
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
-    fun tx(id: String, en: String) = if (S.english) en else id
+    val isEn = S.english
+    fun tx(id: String, en: String) = if (isEn) en else id
     BackHandler(onBack = onBack)
 
     var st by remember { mutableStateOf(PosterState()) }
@@ -347,7 +348,8 @@ private fun PSlider(label: String, v: Int, range: IntRange = 0..100, unit: Strin
 @Composable
 fun PosterSongPicker(playlist: Playlist, onBack: () -> Unit, onNext: (List<Track>) -> Unit) {
     val colors = NexrifyAppTheme.colors
-    fun tx(id: String, en: String) = if (S.english) en else id
+    val isEn = S.english
+    fun tx(id: String, en: String) = if (isEn) en else id
     BackHandler(onBack = onBack)
     var chosen by remember { mutableStateOf(playlist.tracks.take(MAX_SONGS).map { it.id }) }
     Column(Modifier.fillMaxSize().background(colors.background)) {
