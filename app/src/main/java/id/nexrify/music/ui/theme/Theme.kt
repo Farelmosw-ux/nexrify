@@ -9,7 +9,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Brush
 import id.nexrify.music.data.settings.ThemeMode
 import id.nexrify.music.data.settings.ThemeStyle
 
@@ -38,7 +37,8 @@ val DarkNexrifyColors = NexrifyColors(
     textMuted = MutedText,
     iconPrimary = PureWhite,
     isDark = true,
-    accent = PureWhite
+    accent = PureWhite,
+    accentAlt = Color(0xFFD4D4D8)
 )
 
 val LightNexrifyColors = NexrifyColors(
@@ -51,7 +51,8 @@ val LightNexrifyColors = NexrifyColors(
     textMuted = Color(0xFFA1A1AA),
     iconPrimary = Color(0xFF09090B),
     isDark = false,
-    accent = Color(0xFF09090B)
+    accent = Color(0xFF09090B),
+    accentAlt = Color(0xFF3F3F46)
 )
 
 val LocalNexrifyColors = staticCompositionLocalOf { DarkNexrifyColors }
@@ -112,32 +113,51 @@ fun NexrifyTheme(
 
     val colorScheme = if (isDark) DarkColorScheme else LightColorScheme
     val baseColors = if (isDark) DarkNexrifyColors else LightNexrifyColors
-    // Liquid Glass keeps the selected system/app light or dark appearance.
-    // Only surface translucency and edge highlights change between editions.
+
     val nexrifyColors = when (themeStyle) {
         ThemeStyle.CLASSIC -> baseColors
         ThemeStyle.LIQUID_GLASS -> baseColors.copy(
             background = if (isDark) Color(0xFF090B10) else Color(0xFFF5F6F8),
-            surface = if (isDark) Color(0xC51B202A) else Color(0xDDFBFCFE),
-            card = if (isDark) Color(0xA52A303D) else Color(0xBFE8EBF1),
-            border = if (isDark) Color(0x668F9BAF) else Color(0x66939BAA),
-            textSecondary = baseColors.textSecondary,
-            textMuted = baseColors.textMuted,
-            accent = baseColors.textPrimary
+            surface = if (isDark) Color(0xE6151922) else Color(0xF2FBFCFE),
+            card = if (isDark) Color(0xCC222834) else Color(0xDDE8EBF1),
+            border = if (isDark) Color(0x888F9BAF) else Color(0x88939BAA),
+            textSecondary = if (isDark) Color(0xFFB4BDCB) else Color(0xFF52525B),
+            textMuted = if (isDark) Color(0xFF94A3B8) else Color(0xFF71717A),
+            accent = if (isDark) Color(0xFF7DD3FC) else Color(0xFF0284C7),
+            accentAlt = if (isDark) Color(0xFFBAE6FD) else Color(0xFF0369A1)
         )
         ThemeStyle.LIQUID_GLASS_V2 -> baseColors.copy(
             background = if (isDark) Color(0xFF080A0F) else Color(0xFFF1F2F5),
-            surface = if (isDark) Color(0xB51C2029) else Color(0xC9FFFFFF),
-            card = if (isDark) Color(0x8F343B49) else Color(0xA9E4E7ED),
-            border = if (isDark) Color(0x779EA8B8) else Color(0x77939BAA),
+            surface = if (isDark) Color(0xEA161B24) else Color(0xF5FFFFFF),
+            card = if (isDark) Color(0xD4262D3B) else Color(0xE2E4E7ED),
+            border = if (isDark) Color(0x999EA8B8) else Color(0x99939BAA),
             textPrimary = baseColors.textPrimary,
-            textSecondary = baseColors.textSecondary,
-            textMuted = baseColors.textMuted,
-            accent = baseColors.textPrimary
+            textSecondary = if (isDark) Color(0xFFCBD5E1) else Color(0xFF52525B),
+            textMuted = if (isDark) Color(0xFF94A3B8) else Color(0xFF71717A),
+            accent = if (isDark) Color(0xFFA5F3FC) else Color(0xFF0F172A),
+            accentAlt = if (isDark) Color(0xFF38BDF8) else Color(0xFF334155)
         )
-        ThemeStyle.VIOLET_NIGHT -> baseColors.copy(surface = Color(0xFF171224), card = Color(0xFF211936), border = Color(0xFF49356D), accent = Color(0xFFB99AFF))
-        ThemeStyle.AURORA_GOLD -> baseColors.copy(surface = Color(0xFF211D16), card = Color(0xFF302719), border = Color(0xFF80652D), accent = Color(0xFFFFD477))
-        ThemeStyle.OBSIDIAN -> baseColors.copy(surface = Color(0xFF101316), card = Color(0xFF1A2024), border = Color(0xFF3C5557), accent = Color(0xFF83D8CB))
+        ThemeStyle.VIOLET_NIGHT -> baseColors.copy(
+            surface = Color(0xFF171224),
+            card = Color(0xFF211936),
+            border = Color(0xFF49356D),
+            accent = Color(0xFFB99AFF),
+            accentAlt = Color(0xFF8B5CF6)
+        )
+        ThemeStyle.AURORA_GOLD -> baseColors.copy(
+            surface = Color(0xFF211D16),
+            card = Color(0xFF302719),
+            border = Color(0xFF80652D),
+            accent = Color(0xFFFFD477),
+            accentAlt = Color(0xFFF59E0B)
+        )
+        ThemeStyle.OBSIDIAN -> baseColors.copy(
+            surface = Color(0xFF101316),
+            card = Color(0xFF1A2024),
+            border = Color(0xFF3C5557),
+            accent = Color(0xFF83D8CB),
+            accentAlt = Color(0xFF2DD4BF)
+        )
     }
 
     val resolvedColorScheme = colorScheme.copy(
