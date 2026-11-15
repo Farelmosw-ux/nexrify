@@ -79,8 +79,8 @@ fun SearchPageScreen(
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
 
-    var query by remember { mutableStateOf(initialQuery) }
-    var submittedQuery by remember { mutableStateOf(initialQuery) }
+    var query by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(initialQuery) }
+    var submittedQuery by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(initialQuery) }
     var trackForPlaylist by remember { mutableStateOf<Track?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
 
