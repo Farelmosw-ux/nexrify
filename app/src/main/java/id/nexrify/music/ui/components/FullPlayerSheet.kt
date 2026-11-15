@@ -1,51 +1,31 @@
 package id.nexrify.music.ui.components
 
 import id.nexrify.music.i18n.S
-
 import id.nexrify.music.ui.icons.NexIcons
-
 import android.content.Intent
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.tween
+import android.graphics.Bitmap
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -53,15 +33,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.graphics.drawable.toBitmap
 import androidx.media3.common.Player
 import coil.compose.AsyncImage
+import coil.imageLoader
 import coil.request.ImageRequest
+import coil.request.SuccessResult
 import id.nexrify.music.R
 import id.nexrify.music.data.model.Track
+import id.nexrify.music.data.poster.*
 import id.nexrify.music.ui.theme.NexrifyAppTheme
 import id.nexrify.music.ui.theme.Typography
 import id.nexrify.music.viewmodel.MusicViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun FullPlayerSheet(
@@ -87,6 +73,8 @@ fun FullPlayerSheet(
     val currentLyrics by viewModel.currentLyrics.collectAsState()
     val isLoadingLyrics by viewModel.isLoadingLyrics.collectAsState()
     val audioDeviceState by viewModel.audioDeviceState.collectAsState()
+    val playbackPositionMs by viewModel.playbackPosition.collectAsState()
+    val durationMs by viewModel.duration.collectAsState()
 
     var showAddToPlaylist by remember { mutableStateOf(false) }
     var showSettingsDialog by remember { mutableStateOf(false) }
@@ -95,8 +83,47 @@ fun FullPlayerSheet(
     var isLyricsExpanded by remember { mutableStateOf(false) }
     var showSongComments by remember { mutableStateOf(false) }
 
+    // Mode Pemutar: NORMAL (seperti foto ke-2) vs POSTER_LIVE (TikTok/Auralys Live Poster)
+    var visualMode by remember { mutableStateOf(PlayerVisualMode.NORMAL) }
+    var livePosterState by remember { mutableStateOf(PosterState(layout = PosterLayout.ORBIT)) }
+    var customPhoto by remember { mutableStateOf<Bitmap?>(null) }
+    var customCutout by remember { mutableStateOf<Bitmap?>(null) }
+    var isCuttingBg by remember { mutableStateOf(false) }
+
     val colors = NexrifyAppTheme.colors
     val isV2 = NexrifyAppTheme.isV2
+    val isEn = S.english
+
+    // Load cover bitmap untuk poster live
+    val coverBitmap by produceState<Bitmap?>(null, track.id, track.highResThumbnailUrl) {
+        value = runCatching {
+            val req = ImageRequest.Builder(context)
+                .data(track.highResThumbnailUrl)
+                .size(512)
+                .allowHardware(false)
+                .build()
+            (context.imageLoader.execute(req) as? SuccessResult)?.drawable?.toBitmap()
+        }.getOrNull()
+    }
+
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val bmp = runCatching {
+                    val req = ImageRequest.Builder(context).data(uri).size(1280).allowHardware(false).build()
+                    (context.imageLoader.execute(req) as? SuccessResult)?.drawable?.toBitmap()
+                }.getOrNull() ?: return@launch
+                customPhoto = bmp
+                customCutout = null
+                isCuttingBg = true
+                try {
+                    customCutout = BackgroundRemover.cut(bmp)
+                } finally {
+                    isCuttingBg = false
+                }
+            }
+        }
+    }
 
     Column(
         modifier = modifier
@@ -105,44 +132,183 @@ fun FullPlayerSheet(
             .verticalScroll(scrollState)
     ) {
         // -------------------------------------------------------------
-        // TOP SECTION: Full-Bleed Edge-to-Edge Artwork Header (Design #2)
+        // TOP BAR + MODE SWITCHER (NORMAL vs POSTER)
         // -------------------------------------------------------------
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .then(if (isV2) Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp) else Modifier)
-                .height(if (isV2) 360.dp else 350.dp)
-                .then(if (isV2) Modifier.clip(RoundedCornerShape(36.dp)) else Modifier)
+                .then(if (isV2 && visualMode == PlayerVisualMode.NORMAL) Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp) else Modifier)
+                .height(if (visualMode == PlayerVisualMode.POSTER_LIVE) 470.dp else if (isV2) 360.dp else 350.dp)
+                .then(if (isV2 && visualMode == PlayerVisualMode.NORMAL) Modifier.clip(RoundedCornerShape(36.dp)) else Modifier)
         ) {
-            // Ultra-HD Master Artwork
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(track.highResThumbnailUrl)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = track.title,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
+            if (visualMode == PlayerVisualMode.NORMAL) {
+                // GAYA NORMAL (FOTO KE-2)
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(track.highResThumbnailUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = track.title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
 
-            // Scrim Gradient Overlay: seamlessly blends into background at bottom
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Black.copy(alpha = 0.5f),
-                                Color.Transparent,
-                                colors.background.copy(alpha = 0.35f),
-                                colors.background.copy(alpha = 0.85f),
-                                colors.background
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Black.copy(alpha = 0.5f),
+                                    Color.Transparent,
+                                    colors.background.copy(alpha = 0.35f),
+                                    colors.background.copy(alpha = 0.85f),
+                                    colors.background
+                                )
                             )
                         )
-                    )
-            )
+                )
+            } else {
+                // GAYA POSTER LIVE (TIKTOK / AURALYS STYLE)
+                val effectiveDur = if (durationMs > 0) durationMs else (track.durationSeconds * 1000L).coerceAtLeast(1L)
+                val progress = (playbackPositionMs.toFloat() / effectiveDur.toFloat()).coerceIn(0f, 1f)
+                val activeIdx = currentLyrics?.getCurrentLineIndex(playbackPositionMs) ?: -1
+                val activeLine = if (activeIdx >= 0) currentLyrics?.lines?.getOrNull(activeIdx) else null
 
-            // Overlaid Top Bar (Collapse Chevron, Context Title, More Options)
+                val dynamicState = remember(
+                    livePosterState, track.id, track.isFavorite, progress,
+                    playbackPositionMs, activeLine
+                ) {
+                    livePosterState.copy(
+                        likedIds = if (track.isFavorite) setOf(track.id) else emptySet(),
+                        progressMap = mapOf(track.id to progress),
+                        elapsedTextMap = mapOf(track.id to formatMs(playbackPositionMs)),
+                        activeLyricLine = activeLine?.text ?: track.title,
+                        activeLyricTranslation = activeLine?.translation
+                    )
+                }
+
+                // Render poster real-time (dengan kuantisasi ringan 120ms agar mulus 60fps tanpa lag)
+                val quantizedTick = playbackPositionMs / 120L
+                val posterBitmap by produceState<Bitmap?>(
+                    null, dynamicState, quantizedTick, coverBitmap, customPhoto, customCutout, isPlaying
+                ) {
+                    value = withContext(Dispatchers.Default) {
+                        PosterRenderer.render(
+                            st = dynamicState,
+                            tracks = listOf(track),
+                            covers = listOf(coverBitmap),
+                            photo = customPhoto,
+                            cutout = customCutout,
+                            outW = 540,
+                            showBrandFooter = false,
+                            isPlaying = isPlaying
+                        )
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(colors.background),
+                    contentAlignment = Alignment.Center
+                ) {
+                    posterBitmap?.let { bmp ->
+                        Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = "Live Song Poster",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .pointerInput(track.id) {
+                                    // Tarik/seret beneran mengikuti jari
+                                    detectDragGestures { change, dragAmount ->
+                                        change.consume()
+                                        val k = PosterRenderer.BW / size.width.coerceAtLeast(1)
+                                        val cur = livePosterState.offsets[track.id] ?: (0f to 0f)
+                                        livePosterState = livePosterState.copy(
+                                            offsets = livePosterState.offsets + (track.id to (cur.first + dragAmount.x * k to cur.second + dragAmount.y * k))
+                                        )
+                                    }
+                                }
+                                .pointerInput(track.id) {
+                                    // Cubit untuk memperbesar/memperkecil dan memutar kartu poster
+                                    detectTransformGestures { _, pan, zoom, rotation ->
+                                        val k = PosterRenderer.BW / size.width.coerceAtLeast(1)
+                                        val curOffset = livePosterState.offsets[track.id] ?: (0f to 0f)
+                                        val curAdj = livePosterState.adj[track.id] ?: CardAdj()
+                                        val nextSize = (curAdj.size * zoom).toInt().coerceIn(55, 165)
+                                        val nextRot = (curAdj.rot + rotation).toInt().coerceIn(-45, 45)
+                                        livePosterState = livePosterState.copy(
+                                            offsets = livePosterState.offsets + (track.id to (curOffset.first + pan.x * k to curOffset.second + pan.y * k)),
+                                            adj = livePosterState.adj + (track.id to curAdj.copy(size = nextSize, rot = nextRot))
+                                        )
+                                    }
+                                }
+                        )
+                    }
+
+                    // Gradient bawah agar menyatu dengan panel kontrol pemutar
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(54.dp)
+                            .align(Alignment.BottomCenter)
+                            .background(
+                                Brush.verticalGradient(
+                                    listOf(Color.Transparent, colors.background)
+                                )
+                            )
+                    )
+
+                    // Toolbar mini khusus Gaya Poster (Foto, Kaca, Lirik, Rapikan)
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                            .clip(RoundedCornerShape(50))
+                            .background(Color.Black.copy(alpha = 0.58f))
+                            .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(50))
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        PosterMiniPill(
+                            label = if (isCuttingBg) "..." else if (customPhoto == null) (if (isEn) "Photo" else "Foto") else (if (isEn) "Change" else "Ganti Foto"),
+                            active = customPhoto != null
+                        ) { photoPicker.launch("image/*") }
+
+                        PosterMiniPill(
+                            label = when (livePosterState.glass) {
+                                GlassType.SMOKE -> if (isEn) "Smoke" else "Kaca"
+                                GlassType.CLEAR -> if (isEn) "Clear" else "Bening"
+                                GlassType.MILK -> if (isEn) "Milk" else "Susu"
+                                GlassType.DARK -> if (isEn) "Dark" else "Gelap"
+                            },
+                            active = false
+                        ) {
+                            val next = GlassType.entries[(livePosterState.glass.ordinal + 1) % GlassType.entries.size]
+                            livePosterState = livePosterState.copy(glass = next)
+                        }
+
+                        PosterMiniPill(
+                            label = if (isEn) "Lyrics" else "Lirik",
+                            active = livePosterState.showLyricsOnPoster
+                        ) {
+                            livePosterState = livePosterState.copy(showLyricsOnPoster = !livePosterState.showLyricsOnPoster)
+                        }
+
+                        PosterMiniPill(
+                            label = if (isEn) "Center" else "Rapikan",
+                            active = false
+                        ) {
+                            livePosterState = livePosterState.tidy()
+                        }
+                    }
+                }
+            }
+
+            // Overlaid Top Bar (Collapse Chevron, Mode Switcher Normal/Poster, More Options)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -156,7 +322,7 @@ fun FullPlayerSheet(
                     modifier = Modifier
                         .size(38.dp)
                         .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.4f))
+                        .background(Color.Black.copy(alpha = 0.45f))
                 ) {
                     Icon(
                         imageVector = NexIcons.KeyboardArrowDown,
@@ -166,15 +332,24 @@ fun FullPlayerSheet(
                     )
                 }
 
-                Text(
-                    text = S.nowPlaying,
-                    style = Typography.labelSmall.copy(
-                        fontSize = 11.sp,
-                        letterSpacing = 1.4.sp,
-                        fontWeight = FontWeight.Bold
-                    ),
-                    color = Color.White.copy(alpha = 0.9f)
-                )
+                // Switcher Gaya Pemutar: Normal vs Poster
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(Color.Black.copy(alpha = 0.52f))
+                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(50))
+                        .padding(3.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ModeTabPill(
+                        text = if (isEn) "Normal" else "Normal",
+                        selected = visualMode == PlayerVisualMode.NORMAL
+                    ) { visualMode = PlayerVisualMode.NORMAL }
+                    ModeTabPill(
+                        text = if (isEn) "Poster" else "Poster",
+                        selected = visualMode == PlayerVisualMode.POSTER_LIVE
+                    ) { visualMode = PlayerVisualMode.POSTER_LIVE }
+                }
 
                 Box {
                     IconButton(
@@ -182,7 +357,7 @@ fun FullPlayerSheet(
                         modifier = Modifier
                             .size(38.dp)
                             .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.4f))
+                            .background(Color.Black.copy(alpha = 0.45f))
                     ) {
                         Icon(
                             imageVector = NexIcons.MoreVert,
@@ -246,7 +421,6 @@ fun FullPlayerSheet(
                 .fillMaxWidth()
                 .padding(horizontal = 24.dp)
         ) {
-            // Track Title, Artist, and Vibrant Red Favorite Heart (Design #2)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -276,7 +450,6 @@ fun FullPlayerSheet(
                     )
                 }
 
-                // Favorite Heart: Vibrant Red (#FF3B30) when liked as in Design #2
                 IconButton(
                     onClick = onFavoriteClick,
                     modifier = Modifier.size(48.dp)
@@ -293,207 +466,196 @@ fun FullPlayerSheet(
             Spacer(modifier = Modifier.height(18.dp))
 
             val scrubberBlock: @Composable () -> Unit = {
-            // Scrubber Bar
-            PlayerScrubber(
-                viewModel = viewModel,
-                track = track
-            )
-
+                PlayerScrubber(
+                    viewModel = viewModel,
+                    track = track
+                )
             }
             val transportBlock: @Composable () -> Unit = {
-            // Primary Playback Controls: Shuffle, Rewind, Play/Pause, Fast-Forward, Repeat
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(
-                    onClick = onShuffleClick,
-                    modifier = Modifier.size(44.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = NexIcons.Shuffle,
-                        contentDescription = S.cd("Shuffle"),
-                        tint = if (isShuffle) colors.textPrimary else colors.textSecondary.copy(alpha = 0.4f),
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
+                    IconButton(
+                        onClick = onShuffleClick,
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Icon(
+                            imageVector = NexIcons.Shuffle,
+                            contentDescription = S.cd("Shuffle"),
+                            tint = if (isShuffle) colors.textPrimary else colors.textSecondary.copy(alpha = 0.4f),
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
 
-                IconButton(
-                    onClick = onSkipPreviousClick,
-                    modifier = Modifier.size(52.dp)
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_nexrify_rewind),
-                        contentDescription = S.cd("Previous Track"),
-                        tint = colors.textPrimary,
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
-
-                // Big Solid Center Play/Pause Circle (72dp)
-                Box(
-                    modifier = Modifier
-                        .size(72.dp)
-                        .clip(CircleShape)
-                        .then(
-                            if (isV2) Modifier.background(Brush.linearGradient(listOf(colors.accent, colors.accentAlt)))
-                            else Modifier.background(colors.textPrimary)
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (isLoading) {
-                        CircularProgressIndicator(
-                            color = colors.background,
-                            strokeWidth = 3.dp,
+                    IconButton(
+                        onClick = onSkipPreviousClick,
+                        modifier = Modifier.size(52.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_nexrify_rewind),
+                            contentDescription = S.cd("Previous Track"),
+                            tint = colors.textPrimary,
                             modifier = Modifier.size(32.dp)
                         )
-                    } else {
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(CircleShape)
+                            .then(
+                                if (isV2) Modifier.background(Brush.linearGradient(listOf(colors.accent, colors.accentAlt)))
+                                else Modifier.background(colors.textPrimary)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                color = colors.background,
+                                strokeWidth = 3.dp,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        } else {
+                            IconButton(
+                                onClick = onPlayPauseClick,
+                                modifier = Modifier.size(72.dp)
+                            ) {
+                                Icon(
+                                    painter = if (isPlaying) painterResource(R.drawable.ic_nexrify_pause) else painterResource(R.drawable.ic_nexrify_play),
+                                    contentDescription = if (isPlaying) S.cd("Pause") else S.cd("Play"),
+                                    tint = colors.background,
+                                    modifier = Modifier.size(34.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    IconButton(
+                        onClick = onSkipNextClick,
+                        modifier = Modifier.size(52.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_nexrify_fast_forward),
+                            contentDescription = S.cd("Next Track"),
+                            tint = colors.textPrimary,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onRepeatClick,
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        val icon = if (repeatMode == Player.REPEAT_MODE_ONE) NexIcons.RepeatOne else NexIcons.Repeat
+                        val tint = if (repeatMode != Player.REPEAT_MODE_OFF) colors.textPrimary else colors.textSecondary.copy(alpha = 0.4f)
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = S.cd("Repeat"),
+                            tint = tint,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                }
+            }
+            val utilitiesBlock: @Composable () -> Unit = {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(colors.card)
+                            .border(1.dp, colors.border, RoundedCornerShape(20.dp))
+                            .clickable { viewModel.openAudioOutputSettings() }
+                            .padding(horizontal = 12.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val icon = when (audioDeviceState.iconType) {
+                            id.nexrify.music.data.audio.OutputType.WIRED -> NexIcons.Headphones
+                            id.nexrify.music.data.audio.OutputType.BLUETOOTH -> NexIcons.BluetoothAudio
+                            id.nexrify.music.data.audio.OutputType.SPEAKER -> NexIcons.VolumeUp
+                        }
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = S.cd("Audio Output"),
+                            tint = colors.textPrimary,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = S.deviceLabel(audioDeviceState.title),
+                            style = Typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+                            color = colors.textPrimary,
+                            maxLines = 1
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         IconButton(
-                            onClick = onPlayPauseClick,
-                            modifier = Modifier.size(72.dp)
+                            onClick = {
+                                isLyricsExpanded = !isLyricsExpanded
+                                if (isLyricsExpanded) {
+                                    scope.launch {
+                                        scrollState.animateScrollTo(scrollState.maxValue)
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(if (isLyricsExpanded) colors.accent else colors.card)
+                                .border(1.dp, colors.border, CircleShape)
                         ) {
                             Icon(
-                                painter = if (isPlaying) painterResource(R.drawable.ic_nexrify_pause) else painterResource(R.drawable.ic_nexrify_play),
-                                contentDescription = if (isPlaying) S.cd("Pause") else S.cd("Play"),
-                                tint = colors.background,
-                                modifier = Modifier.size(34.dp)
+                                imageVector = NexIcons.ChatBubbleOutline,
+                                contentDescription = S.cd("Lyrics"),
+                                tint = if (isLyricsExpanded) colors.background else colors.textPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { showQueue = true },
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(colors.card)
+                                .border(1.dp, colors.border, CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = NexIcons.QueueMusic,
+                                contentDescription = S.cd("Queue"),
+                                tint = colors.textPrimary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { showSettingsDialog = true },
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(colors.card)
+                                .border(1.dp, colors.border, CircleShape)
+                        ) {
+                            Icon(
+                                imageVector = NexIcons.Tune,
+                                contentDescription = S.cd("Settings & Equalizer"),
+                                tint = colors.textPrimary,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
                 }
-
-                IconButton(
-                    onClick = onSkipNextClick,
-                    modifier = Modifier.size(52.dp)
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_nexrify_fast_forward),
-                        contentDescription = S.cd("Next Track"),
-                        tint = colors.textPrimary,
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
-
-                IconButton(
-                    onClick = onRepeatClick,
-                    modifier = Modifier.size(44.dp)
-                ) {
-                    val icon = if (repeatMode == Player.REPEAT_MODE_ONE) NexIcons.RepeatOne else NexIcons.Repeat
-                    val tint = if (repeatMode != Player.REPEAT_MODE_OFF) colors.textPrimary else colors.textSecondary.copy(alpha = 0.4f)
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = S.cd("Repeat"),
-                        tint = tint,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-            }
-
-            }
-            val utilitiesBlock: @Composable () -> Unit = {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Audio Device Output Switcher
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(colors.card)
-                        .border(1.dp, colors.border, RoundedCornerShape(20.dp))
-                        .clickable { viewModel.openAudioOutputSettings() }
-                        .padding(horizontal = 12.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val icon = when (audioDeviceState.iconType) {
-                        id.nexrify.music.data.audio.OutputType.WIRED -> NexIcons.Headphones
-                        id.nexrify.music.data.audio.OutputType.BLUETOOTH -> NexIcons.BluetoothAudio
-                        id.nexrify.music.data.audio.OutputType.SPEAKER -> NexIcons.VolumeUp
-                    }
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = S.cd("Audio Output"),
-                        tint = colors.textPrimary,
-                        modifier = Modifier.size(15.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = S.deviceLabel(audioDeviceState.title),
-                        style = Typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
-                        color = colors.textPrimary,
-                        maxLines = 1
-                    )
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Quick Lyrics Toggle / Scroll
-                    IconButton(
-                        onClick = {
-                            isLyricsExpanded = !isLyricsExpanded
-                            if (isLyricsExpanded) {
-                                scope.launch {
-                                    scrollState.animateScrollTo(scrollState.maxValue)
-                                }
-                            }
-                        },
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(if (isLyricsExpanded) colors.accent else colors.card)
-                            .border(1.dp, colors.border, CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = NexIcons.ChatBubbleOutline,
-                            contentDescription = S.cd("Lyrics"),
-                            tint = if (isLyricsExpanded) colors.background else colors.textPrimary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-
-                    // Antrian lagu
-                    IconButton(
-                        onClick = { showQueue = true },
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(colors.card)
-                            .border(1.dp, colors.border, CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = NexIcons.QueueMusic,
-                            contentDescription = S.cd("Queue"),
-                            tint = colors.textPrimary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-
-                    // Settings & Equalizer
-                    IconButton(
-                        onClick = { showSettingsDialog = true },
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(colors.card)
-                            .border(1.dp, colors.border, CircleShape)
-                    ) {
-                        Icon(
-                            imageVector = NexIcons.Tune,
-                            contentDescription = S.cd("Settings & Equalizer"),
-                            tint = colors.textPrimary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-            }
-
             }
 
             if (isV2) {
-                // V2: urutan dibalik. Pintasan di atas, tombol putar di tengah, bilah waktu paling bawah.
                 Spacer(modifier = Modifier.height(14.dp))
                 utilitiesBlock()
                 Spacer(modifier = Modifier.height(20.dp))
@@ -510,7 +672,6 @@ fun FullPlayerSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Aksi cepat: playlist, unduh, timer tidur, kecepatan, bagikan
             PlayerQuickActions(
                 track = track,
                 viewModel = viewModel,
@@ -520,14 +681,13 @@ fun FullPlayerSheet(
             Spacer(modifier = Modifier.height(24.dp))
 
             // -------------------------------------------------------------
-            // DESIGN #2 LYRICS CARD / DRAWER (Bottom)
+            // DESIGN #2 LYRICS CARD / DRAWER (Bottom) - Selalu terlihat jelas di V1 & V2
             // -------------------------------------------------------------
             val hasLyrics = currentLyrics != null && currentLyrics!!.lines.isNotEmpty() &&
                     currentLyrics!!.lines.none { it.text.trim().equals("null", ignoreCase = true) }
 
-            // Kartu lirik selalu tampil: ada indikator saat memuat dan tombol "Cari lirik lagi" saat tidak ditemukan.
             run {
-                val lyricsHeight = if (!hasLyrics && !isLoadingLyrics) 140.dp else if (isLyricsExpanded) 380.dp else 160.dp
+                val lyricsHeight = if (!hasLyrics && !isLoadingLyrics) 150.dp else if (isLyricsExpanded) 380.dp else 185.dp
                 SyncedLyricsView(
                     lyricsData = currentLyrics,
                     isLoading = isLoadingLyrics,
@@ -580,6 +740,42 @@ fun FullPlayerSheet(
     if (showSettingsDialog) {
         SettingsDialog(
             onDismiss = { showSettingsDialog = false }
+        )
+    }
+}
+
+@Composable
+private fun ModeTabPill(text: String, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(if (selected) Color.White else Color.Transparent)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 5.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            style = Typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+            color = if (selected) Color.Black else Color.White.copy(alpha = 0.85f)
+        )
+    }
+}
+
+@Composable
+private fun PosterMiniPill(label: String, active: Boolean, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(if (active) Color.White else Color.White.copy(alpha = 0.14f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            style = Typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+            color = if (active) Color.Black else Color.White
         )
     }
 }
