@@ -26,6 +26,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.border
 import androidx.compose.ui.draw.blur
@@ -145,15 +146,25 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** Tautan playlist (https://nexrify.biz.id/playlist/usr/<id>) yang dibuka dari browser, chat, dll. */
+    private fun handleLinkIntent(intent: android.content.Intent?) {
+        if (intent?.action != android.content.Intent.ACTION_VIEW) return
+        val playlistId = id.nexrify.music.data.playlist.PlaylistShareNav.parseId(intent.data) ?: return
+        id.nexrify.music.data.playlist.PlaylistShareNav.request.value = playlistId
+        intent.data = null // jangan diproses ulang saat Activity dibuat ulang
+    }
+
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         handleChatIntent(intent)
+        handleLinkIntent(intent)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         handleChatIntent(intent)
+        if (savedInstanceState == null) handleLinkIntent(intent)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -540,7 +551,12 @@ fun MainAppScreen(viewModel: MusicViewModel) {
                         FeedbackScreen(onBack = { navController.popBackStack() })
                     }
                     composable(Screen.Search.route) {
-                        SearchScreen(onOpenSearchPage = { q -> navController.navigate(Screen.SearchPage.route(q)) })
+                        SearchScreen(onOpenSearchPage = { q ->
+                            // Tautan playlist yang ditempel di kolom cari langsung dibuka sebagai playlist.
+                            val shared = id.nexrify.music.data.playlist.PlaylistShareNav.parseText(q)
+                            if (shared != null) id.nexrify.music.data.playlist.PlaylistShareNav.request.value = shared
+                            else navController.navigate(Screen.SearchPage.route(q))
+                        })
                     }
                     composable(
                         route = Screen.SearchPage.ROUTE,
@@ -606,6 +622,18 @@ fun MainAppScreen(viewModel: MusicViewModel) {
             }
         }
 
+        // Tautan playlist yang dibagikan orang lain: tampil sebagai dialog di atas layar mana pun, tanpa berpindah halaman.
+        id.nexrify.music.ui.components.SharedPlaylistHost(
+            viewModel = viewModel,
+            onOpenLibrary = {
+                navController.navigate(Screen.Library.route) {
+                    popUpTo(navController.graph.startDestinationId) { saveState = true }
+                    launchSingleTop = true
+                    restoreState = true
+                }
+            }
+        )
+
         // Full-Screen Player overlay
         AnimatedVisibility(
             visible = isExpanded && currentTrack != null,
@@ -614,6 +642,9 @@ fun MainAppScreen(viewModel: MusicViewModel) {
         ) {
             currentTrack?.let { track ->
                 FullPlayerSheet(
+                    // Serap semua sentuhan supaya ketukan di area kosong player tidak tembus ke layar di bawahnya
+                    // (misalnya tombol Home / tombol kembali di belakang player).
+                    modifier = Modifier.pointerInput(Unit) { detectTapGestures { } },
                     track = track,
                     viewModel = viewModel,
                     isPlaying = isPlaying,
