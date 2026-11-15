@@ -1,6 +1,7 @@
 package id.nexrify.music.ui.components
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import id.nexrify.music.i18n.S
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
@@ -36,6 +37,7 @@ import java.util.Locale
 fun SongCommentsSheet(track: Track, onDismiss: () -> Unit) {
     val colors = NexrifyAppTheme.colors
     val scope = rememberCoroutineScope()
+    val str = S // S adalah getter @Composable: dipegang sekali supaya aman dipakai di dalam lambda
     var comments by remember(track.id) { mutableStateOf<List<SongComment>>(emptyList()) }
     var text by remember { mutableStateOf("") }
     var reply by remember { mutableStateOf<SongComment?>(null) }
@@ -45,7 +47,7 @@ fun SongCommentsSheet(track: Track, onDismiss: () -> Unit) {
     var showActivity by remember { mutableStateOf(false) }
     var sending by remember { mutableStateOf(false) }
     var menuFor by remember { mutableStateOf<SongComment?>(null) }
-    suspend fun refresh() { loading = true; try { comments = SongCommentsApi.list(track.id); error = "" } catch (e: Exception) { error = e.message ?: "Gagal memuat komentar" }; loading = false }
+    suspend fun refresh() { loading = true; try { comments = SongCommentsApi.list(track.id); error = "" } catch (e: Exception) { error = e.message ?: str.commentLoadFail }; loading = false }
     LaunchedEffect(track.id) { refresh(); runCatching { activity = SongCommentsApi.notifications().second } }
     Dialog(
         onDismissRequest = onDismiss,
@@ -58,26 +60,26 @@ fun SongCommentsSheet(track: Track, onDismiss: () -> Unit) {
             shape = RoundedCornerShape(0.dp)
         ) {
         Column(Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 18.dp)) {
-            Text("Komentar lagu", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
+            Text(str.songComments, fontSize = 21.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
             Text("${track.title} · ${track.artist}", fontSize = 12.sp, color = colors.textSecondary, maxLines = 1)
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = !showActivity, onClick = { showActivity = false }, label = { Text("Komentar") })
-                FilterChip(selected = showActivity, onClick = { showActivity = true }, label = { Text("Aktivitas") })
+                FilterChip(selected = !showActivity, onClick = { showActivity = false }, label = { Text(str.commentsTab) })
+                FilterChip(selected = showActivity, onClick = { showActivity = true }, label = { Text(str.activityTab) })
             }
             when {
-                showActivity && activity.isEmpty() -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("Belum ada aktivitas komentar.", color = colors.textSecondary) }
+                showActivity && activity.isEmpty() -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text(str.noCommentActivity, color = colors.textSecondary) }
                 showActivity -> LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(activity, key = { "${it.ts}-${it.commentId}-${it.type}" }) { n ->
                         Column(Modifier.fillMaxWidth().background(colors.card, RoundedCornerShape(12.dp)).padding(12.dp)) {
-                            Text(when (n.type) { "like" -> "@${n.from} menyukai komentar kamu"; "reply" -> "@${n.from} membalas komentar kamu"; "mention" -> "@${n.from} menyebut kamu"; else -> "Aktivitas komentar dari @${n.from}" }, color = colors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            Text(str.commentActivity(n.type, n.from), color = colors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                             Text(n.text, color = colors.textSecondary, fontSize = 12.sp)
                             Text(SimpleDateFormat("dd MMM · HH:mm", Locale("id", "ID")).format(Date(n.ts)), color = colors.textMuted, fontSize = 10.sp)
                         }
                     }
                 }
                 loading -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = colors.textPrimary) }
-                comments.isEmpty() -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text(error.ifBlank { "Belum ada komentar. Mulai obrolannya!" }, color = colors.textSecondary) }
+                comments.isEmpty() -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text(error.ifBlank { str.noComments }, color = colors.textSecondary) }
                 else -> LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(comments, key = { it.id }) { c ->
                         val isReply = c.parentId.isNotBlank()
@@ -92,7 +94,7 @@ fun SongCommentsSheet(track: Track, onDismiss: () -> Unit) {
                                 Text(c.text, fontSize = 14.sp, color = colors.textPrimary)
                                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text(SimpleDateFormat("dd MMM · HH:mm", Locale("id", "ID")).format(Date(c.ts)), fontSize = 10.sp, color = colors.textMuted)
-                                    Text("Balas", Modifier.clickable { reply = c }, fontSize = 11.sp, color = colors.textSecondary)
+                                    Text(str.replyAction, Modifier.clickable { reply = c }, fontSize = 11.sp, color = colors.textSecondary)
                                 }
                             }
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -100,13 +102,13 @@ fun SongCommentsSheet(track: Track, onDismiss: () -> Unit) {
                                 Text(c.likes.toString(), fontSize = 10.sp, color = colors.textMuted)
                             }
                             DropdownMenu(expanded = menuFor?.id == c.id, onDismissRequest = { menuFor = null }) {
-                                DropdownMenuItem(text = { Text("Balas") }, onClick = { reply = c; showActivity = false; menuFor = null })
+                                DropdownMenuItem(text = { Text(str.replyAction) }, onClick = { reply = c; showActivity = false; menuFor = null })
                                 if (c.uid == id.nexrify.music.data.account.AccountManager.getInstance().userId()) {
-                                    DropdownMenuItem(text = { Text("Hapus komentar") }, onClick = {
+                                    DropdownMenuItem(text = { Text(str.deleteComment) }, onClick = {
                                         menuFor = null
                                         scope.launch {
                                             runCatching { SongCommentsApi.delete(track.id, c.id); refresh() }
-                                                .onFailure { error = it.message ?: "Gagal menghapus komentar" }
+                                                .onFailure { error = it.message ?: str.commentDeleteFail }
                                         }
                                     })
                                 }
@@ -116,11 +118,11 @@ fun SongCommentsSheet(track: Track, onDismiss: () -> Unit) {
                 }
             }
             if (!showActivity && reply != null) Row(Modifier.fillMaxWidth().background(colors.card, RoundedCornerShape(10.dp)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Membalas @${reply!!.username}", Modifier.weight(1f), fontSize = 12.sp, color = colors.textSecondary)
-                Text("Batal", Modifier.clickable { reply = null }, fontSize = 12.sp, color = colors.textPrimary)
+                Text(str.replyingTo(reply?.username.orEmpty()), Modifier.weight(1f), fontSize = 12.sp, color = colors.textSecondary)
+                Text(str.cancel, Modifier.clickable { reply = null }, fontSize = 12.sp, color = colors.textPrimary)
             }
             if (!showActivity) Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(value = text, onValueChange = { text = it.take(500) }, modifier = Modifier.weight(1f), placeholder = { Text("Tulis komentar...") }, shape = RoundedCornerShape(18.dp), maxLines = 4)
+                OutlinedTextField(value = text, onValueChange = { text = it.take(500) }, modifier = Modifier.weight(1f), placeholder = { Text(str.writeComment) }, shape = RoundedCornerShape(18.dp), maxLines = 4)
                 Spacer(Modifier.width(8.dp))
                 Button(
                     onClick = {
@@ -135,7 +137,7 @@ fun SongCommentsSheet(track: Track, onDismiss: () -> Unit) {
                                     reply = null
                                     refresh()
                                 } catch (e: Exception) {
-                                    error = e.message ?: "Komentar gagal dikirim"
+                                    error = e.message ?: str.commentSendFail
                                 } finally {
                                     sending = false
                                 }
@@ -143,7 +145,7 @@ fun SongCommentsSheet(track: Track, onDismiss: () -> Unit) {
                         }
                     },
                     enabled = text.isNotBlank() && !sending
-                ) { Text(if (sending) "Mengirim..." else "Kirim") }
+                ) { Text(if (sending) str.sendingLabel else str.sendLabel) }
             }
             if (error.isNotBlank() && !loading) Text(error, color = MaterialTheme.colorScheme.error, fontSize = 11.sp)
         }
