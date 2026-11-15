@@ -368,3 +368,55 @@ private fun PSlider(label: String, v: Int, range: IntRange = 0..100, unit: Strin
         )
     }
 }
+
+@Composable
+fun PosterSongPicker(playlist: Playlist, onBack: () -> Unit, onNext: (List<Track>) -> Unit) {
+    val colors = NexrifyAppTheme.colors
+    val isEn = S.english
+    fun tx(id: String, en: String) = if (isEn) en else id
+    BackHandler(onBack = onBack)
+    var chosen by remember { mutableStateOf(playlist.tracks.take(MAX_SONGS).map { it.id }) }
+    Column(Modifier.fillMaxSize().background(colors.background)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(NexIcons.ArrowBack, null, tint = colors.textPrimary) }
+            Text(tx("Pilih lagu untuk poster", "Choose songs for the poster"), style = Typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary)
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(tx("${chosen.size} dari $MAX_SONGS", "${chosen.size} of $MAX_SONGS"), color = colors.textPrimary, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+            PChip(tx("Pilih $MAX_SONGS pertama", "Pick first $MAX_SONGS"), false) { chosen = playlist.tracks.take(MAX_SONGS).map { it.id } }
+        }
+        androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+            items(playlist.tracks, key = { it.id }) { t ->
+                val on = t.id in chosen
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clickable { chosen = if (on) chosen - t.id else if (chosen.size < MAX_SONGS) chosen + t.id else chosen }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    coil.compose.AsyncImage(
+                        model = t.thumbnailUrl, contentDescription = null,
+                        modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)).background(colors.card)
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(t.title, color = colors.textPrimary, maxLines = 1, fontWeight = FontWeight.Medium, style = Typography.bodyMedium)
+                        Text(t.artist, color = colors.textMuted, maxLines = 1, style = Typography.bodySmall)
+                    }
+                    Box(
+                        Modifier.size(26.dp).clip(CircleShape).background(if (on) colors.accent else Color.Transparent)
+                            .then(if (on) Modifier else Modifier.border(1.5.dp, colors.textMuted, CircleShape)),
+                        contentAlignment = Alignment.Center
+                    ) { if (on) Icon(NexIcons.Check, null, tint = colors.background, modifier = Modifier.size(16.dp)) }
+                }
+            }
+        }
+        Button(
+            onClick = { onNext(playlist.tracks.filter { it.id in chosen }.sortedBy { chosen.indexOf(it.id) }) },
+            enabled = chosen.isNotEmpty(),
+            colors = ButtonDefaults.buttonColors(containerColor = colors.accent, contentColor = colors.background),
+            shape = RoundedCornerShape(24.dp),
+            modifier = Modifier.fillMaxWidth().padding(16.dp).height(50.dp)
+        ) { Text(tx("Lanjut", "Next"), fontWeight = FontWeight.Bold) }
+    }
+}
