@@ -84,6 +84,8 @@ fun LibraryScreen(
         }
     }
     var selectedPlaylistId by rememberSaveable { mutableStateOf<String?>(null) }
+    var posterStep by remember { mutableStateOf(0) } // 0 tidak ada, 1 pilih lagu, 2 editor
+    var posterTracks by remember { mutableStateOf<List<Track>>(emptyList()) }
     var query by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(selectedTab) { query = "" }
     var trackForPlaylist by remember { mutableStateOf<Track?>(null) }
@@ -105,13 +107,22 @@ fun LibraryScreen(
     ) {
         if (selectedPlaylist != null) {
             // Playlist Detail View
-            PlaylistDetailView(
+            if (posterStep == 1) {
+                id.nexrify.music.ui.screens.PosterSongPicker(
+                    playlist = selectedPlaylist,
+                    onBack = { posterStep = 0 },
+                    onNext = { posterTracks = it; posterStep = 2 }
+                )
+            } else if (posterStep == 2) {
+                id.nexrify.music.ui.screens.PosterScreen(playlist = selectedPlaylist, initial = posterTracks, onBack = { posterStep = 1 })
+            } else PlaylistDetailView(
                 playlist = selectedPlaylist,
                 viewModel = viewModel,
                 currentTrack = currentTrack,
                 isLoadingTrack = isLoadingTrack,
                 onBack = { selectedPlaylistId = null },
-                onAddTrackClick = { trackForPlaylist = it }
+                onAddTrackClick = { trackForPlaylist = it },
+                onMakePoster = { posterStep = 1 }
             )
         } else {
             val isV2 = NexrifyAppTheme.isV2
@@ -621,7 +632,8 @@ fun PlaylistDetailView(
     currentTrack: Track?,
     isLoadingTrack: Boolean,
     onBack: () -> Unit,
-    onAddTrackClick: (Track) -> Unit
+    onAddTrackClick: (Track) -> Unit,
+    onMakePoster: () -> Unit = {}
 ) {
     val colors = NexrifyAppTheme.colors
     var trackQuery by rememberSaveable { mutableStateOf("") }
@@ -780,6 +792,25 @@ fun PlaylistDetailView(
                                 Icon(NexIcons.Shuffle, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(S.shuffle, fontWeight = FontWeight.SemiBold)
+                            }
+                            Box {
+                                var menuOpen by remember { mutableStateOf(false) }
+                                IconButton(
+                                    onClick = { menuOpen = true },
+                                    modifier = Modifier.size(48.dp).clip(CircleShape).background(colors.card)
+                                ) { Icon(NexIcons.MoreVert, contentDescription = null, tint = colors.textPrimary, modifier = Modifier.size(22.dp)) }
+                                androidx.compose.material3.DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                    androidx.compose.material3.DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text(S.posterMake, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
+                                                Text(S.posterMakeHint, style = Typography.bodySmall, color = colors.textMuted)
+                                            }
+                                        },
+                                        leadingIcon = { Icon(NexIcons.ImagePick, contentDescription = null, tint = colors.textPrimary) },
+                                        onClick = { menuOpen = false; onMakePoster() }
+                                    )
+                                }
                             }
                         }
                     }
