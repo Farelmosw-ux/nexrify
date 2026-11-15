@@ -410,7 +410,7 @@ object PosterRenderer {
         c.restore()
     }
 
-    private fun formatPercentDuration(totalSec: Int, pct: Float): String {
+    private fun formatPercentDuration(totalSec: Long, pct: Float): String {
         val sec = (totalSec * pct).toInt().coerceAtLeast(0)
         return String.format("%d:%02d", sec / 60, sec % 60)
     }
