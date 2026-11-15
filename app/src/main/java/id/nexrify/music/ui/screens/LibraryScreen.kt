@@ -38,6 +38,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -73,7 +75,7 @@ fun LibraryScreen(
     val currentTrack by viewModel.currentTrack.collectAsState()
     val currentAccount by viewModel.authState.collectAsState()
 
-    var selectedTab by remember { mutableStateOf(0) } // 0: Liked Songs, 1: Playlists, 2: Offline
+    var selectedTab by rememberSaveable { mutableStateOf(0) } // 0: Liked Songs, 1: Playlists, 2: Offline
     val openOffline by viewModel.openOfflineTab.collectAsState()
     androidx.compose.runtime.LaunchedEffect(openOffline) {
         if (openOffline) {
@@ -81,8 +83,8 @@ fun LibraryScreen(
             viewModel.consumeOfflineTab()
         }
     }
-    var selectedPlaylistId by remember { mutableStateOf<String?>(null) }
-    var query by remember { mutableStateOf("") }
+    var selectedPlaylistId by rememberSaveable { mutableStateOf<String?>(null) }
+    var query by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(selectedTab) { query = "" }
     var trackForPlaylist by remember { mutableStateOf<Track?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -91,6 +93,9 @@ fun LibraryScreen(
 
     val colors = NexrifyAppTheme.colors
     val selectedPlaylist = playlists.firstOrNull { it.id == selectedPlaylistId }
+
+    // Tombol kembali sistem/gesture saat di dalam playlist: tutup detail playlist saja, tetap di Library (tidak lompat ke Home).
+    BackHandler(enabled = selectedPlaylistId != null) { selectedPlaylistId = null }
 
     Column(
         modifier = modifier
@@ -619,9 +624,10 @@ fun PlaylistDetailView(
     onAddTrackClick: (Track) -> Unit
 ) {
     val colors = NexrifyAppTheme.colors
-    var trackQuery by remember { mutableStateOf("") }
+    var trackQuery by rememberSaveable { mutableStateOf("") }
     val shownTracks = remember(playlist.tracks, trackQuery) { playlist.tracks.filter { it.matchesQuery(trackQuery) } }
     var showCoverMenu by remember { mutableStateOf(false) }
+    var showShare by remember { mutableStateOf(false) }
     val coverScope = androidx.compose.runtime.rememberCoroutineScope()
     val coverPicker = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.GetContent()
@@ -629,6 +635,14 @@ fun PlaylistDetailView(
         if (uri != null) coverScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             viewModel.saveCoverFromUri(playlist.id, uri)?.let { viewModel.setPlaylistCover(playlist.id, it) }
         }
+    }
+
+    if (showShare) {
+        id.nexrify.music.ui.components.SharePlaylistDialog(
+            playlist = playlist,
+            viewModel = viewModel,
+            onDismiss = { showShare = false }
+        )
     }
 
     if (showCoverMenu) {
@@ -682,6 +696,14 @@ fun PlaylistDetailView(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
+            IconButton(onClick = { showShare = true }) {
+                Icon(
+                    imageVector = NexIcons.Share,
+                    contentDescription = S.sharePlaylistAction,
+                    tint = colors.textPrimary,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
         }
 
         LazyColumn(modifier = Modifier.fillMaxSize()) {
