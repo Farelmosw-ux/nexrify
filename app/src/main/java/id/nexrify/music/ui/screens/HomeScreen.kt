@@ -50,6 +50,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -106,7 +107,7 @@ fun HomeScreen(
     var showSettingsDialog by remember { mutableStateOf(false) }
     var trackForPlaylist by remember { mutableStateOf<Track?>(null) }
 
-    var selectedGenre by remember { mutableStateOf("Semua") }
+    var selectedGenre by rememberSaveable { mutableStateOf("Semua") }
     val genres = listOf("Semua", "Pop", "Lo-Fi", "Rock", "Acoustic", "Anime", "Hip-Hop", "R&B", "Top Global")
 
     val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
