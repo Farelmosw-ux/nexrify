@@ -163,6 +163,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun deletePlaylist(id: String) = playlistManager.deletePlaylist(id)
     fun renamePlaylist(id: String, name: String) = playlistManager.renamePlaylist(id, name)
     fun setPlaylistCover(id: String, coverUrl: String) = playlistManager.setCover(id, coverUrl)
+    fun setPlaylistShareId(id: String, shareId: String) = playlistManager.setShareId(id, shareId)
+    fun importSharedPlaylist(p: id.nexrify.music.data.playlist.SharedPlaylist) = playlistManager.importPlaylist(p.name, p.tracks, p.coverUrl)
     fun saveCoverFromUri(id: String, uri: android.net.Uri): String? = playlistManager.saveCoverFromUri(id, uri)
     fun addTrackToPlaylist(id: String, track: Track) = playlistManager.addTrackToPlaylist(id, track)
     fun removeTrackFromPlaylist(id: String, trackId: String) = playlistManager.removeTrackFromPlaylist(id, trackId)
@@ -383,6 +385,52 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private var suggestJob: Job? = null
     private var playJob: Job? = null
     private var lyricsJob: Job? = null
+    private var lyricsRefreshedFor: String? = null
+
+    /** Muat lirik untuk [track]. [forceRefresh] melewati cache (dipakai tombol "Cari lirik lagi"). */
+    private fun loadLyrics(track: Track, forceRefresh: Boolean) {
+        lyricsJob?.cancel()
+        lyricsJob = viewModelScope.launch(Dispatchers.IO) {
+            _isLoadingLyrics.value = true
+            if (!forceRefresh) _currentLyrics.value = null
+            try {
+                val data = lyricsRepository.getLyrics(
+                    trackId = track.id,
+                    title = track.title,
+                    artist = track.artist,
+                    durationSeconds = track.durationSeconds,
+                    autoTranslate = false,
+                    forceRefresh = forceRefresh
+                )
+                // Lagu sudah ganti selagi lirik dimuat: buang hasil lama.
+                if (_currentTrack.value?.id != track.id) return@launch
+                _currentLyrics.value = data
+                _isLoadingLyrics.value = false
+
+                if (data != null && data.lines.isNotEmpty() && settingsManager.autoTranslate.value) {
+                    val translated = lyricsRepository.translateLyrics(data)
+                    if (_currentTrack.value?.id == track.id) _currentLyrics.value = translated
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("NexrifyVM", "Lyrics load error: ${e.message}")
+                if (_currentTrack.value?.id == track.id) {
+                    _currentLyrics.value = null
+                    _isLoadingLyrics.value = false
+                }
+            } finally {
+                // Pekerjaan ini dibatalkan oleh lagu lain? Biarkan pekerjaan baru yang mengatur indikator.
+                if (_currentTrack.value?.id == track.id) _isLoadingLyrics.value = false
+            }
+        }
+    }
+
+    /** Tombol "Cari lirik lagi": abaikan cache dan cari ulang untuk lagu yang sedang diputar. */
+    fun retryLyrics() {
+        val track = _currentTrack.value ?: return
+        loadLyrics(track, forceRefresh = true)
+    }
     private var searchJob: Job? = null
     private var pendingTrackToPlay: Track? = null
     private var hasRetriedFallback = false
@@ -537,20 +585,25 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                                         _duration.value = d
                                         val currentLrc = _currentLyrics.value
                                         val currentTrk = _currentTrack.value
-                                        if (currentTrk != null && (currentLrc == null || !currentLrc.isSynced)) {
+                                        if (currentTrk != null && (currentLrc == null || !currentLrc.isSynced) && lyricsRefreshedFor != currentTrk.id) {
                                             val realDurSec = d / 1000L
-                                            if (realDurSec > 0 && realDurSec != currentTrk.durationSeconds) {
+                                            if (realDurSec > 0 && kotlin.math.abs(realDurSec - currentTrk.durationSeconds) > 1) {
+                                                // Durasi asli lagu berbeda dari data pencarian: cari lirik ber-timestamp sekali lagi dengan durasi yang benar.
+                                                lyricsRefreshedFor = currentTrk.id
                                                 lyricsJob?.cancel()
                                                 lyricsJob = viewModelScope.launch(Dispatchers.IO) {
                                                     val refreshed = lyricsRepository.getLyrics(
                                                         trackId = currentTrk.id,
                                                         title = currentTrk.title,
                                                         artist = currentTrk.artist,
-                                                        durationSeconds = realDurSec
+                                                        durationSeconds = realDurSec,
+                                                        autoTranslate = false,
+                                                        forceRefresh = true
                                                     )
-                                                    if (refreshed != null && refreshed.isSynced && _currentTrack.value?.id == currentTrk.id) {
-                                                        _currentLyrics.value = refreshed
+                                                    if (refreshed != null && _currentTrack.value?.id == currentTrk.id) {
+                                                        _currentLyrics.value = if (settingsManager.autoTranslate.value) lyricsRepository.translateLyrics(refreshed) else refreshed
                                                     }
+                                                    if (_currentTrack.value?.id == currentTrk.id) _isLoadingLyrics.value = false
                                                 }
                                             }
                                         }
@@ -609,9 +662,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                         if (track != null && track.streamUrl != null && !hasRetriedFallback) {
                             hasRetriedFallback = true
                             viewModelScope.launch(Dispatchers.IO) {
-                                val fallbackUrl = repository.getFallbackStreamUrl(track.url)
+                                repository.invalidateStream(track.url)
+                                val fallback = repository.getFallbackStream(track.url, failedUrl = track.streamUrl)
+                                val fallbackUrl = fallback?.url
                                 if (fallbackUrl != null && fallbackUrl != track.streamUrl) {
-                                    val fallbackTrack = track.copy(streamUrl = fallbackUrl, mimeType = "audio/webm")
+                                    val fallbackMime = fallback?.mimeType
+                                    val fallbackTrack = track.copy(streamUrl = fallbackUrl, mimeType = fallbackMime)
                                     withContext(Dispatchers.Main) {
                                         _currentTrack.value = fallbackTrack
                                         mediaController?.let { ctrl ->
@@ -625,7 +681,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                                             val item = MediaItem.Builder()
                                                 .setMediaId(fallbackTrack.id)
                                                 .setUri(fallbackUrl)
-                                                .setMimeType("audio/webm")
+                                                .apply { if (fallbackMime != null) setMimeType(fallbackMime) }
                                                 .setMediaMetadata(meta)
                                                 .build()
 
@@ -908,38 +964,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-                // Fetch Synced Lyrics + Translations in background (Non-blocking Fast Initial Emit!)
-                lyricsJob?.cancel()
-                lyricsJob = viewModelScope.launch(Dispatchers.IO) {
-                    _isLoadingLyrics.value = true
-                    _currentLyrics.value = null
-                    try {
-                        val data = lyricsRepository.getLyrics(
-                            trackId = track.id,
-                            title = track.title,
-                            artist = track.artist,
-                            durationSeconds = track.durationSeconds,
-                            autoTranslate = false
-                        )
-                        // Lagu sudah ganti selagi lirik dimuat: buang hasil lama.
-                        if (_currentTrack.value?.id != track.id) return@launch
-                        _currentLyrics.value = data
-                        _isLoadingLyrics.value = false
-
-                        // If lyrics loaded and autoTranslate enabled, fetch translation asynchronously without blocking UI!
-                        if (data != null && data.lines.isNotEmpty() && settingsManager.autoTranslate.value) {
-                            val translated = lyricsRepository.translateLyrics(data)
-                            if (_currentTrack.value?.id == track.id) {
-                                _currentLyrics.value = translated
-                            }
-                        }
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Log.e("NexrifyVM", "Lyrics load error: ${e.message}")
-                        _isLoadingLyrics.value = false
-                    }
-                }
+                // Lirik + terjemahan dimuat di latar belakang supaya lagu langsung bisa diputar.
+                loadLyrics(track, forceRefresh = false)
 
                 // Resolve direct audio stream URL via NewPipeExtractor with user chosen Audio Quality!
             hasRetriedFallback = false
