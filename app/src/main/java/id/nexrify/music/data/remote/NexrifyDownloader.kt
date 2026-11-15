@@ -75,17 +75,16 @@ class NexrifyDownloader private constructor(context: Context? = null) : Download
 
         reqBuilder.method(httpMethod, requestBody)
 
-        val response = client.newCall(reqBuilder.build()).execute()
-        val responseBody = response.body?.string() ?: ""
-        val responseHeaders = response.headers.toMultimap()
-
-        return Response(
-            response.code,
-            response.message,
-            responseHeaders,
-            responseBody,
-            response.request.url.toString()
-        )
+        // use { } menutup response (dan koneksinya) walaupun membaca body gagal, supaya pool koneksi tidak habis.
+        return client.newCall(reqBuilder.build()).execute().use { response ->
+            Response(
+                response.code,
+                response.message,
+                response.headers.toMultimap(),
+                response.body?.string() ?: "",
+                response.request.url.toString()
+            )
+        }
     }
 
     companion object {
