@@ -17,6 +17,7 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.os.Bundle
 import android.widget.RemoteViews
+import id.nexrify.music.i18n.currentStrings
 import id.nexrify.music.service.PlaybackBridge
 import id.nexrify.music.service.PlaybackService
 
@@ -268,7 +269,7 @@ open class NexrifyWidgetProvider : AppWidgetProvider() {
             views.setTextViewText(R.id.widget_title, if (idle) "Nexrify" else title)
             views.setTextViewText(
                 R.id.widget_artist,
-                if (idle) id.nexrify.music.i18n.currentStrings().noSongPlaying else artist
+                if (idle) currentStrings().noSongPlaying else artist
             )
             views.setImageViewResource(R.id.widget_play, if (playing) R.drawable.ic_widget_pause else R.drawable.ic_widget_play)
 
