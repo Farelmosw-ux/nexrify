@@ -146,9 +146,85 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     val tasteManager = id.nexrify.music.data.recommendation.TasteManager.getInstance(getApplication())
     val recentlyPlayed = tasteManager.recentlyPlayed
     val onRepeatTracks = tasteManager.onRepeatTracks
+    /** id lagu -> 1 suka / -1 tidak suka (tombol jempol di beranda). */
+    val reactions = tasteManager.reactions
+
+    /**
+     * Suka / tidak suka dari beranda. Tidak suka: lagu langsung hilang dari rak dan jarang muncul lagi,
+     * begitu juga lagu lain dari artis itu. Suka: lagu dan artisnya makin sering muncul di rak berikutnya.
+     */
+    fun reactToTrack(track: Track, reaction: Int) {
+        val before = tasteManager.reactionOf(track.id)
+        tasteManager.react(track, reaction)
+        val now = tasteManager.reactionOf(track.id)
+        val st = id.nexrify.music.i18n.currentStrings()
+        if (now == -1) {
+            _homeSections.value = _homeSections.value
+                .map { it.copy(tracks = it.tracks.filter { t -> t.id != track.id }) }
+                .filter { it.tracks.isNotEmpty() }
+            _trendingTracks.value = _trendingTracks.value.filter { it.id != track.id }
+            id.nexrify.music.ui.components.NexNotifier.info(st.reactDislikedMsg, st.reactTitle)
+            if (_currentTrack.value?.id == track.id) skipNext()
+        } else if (now == 1) {
+            id.nexrify.music.ui.components.NexNotifier.success(st.reactLikedMsg, st.reactTitle)
+            // Segarkan rak selera di latar supaya lagu serupa langsung muncul.
+            viewModelScope.launch { refreshTasteShelves() }
+        } else if (before != 0) {
+            id.nexrify.music.ui.components.NexNotifier.info(st.reactClearedMsg, st.reactTitle)
+        }
+    }
+
+    private suspend fun buildTasteShelves(): List<id.nexrify.music.data.model.HomeSection> {
+        val st = id.nexrify.music.i18n.currentStrings()
+        val shelves = mutableListOf<id.nexrify.music.data.model.HomeSection>()
+        val liked = tasteManager.likedTracks()
+        val likedIds = liked.mapTo(HashSet()) { it.id }
+        if (liked.isNotEmpty()) {
+            val seeds = liked.shuffled().take(2)
+            val similar = seeds.flatMap { runCatching { repository.getRadioTracks(it.id) }.getOrDefault(emptyList()) }
+                .filter { it.id !in likedIds }.distinctBy { it.id }
+            val ranked = tasteManager.personalize(similar).take(14)
+            if (ranked.isNotEmpty()) {
+                shelves.add(id.nexrify.music.data.model.HomeSection(st.similarShelfTitle, st.similarShelfSub, ranked))
+            }
+        }
+        val artists = tasteManager.favoriteArtists(4).shuffled().take(2)
+        for (artist in artists) {
+            val shelf = repository.getDiscoverShelf(artist, st.moreFromArtist(artist), st.moreFromArtistSub)
+            if (shelf != null) {
+                val clean = tasteManager.personalize(shelf.tracks).filter { it.id !in likedIds }
+                if (clean.isNotEmpty()) shelves.add(shelf.copy(tracks = clean))
+            }
+        }
+        return shelves
+    }
+
+    private suspend fun refreshTasteShelves() = addExtraShelves(withDiscover = false)
+
+    /** Sisipkan rak selera (dan rak penemuan acak) tepat setelah rak pertama; rak lama jenis yang sama diganti. */
+    private suspend fun addExtraShelves(withDiscover: Boolean) {
+        val st = id.nexrify.music.i18n.currentStrings()
+        val fresh = buildTasteShelves().toMutableList()
+        if (withDiscover) {
+            val q = DISCOVER_QUERIES.shuffled().first()
+            repository.getDiscoverShelf(q.first, q.second, st.discoverSub)?.let { sh ->
+                val ranked = tasteManager.personalize(sh.tracks)
+                if (ranked.isNotEmpty()) fresh.add(sh.copy(tracks = ranked))
+            }
+        }
+        if (fresh.isEmpty()) return
+        val discoverTitles = DISCOVER_QUERIES.mapTo(HashSet()) { it.second }
+        val kept = _homeSections.value.filterNot {
+            it.title == st.similarShelfTitle || it.title.startsWith(st.moreFromArtistPrefix) ||
+                (withDiscover && it.title in discoverTitles)
+        }
+        val insertAt = minOf(kept.size, if (kept.firstOrNull()?.title == "Lagi Sering Kamu Putar") 2 else 1)
+        _homeSections.value = kept.toMutableList().also { it.addAll(insertAt, fresh) }
+    }
 
     val searchHistoryManager = id.nexrify.music.data.search.SearchHistoryManager(application)
     val searchHistory = searchHistoryManager.history
+    val topSearches = searchHistoryManager.topSearches
     fun removeSearchHistory(query: String) = searchHistoryManager.remove(query)
     fun clearSearchHistory() = searchHistoryManager.clear()
 
@@ -806,8 +882,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             _isLoadingTrending.value = true
             try {
             // Lagu yang sering dilewati tidak ikut ditampilkan lagi di beranda.
+            // Lagu/artis yang di-dislike disaring, yang disukai naik, sisanya diacak halus tiap muat.
             val rawShelves = repository.getHomeShelves(forceRefresh)
-                .map { it.copy(tracks = tasteManager.withoutDisliked(it.tracks)) }
+                .map { it.copy(tracks = tasteManager.personalize(it.tracks)) }
                 .filter { it.tracks.isNotEmpty() }
                 .toMutableList()
             val onRepeat = tasteManager.onRepeatTracks.value
@@ -828,6 +905,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             _isLoadingTrending.value = false
             _initialLoadDone.value = true
 
+            // Rak selera + penemuan acak dimuat di belakang layar, supaya beranda utama tidak tertahan.
+            launch { runCatching { addExtraShelves(withDiscover = true) } }
+
             // Pre-warm audio URLs for top 2 tracks in background with chosen quality
             launch(Dispatchers.IO) {
                 delay(2000)
@@ -844,18 +924,46 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Dipanggil tiap huruf diketik: saran muncul cepat, hasil lagunya ikut dicari langsung (tanpa tekan enter),
+     * jadi daftar saran dan hasil tampil bersamaan.
+     */
     fun loadSuggestions(query: String) {
         suggestJob?.cancel()
+        searchJob?.cancel()
         if (query.isBlank()) {
             _suggestions.value = emptyList()
+            _searchResults.value = emptyList()
+            _isSearching.value = false
             return
         }
         suggestJob = viewModelScope.launch {
-            delay(200)
-            val list = repository.getSuggestions(query)
-            _suggestions.value = list
+            delay(150)
+            _suggestions.value = repository.getSuggestions(query).take(6)
+        }
+        searchJob = viewModelScope.launch {
+            delay(350)
+            _isSearching.value = true
+            try {
+                _searchResults.value = repository.searchTracks(query)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("NexrifyVM", "Pencarian langsung gagal", e)
+            } finally {
+                _isSearching.value = false
+            }
         }
     }
+
+    /** Pencarian yang sedang tren: nama artis dari lagu trending di beranda. */
+    fun trendingSearchTerms(): List<String> =
+        _trendingTracks.value.map { it.artist.trim() }
+            .filter { it.isNotBlank() && it.length <= 30 }
+            .distinctBy { it.lowercase() }.take(8)
+
+    /** Catat kata yang diketik ke riwayat (dipakai saat pengguna memutar lagu dari hasil pencarian). */
+    fun rememberSearch(query: String) = searchHistoryManager.add(query)
 
     /** Pencarian yang diketik atau dipilih pengguna: dicatat ke riwayat. */
     fun searchAndRemember(query: String) {
@@ -1342,4 +1450,21 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         suggestJob?.cancel()
         controllerFuture?.let { MediaController.releaseFuture(it) }
     }
+
+    private val DISCOVER_QUERIES = listOf(
+        "lagu galau indonesia terbaru" to "Teman Galau",
+        "lagu santai sore hari" to "Santai Sore",
+        "dj viral tiktok slow bass" to "Lagi Viral",
+        "lagu semangat pagi" to "Semangat Pagi",
+        "lagu indie indonesia" to "Indie Pilihan",
+        "lagu pop barat terbaru" to "Pop Barat Terbaru",
+        "lagu akustik cafe" to "Akustik Cafe",
+        "lagu jawa campursari terbaru" to "Campursari",
+        "lagu k-pop terbaru" to "K-Pop Hari Ini",
+        "lagu lofi belajar" to "Lo-Fi Fokus",
+        "lagu rock klasik" to "Rock Klasik",
+        "lagu anime opening" to "Anime Pilihan",
+        "lagu religi islami" to "Religi",
+        "lagu dangdut koplo" to "Dangdut Koplo"
+    )
 }
