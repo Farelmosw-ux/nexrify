@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -85,6 +86,19 @@ fun SearchPageScreen(
     var confirmClear by remember { mutableStateOf(false) }
 
     val history by viewModel.searchHistory.collectAsState()
+    val topSearches by viewModel.topSearches.collectAsState()
+    val trendingTracks by viewModel.trendingTracks.collectAsState()
+    // Pencarian trend: nama artis dari lagu yang sedang trending.
+    val trendTerms = remember(trendingTracks) {
+        trendingTracks.map { it.artist.trim() }
+            .filter { it.isNotBlank() && it.length <= 32 }
+            .distinctBy { it.lowercase() }.take(6)
+    }
+    // Paling banyak dicari: dari kebiasaan pencarianmu; kalau masih sedikit, dilengkapi judul lagu trending.
+    val popular = remember(topSearches, trendingTracks) {
+        (topSearches + trendingTracks.map { it.title.trim() }.filter { it.length in 3..40 })
+            .distinctBy { it.lowercase() }.take(5)
+    }
     val suggestions by viewModel.suggestions.collectAsState()
     val results by viewModel.searchResults.collectAsState()
     val isSearching by viewModel.isSearching.collectAsState()
@@ -112,7 +126,7 @@ fun SearchPageScreen(
 
     PullToRefreshBox(
         refreshing = isSearching,
-        onRefresh = { if (submittedQuery.isNotBlank()) viewModel.search(submittedQuery, forceRefresh = true) },
+        onRefresh = { val q = submittedQuery.ifBlank { query.trim() }; if (q.isNotBlank()) viewModel.search(q, forceRefresh = true) },
         modifier = modifier.fillMaxSize().background(colors.background)
     ) {
     Column(
@@ -173,51 +187,73 @@ fun SearchPageScreen(
 
         Spacer(Modifier.height(8.dp))
 
-        val typing = query.isNotBlank() && query.trim() != submittedQuery
-        when {
-            // 1. Lagi mengetik: tampilkan saran
-            typing && suggestions.isNotEmpty() -> {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(suggestions) { suggestion ->
-                        HistoryLikeRow(
-                            icon = { Icon(NexIcons.Search, null, tint = colors.textMuted, modifier = Modifier.size(20.dp)) },
-                            text = suggestion,
-                            onClick = { runSearch(suggestion) },
-                            trailing = {
-                                IconButton(onClick = {
-                                    query = suggestion
-                                    viewModel.loadSuggestions(suggestion)
-                                }) {
-                                    Icon(NexIcons.NorthWest, null, tint = colors.textSecondary, modifier = Modifier.size(18.dp))
-                                }
+        if (query.isNotBlank()) {
+            // Mengetik: saran di atas, hasil lagu langsung di bawahnya (tanpa harus tekan enter).
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                items(suggestions) { suggestion ->
+                    HistoryLikeRow(
+                        icon = { Icon(NexIcons.Search, null, tint = colors.textMuted, modifier = Modifier.size(20.dp)) },
+                        text = suggestion,
+                        onClick = { runSearch(suggestion) },
+                        trailing = {
+                            IconButton(onClick = {
+                                query = suggestion
+                                viewModel.loadSuggestions(suggestion)
+                            }) {
+                                Icon(NexIcons.NorthWest, null, tint = colors.textSecondary, modifier = Modifier.size(18.dp))
                             }
-                        )
+                        }
+                    )
+                }
+                if (suggestions.isNotEmpty()) item { Spacer(Modifier.height(8.dp)) }
+
+                if (results.isEmpty()) {
+                    item {
+                        Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
+                            if (isSearching) NexLoadingFill(active = true)
+                            else if (suggestions.isEmpty()) Text(S.noTracks, color = colors.textMuted, style = Typography.bodyLarge)
+                        }
                     }
                 }
+                items(results, key = { it.id }, contentType = { "track" }) { track ->
+                    TrackItem(
+                        track = track.copy(isFavorite = track.id in favoriteIds),
+                        isPlaying = currentTrack?.id == track.id,
+                        isLoading = isLoadingTrack && currentTrack?.id == track.id,
+                        onClick = {
+                            viewModel.rememberSearch(query)
+                            focusManager.clearFocus()
+                            viewModel.playTrackFromSearch(track)
+                        },
+                        onFavoriteClick = { viewModel.toggleFavorite(track) },
+                        onMoreClick = { trackForPlaylist = track }
+                    )
+                }
+                item { Spacer(Modifier.height(110.dp)) }
             }
-
-            // 2. Kotak kosong: riwayat pencarian
-            query.isBlank() && submittedQuery.isBlank() -> {
-                if (history.isEmpty()) {
-                    Column(
-                        modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+        } else {
+            // Kotak kosong: riwayat, paling banyak dicari, pencarian trend.
+            if (history.isEmpty() && popular.isEmpty() && trendTerms.isEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Box(
+                        modifier = Modifier.size(64.dp).clip(CircleShape).background(colors.card)
+                            .border(1.dp, colors.border, CircleShape),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Box(
-                            modifier = Modifier.size(64.dp).clip(CircleShape).background(colors.card)
-                                .border(1.dp, colors.border, CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(NexIcons.History, null, tint = colors.textMuted, modifier = Modifier.size(28.dp))
-                        }
-                        Spacer(Modifier.height(16.dp))
-                        Text(S.noHistory, style = Typography.titleMedium, color = colors.textPrimary, textAlign = TextAlign.Center)
-                        Spacer(Modifier.height(6.dp))
-                        Text(S.noHistoryHint, style = Typography.bodySmall, color = colors.textMuted, textAlign = TextAlign.Center)
+                        Icon(NexIcons.History, null, tint = colors.textMuted, modifier = Modifier.size(28.dp))
                     }
-                } else {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    Spacer(Modifier.height(16.dp))
+                    Text(S.noHistory, style = Typography.titleMedium, color = colors.textPrimary, textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(6.dp))
+                    Text(S.noHistoryHint, style = Typography.bodySmall, color = colors.textMuted, textAlign = TextAlign.Center)
+                }
+            } else {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    if (history.isNotEmpty()) {
                         item {
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
@@ -232,7 +268,7 @@ fun SearchPageScreen(
                                 }
                             }
                         }
-                        items(history, key = { it }) { item ->
+                        items(history.take(6), key = { "h_$it" }) { item ->
                             HistoryLikeRow(
                                 icon = { Icon(NexIcons.History, null, tint = colors.textMuted, modifier = Modifier.size(20.dp)) },
                                 text = item,
@@ -244,32 +280,44 @@ fun SearchPageScreen(
                                 }
                             )
                         }
-                        item { Spacer(Modifier.height(110.dp)) }
                     }
-                }
-            }
-
-            // 3. Mencari
-            isSearching -> NexLoadingFill(active = true)
-
-            // 4. Hasil
-            submittedQuery.isNotBlank() && results.isEmpty() -> {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(S.noTracks, color = colors.textMuted, style = Typography.bodyLarge)
-                }
-            }
-
-            submittedQuery.isNotBlank() -> {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(results, key = { it.id }, contentType = { "track" }) { track ->
-                        TrackItem(
-                            track = track.copy(isFavorite = track.id in favoriteIds),
-                            isPlaying = currentTrack?.id == track.id,
-                            isLoading = isLoadingTrack && currentTrack?.id == track.id,
-                            onClick = { viewModel.playTrackFromSearch(track) },
-                            onFavoriteClick = { viewModel.toggleFavorite(track) },
-                            onMoreClick = { trackForPlaylist = track }
-                        )
+                    if (popular.isNotEmpty()) {
+                        item { SearchSectionTitle(S.mostSearched) }
+                        itemsIndexed(popular, key = { i, t -> "p_${i}_$t" }) { index, term ->
+                            HistoryLikeRow(
+                                icon = {
+                                    Text(
+                                        "${index + 1}",
+                                        style = Typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (index < 3) colors.accent else colors.textMuted,
+                                        modifier = Modifier.width(20.dp),
+                                        textAlign = TextAlign.Center
+                                    )
+                                },
+                                text = term,
+                                onClick = { runSearch(term) },
+                                trailing = { Spacer(Modifier.width(12.dp)) }
+                            )
+                        }
+                    }
+                    if (trendTerms.isNotEmpty()) {
+                        item { SearchSectionTitle(S.trendingSearches) }
+                        itemsIndexed(trendTerms, key = { i, t -> "t_${i}_$t" }) { _, term ->
+                            HistoryLikeRow(
+                                icon = { Icon(NexIcons.TrendingUp, null, tint = colors.accent, modifier = Modifier.size(20.dp)) },
+                                text = term,
+                                onClick = { runSearch(term) },
+                                trailing = {
+                                    IconButton(onClick = {
+                                        query = term
+                                        viewModel.loadSuggestions(term)
+                                    }) {
+                                        Icon(NexIcons.NorthWest, null, tint = colors.textSecondary, modifier = Modifier.size(18.dp))
+                                    }
+                                }
+                            )
+                        }
                     }
                     item { Spacer(Modifier.height(110.dp)) }
                 }
@@ -296,6 +344,18 @@ fun SearchPageScreen(
             }
         )
     }
+}
+
+@Composable
+private fun SearchSectionTitle(text: String) {
+    val colors = NexrifyAppTheme.colors
+    Text(
+        text = text,
+        style = Typography.titleMedium,
+        fontWeight = FontWeight.Bold,
+        color = colors.textPrimary,
+        modifier = Modifier.padding(start = 20.dp, end = 8.dp, top = 18.dp, bottom = 4.dp)
+    )
 }
 
 @Composable
