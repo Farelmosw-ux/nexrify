@@ -31,17 +31,17 @@ data class SharedPlaylist(
 object PlaylistShareNav {
     val request = MutableStateFlow<String?>(null)
 
-    /** Ambil id playlist dari tautan https://nexrify.biz.id/playlist/usr/<id>. Null kalau bukan tautan playlist. */
+    /** Ambil id playlist dari tautan https://nexrify.biz.id/playlist/<username>/<id> (juga tautan lama /playlist/usr/<id>). */
     fun parseId(uri: Uri?): String? {
         uri ?: return null
         if (!uri.host.equals("nexrify.biz.id", ignoreCase = true) && !uri.host.equals("www.nexrify.biz.id", ignoreCase = true)) return null
         val seg = uri.pathSegments
-        if (seg.size < 3 || seg[0] != "playlist" || seg[1] != "usr") return null
+        if (seg.size < 3 || seg[0] != "playlist" || seg[1].isBlank()) return null
         return seg[2].takeIf { ID_RE.matches(it) }
     }
 
     fun parseText(text: String): String? =
-        Regex("""nexrify\.biz\.id/playlist/usr/([0-9A-Za-z]{8})""").find(text)?.groupValues?.get(1)
+        Regex("""nexrify\.biz\.id/playlist/[0-9A-Za-z_.\-]+/([0-9A-Za-z]{8})(?![0-9A-Za-z])""").find(text)?.groupValues?.get(1)
 
     private val ID_RE = Regex("^[0-9A-Za-z]{8}$")
 }
@@ -51,7 +51,12 @@ object PlaylistShare {
     private val client by lazy { HttpClientProvider.client.newBuilder().callTimeout(25, TimeUnit.SECONDS).build() }
     private const val ENDPOINT = NexrifyLinks.SITE + "/api/user"
 
-    fun linkFor(id: String) = "${NexrifyLinks.SITE}/playlist/usr/$id"
+    /** Tautan publik: https://nexrify.biz.id/playlist/<username pemilik>/<id>. */
+    fun linkFor(id: String, username: String? = null): String {
+        val name = (username ?: AccountManager.getInstance().user.value?.username).orEmpty()
+            .lowercase().filter { it.isLetterOrDigit() || it == '_' }.ifBlank { "usr" }
+        return "${NexrifyLinks.SITE}/playlist/$name/$id"
+    }
 
     private fun execute(request: Request): JSONObject {
         try {
@@ -123,7 +128,7 @@ object PlaylistShare {
         SharedPlaylist(
             id = p.optString("id", id), name = p.optString("name", "Playlist"), coverUrl = p.optString("coverUrl", ""),
             ownerName = owner?.optString("display").orEmpty().ifBlank { owner?.optString("username").orEmpty() },
-            tracks = tracks, url = linkFor(id)
+            tracks = tracks, url = linkFor(id, owner?.optString("username")?.takeIf { it.isNotBlank() })
         )
     }
 }
