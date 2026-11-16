@@ -548,7 +548,7 @@ fun LibraryScreen(
 private fun usablePlaylistCover(url: String): Any? {
     val u = url.trim()
     if (u.isEmpty()) return null
-    if (u.startsWith("http://") || u.startsWith("https://")) return u
+    if (u.startsWith("http://") || u.startsWith("https://") || u.startsWith("data:image/")) return u
     if (u.startsWith("file://")) {
         val f = java.io.File(u.removePrefix("file://"))
         return if (f.exists()) f else null
