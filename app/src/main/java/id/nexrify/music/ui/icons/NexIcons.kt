@@ -54,6 +54,11 @@ object NexIcons {
             "M9.5 21 V15.5 A1 1 0 0 1 10.5 14.5 H13.5 A1 1 0 0 1 14.5 15.5 V21"
         )
     }
+    val ThumbUp by lazy { icon("ThumbUp", "M7 11 V20 H4 A1 1 0 0 1 3 19 V12 A1 1 0 0 1 4 11 Z", "M7 11 L11 3 C12.5 3 13.5 4 13.5 5.5 V9 H19 C20.3 9 21.2 10.2 20.9 11.4 L19.4 18.4 C19.1 19.3 18.3 20 17.4 20 H7") }
+    val ThumbUpFilled by lazy { icon("ThumbUpFilled", "M7 11 V20 H4 A1 1 0 0 1 3 19 V12 A1 1 0 0 1 4 11 Z", "M7 11 L11 3 C12.5 3 13.5 4 13.5 5.5 V9 H19 C20.3 9 21.2 10.2 20.9 11.4 L19.4 18.4 C19.1 19.3 18.3 20 17.4 20 H7", filled = true) }
+    val ThumbDown by lazy { icon("ThumbDown", "M7 13 V4 H4 A1 1 0 0 0 3 5 V12 A1 1 0 0 0 4 13 Z", "M7 13 L11 21 C12.5 21 13.5 20 13.5 18.5 V15 H19 C20.3 15 21.2 13.8 20.9 12.6 L19.4 5.6 C19.1 4.7 18.3 4 17.4 4 H7") }
+    val ThumbDownFilled by lazy { icon("ThumbDownFilled", "M7 13 V4 H4 A1 1 0 0 0 3 5 V12 A1 1 0 0 0 4 13 Z", "M7 13 L11 21 C12.5 21 13.5 20 13.5 18.5 V15 H19 C20.3 15 21.2 13.8 20.9 12.6 L19.4 5.6 C19.1 4.7 18.3 4 17.4 4 H7", filled = true) }
+    val TrendingUp by lazy { icon("TrendingUp", "M3 17 L9 11 L13 15 L21 7", "M15 7 H21 V13") }
     val Search by lazy { icon("Search", circle(11f, 11f, 8f), "M21 21 L16.8 16.8") }
     val LibraryMusic by lazy {
         icon(
