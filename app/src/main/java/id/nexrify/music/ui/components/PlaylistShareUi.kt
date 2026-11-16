@@ -55,7 +55,7 @@ private fun copyToClipboard(context: Context, text: String) {
     }
 }
 
-/** Dialog bagikan playlist: membuat tautan https://nexrify.biz.id/playlist/usr/<id>, lalu salin / kirim / hentikan. */
+/** Dialog bagikan playlist: membuat tautan https://nexrify.biz.id/playlist/<username>/<id>, lalu salin / kirim / hentikan. */
 @Composable
 fun SharePlaylistDialog(playlist: Playlist, viewModel: MusicViewModel, onDismiss: () -> Unit) {
     val str = S // dipegang sekali: S adalah getter @Composable, tidak boleh dibaca di dalam onClick / LaunchedEffect
@@ -176,15 +176,27 @@ fun SharedPlaylistHost(viewModel: MusicViewModel, onOpenLibrary: () -> Unit) {
     val str = S
     val request by PlaylistShareNav.request.collectAsState()
     var activeId by remember { mutableStateOf<String?>(null) }
+    var loadToken by remember { mutableStateOf(0) }
+    var pendingId by remember { mutableStateOf<String?>(null) }
     var state by remember { mutableStateOf<SharedState>(SharedState.Loading) }
 
+    // Pindahkan permintaan ke state lokal, lalu kosongkan PlaylistShareNav. Pemuatan dilakukan di efek lain:
+    // kalau memuat di efek yang sama, mengosongkan request akan membatalkan efek itu sendiri
+    // (CancellationException) dan dialog selalu menampilkan "Gagal memuat playlist".
     LaunchedEffect(request) {
         val id = request ?: return@LaunchedEffect
         PlaylistShareNav.request.value = null
         activeId = id
+        pendingId = id
+        loadToken++
+    }
+    LaunchedEffect(loadToken) {
+        val id = pendingId ?: return@LaunchedEffect
         state = SharedState.Loading
         state = try {
             SharedState.Ready(PlaylistShare.fetch(id))
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: AccountError) {
             // Jangan semua dianggap masalah koneksi: tampilkan kode dari server supaya penyebab sebenarnya kelihatan.
             SharedState.Error(
