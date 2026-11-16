@@ -13,6 +13,9 @@ object PlaybackBridge {
     /** True saat ViewModel sedang menyiapkan lagu (ganti lagu). Kapsul tidak boleh menghilang di saat ini. */
     val isLoading = MutableStateFlow(false)
 
+    /** Diset widget saat tombol Putar ditekan tetapi pemutar belum hidup. ViewModel melanjutkan lagu terakhir lalu mengembalikannya ke false. */
+    val widgetPlay = MutableStateFlow(false)
+
     /** Diisi ViewModel. Dipanggil dari notifikasi atau kapsul untuk menyuka atau batal suka lagu aktif. */
     @Volatile
     var onToggleFavorite: (() -> Unit)? = null
