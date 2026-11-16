@@ -87,11 +87,34 @@ object PlaylistShare {
         }
         val body = JSONObject().put("action", "share").put("name", playlist.name).put("shareId", playlist.shareId)
             .put("coverUrl", playlist.coverUrl.takeIf { it.startsWith("https://") } ?: "").put("tracks", tracks)
+        // Sampul dari galeri (file:// lokal) tidak bisa dilihat orang lain, jadi dikirim sebagai gambar kecil.
+        localCoverData(playlist.coverUrl)?.let { body.put("coverData", it) }
         val json = execute(
             Request.Builder().url(ENDPOINT).header("Accept", "application/json").header("User-Agent", "Nexrify-Android")
                 .header("Authorization", "Bearer $token").post(body.toString().toRequestBody(JSON_TYPE)).build()
         )
         json.getString("id")
+    }
+
+    /** Sampul file:// jadi data URI JPEG persegi maksimal 480 px (sekitar puluhan KB). Null kalau bukan file lokal atau gagal dibaca. */
+    private fun localCoverData(url: String): String? {
+        if (!url.startsWith("file://")) return null
+        return try {
+            val f = java.io.File(url.removePrefix("file://"))
+            if (!f.exists()) return null
+            val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeFile(f.absolutePath, opts)
+            var sample = 1
+            while (opts.outWidth / sample > 960 || opts.outHeight / sample > 960) sample *= 2
+            val bmp = android.graphics.BitmapFactory.decodeFile(
+                f.absolutePath, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+            ) ?: return null
+            val side = minOf(bmp.width, bmp.height)
+            val square = android.graphics.Bitmap.createBitmap(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side)
+            val out = if (side > 480) android.graphics.Bitmap.createScaledBitmap(square, 480, 480, true) else square
+            val bytes = java.io.ByteArrayOutputStream().also { out.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, it) }.toByteArray()
+            "data:image/jpeg;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+        } catch (_: Throwable) { null }
     }
 
     suspend fun unshare(shareId: String) = withContext(Dispatchers.IO) {
@@ -126,7 +149,7 @@ object PlaylistShare {
         }
         val owner = p.optJSONObject("owner")
         SharedPlaylist(
-            id = p.optString("id", id), name = p.optString("name", "Playlist"), coverUrl = p.optString("coverUrl", ""),
+            id = p.optString("id", id), name = p.optString("name", "Playlist"), coverUrl = p.optString("coverUrl", "").ifBlank { p.optString("coverData", "") },
             ownerName = owner?.optString("display").orEmpty().ifBlank { owner?.optString("username").orEmpty() },
             tracks = tracks, url = linkFor(id, owner?.optString("username")?.takeIf { it.isNotBlank() })
         )
