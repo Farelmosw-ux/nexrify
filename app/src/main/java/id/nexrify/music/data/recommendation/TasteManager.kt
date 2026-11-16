@@ -33,6 +33,15 @@ class TasteManager private constructor(context: Context) {
     private val playsMap = ConcurrentHashMap<String, Int>()
     private val trackDataMap = ConcurrentHashMap<String, Track>()
 
+    // Reaksi eksplisit pengguna: 1 = suka, -1 = tidak suka. Dipisah dari skor putar supaya tidak ikut terpangkas.
+    private val reactionMap = ConcurrentHashMap<String, Int>()
+    private val reactedTracks = ConcurrentHashMap<String, Track>()
+    private val artistLike = ConcurrentHashMap<String, Int>()
+    private val artistDislike = ConcurrentHashMap<String, Int>()
+    private val _reactions = MutableStateFlow<Map<String, Int>>(emptyMap())
+    /** id lagu -> 1 (suka) / -1 (tidak suka). Dipakai UI untuk menyalakan tombol. */
+    val reactions: StateFlow<Map<String, Int>> = _reactions.asStateFlow()
+
     init {
         loadDataFromPrefs()
     }
@@ -83,17 +92,98 @@ class TasteManager private constructor(context: Context) {
         refreshStatistics()
     }
 
+    private fun artistKey(artist: String) = artist.trim().lowercase()
+
+    fun reactionOf(id: String): Int = reactionMap[id] ?: 0
+
+    /**
+     * Suka / tidak suka dari tombol di beranda. Mengetuk tombol yang sama lagi membatalkannya.
+     * Suka: lagu naik tinggi dan artisnya ikut sering muncul. Tidak suka: lagu diblokir dari rekomendasi,
+     * artisnya diturunkan (lagu lain dari artis itu jarang muncul).
+     */
+    @Synchronized
+    fun react(track: Track, reaction: Int) {
+        val prev = reactionMap[track.id] ?: 0
+        val next = if (prev == reaction) 0 else reaction
+        val key = artistKey(track.artist)
+
+        // Cabut efek reaksi sebelumnya.
+        when (prev) {
+            1 -> {
+                updateTrackScore(track, deltaScore = -REACT_LIKE_DELTA, isPlay = false)
+                if (key.isNotEmpty()) artistLike.merge(key, -ARTIST_LIKE_STEP) { a, b -> maxOf(0, a + b) }
+            }
+            -1 -> {
+                scoresMap[track.id] = 0
+                if (key.isNotEmpty()) artistDislike.merge(key, -1) { a, b -> maxOf(0, a + b) }
+            }
+        }
+        // Terapkan yang baru.
+        when (next) {
+            1 -> {
+                updateTrackScore(track, deltaScore = REACT_LIKE_DELTA, isPlay = false)
+                if (key.isNotEmpty()) artistLike.merge(key, ARTIST_LIKE_STEP) { a, b -> minOf(ARTIST_LIKE_MAX, a + b) }
+                reactionMap[track.id] = 1
+                reactedTracks[track.id] = track
+            }
+            -1 -> {
+                scoresMap[track.id] = MIN_SCORE
+                trackDataMap[track.id] = track
+                if (key.isNotEmpty()) artistDislike.merge(key, 1) { a, b -> minOf(ARTIST_DISLIKE_MAX, a + b) }
+                reactionMap[track.id] = -1
+                reactedTracks[track.id] = track
+                removeFromRecents(track.id)
+            }
+            else -> { reactionMap.remove(track.id); reactedTracks.remove(track.id) }
+        }
+        _reactions.value = HashMap(reactionMap)
+        refreshOnRepeat()
+        refreshStatistics()
+        persistTasteDataAsync()
+    }
+
+    /** Lagu yang pernah di-like lewat tombol, terbaru tidak dijamin urutannya. */
+    fun likedTracks(): List<Track> = reactionMap.filterValues { it == 1 }.keys.mapNotNull { reactedTracks[it] }
+
+    /** Artis yang disukai, paling kuat dulu. */
+    fun favoriteArtists(limit: Int = 5): List<String> =
+        artistLike.entries.filter { it.value > 0 }.sortedByDescending { it.value }
+            .map { e ->
+                // Pakai penulisan asli artis dari lagu yang disimpan.
+                (reactedTracks.values + trackDataMap.values).firstOrNull { artistKey(it.artist) == e.key }?.artist ?: e.key
+            }.distinct().take(limit)
+
+    /** Seberapa kuat artis ini disukai (+) atau tidak disukai (-). */
+    fun artistAffinity(artist: String): Int {
+        val k = artistKey(artist)
+        return (artistLike[k] ?: 0) - (artistDislike[k] ?: 0) * 2
+    }
+
     /** Skor lagu (0 kalau belum pernah dinilai). Negatif berarti cenderung tidak disukai. */
     fun scoreOf(id: String): Int = scoresMap[id] ?: 0
 
-    fun isDisliked(id: String): Boolean = scoreOf(id) <= DISLIKE_THRESHOLD
+    fun isDisliked(id: String): Boolean = reactionMap[id] == -1 || scoreOf(id) <= DISLIKE_THRESHOLD
 
-    /** Buang lagu yang tidak disukai dari daftar rekomendasi, urutan aslinya dijaga. */
-    fun withoutDisliked(tracks: List<Track>): List<Track> = tracks.filter { !isDisliked(it.id) }
+    /**
+     * Saring rekomendasi. Lagu yang di-dislike hampir tidak pernah lolos (peluang kecil, "muncul tapi jarang"),
+     * lagu lain dari artis yang di-dislike juga jarang. Hasil acak per panggilan, jadi tidak selalu sama.
+     */
+    fun withoutDisliked(tracks: List<Track>, random: kotlin.random.Random = kotlin.random.Random.Default): List<Track> =
+        tracks.filter { t ->
+            when {
+                reactionMap[t.id] == -1 -> random.nextFloat() < BLOCKED_TRACK_CHANCE
+                scoreOf(t.id) <= DISLIKE_THRESHOLD -> random.nextFloat() < BLOCKED_TRACK_CHANCE
+                (artistDislike[artistKey(t.artist)] ?: 0) > 0 -> random.nextFloat() < DISLIKED_ARTIST_CHANCE
+                else -> true
+            }
+        }
 
-    /** Buang yang tidak disukai lalu naikkan lagu berskor tinggi (urutan sama tetap stabil). */
-    fun personalize(tracks: List<Track>): List<Track> =
-        withoutDisliked(tracks).sortedByDescending { scoreOf(it.id) }
+    /** Saring lalu urutkan: lagu/artis yang disukai naik, sisanya diacak halus supaya tiap muat berbeda. */
+    fun personalize(tracks: List<Track>, random: kotlin.random.Random = kotlin.random.Random.Default): List<Track> =
+        withoutDisliked(tracks, random)
+            .map { t -> t to (scoreOf(t.id) + artistAffinity(t.artist) * 3 + random.nextInt(0, JITTER)) }
+            .sortedByDescending { it.second }
+            .map { it.first }
 
     private fun updateTrackScore(track: Track, deltaScore: Int, isPlay: Boolean) {
         val currentScore = scoresMap[track.id] ?: 0
@@ -110,7 +200,7 @@ class TasteManager private constructor(context: Context) {
         if (trackDataMap.size > MAX_TRACK_ENTRIES) {
             // Buang yang paling "netral" (skor mendekati 0). Skor sangat negatif ikut dijaga
             // supaya lagu yang tidak disukai tidak lupa dan muncul lagi.
-            val sortedByScore = scoresMap.entries.filter { it.key != track.id }
+            val sortedByScore = scoresMap.entries.filter { it.key != track.id && !reactionMap.containsKey(it.key) }
                 .sortedBy { kotlin.math.abs(it.value) }
             val toRemoveCount = trackDataMap.size - MAX_TRACK_ENTRIES
             for (i in 0 until toRemoveCount) {
@@ -201,7 +291,23 @@ class TasteManager private constructor(context: Context) {
             trackDataJson.put(k, obj)
         }
 
+        val reactJson = JSONObject()
+        reactionMap.forEach { (k, v) -> reactJson.put(k, v) }
+        val reactTracks = JSONObject()
+        reactedTracks.forEach { (k, t) ->
+            reactTracks.put(k, JSONObject().apply {
+                put("id", t.id); put("url", t.url); put("title", t.title); put("artist", t.artist)
+                put("thumbnailUrl", t.thumbnailUrl); put("durationSeconds", t.durationSeconds)
+            })
+        }
+        val likeJson = JSONObject(); artistLike.forEach { (k, v) -> likeJson.put(k, v) }
+        val dislikeJson = JSONObject(); artistDislike.forEach { (k, v) -> dislikeJson.put(k, v) }
+
         prefs.edit()
+            .putString(KEY_REACTIONS, reactJson.toString())
+            .putString(KEY_REACT_TRACKS, reactTracks.toString())
+            .putString(KEY_ARTIST_LIKE, likeJson.toString())
+            .putString(KEY_ARTIST_DISLIKE, dislikeJson.toString())
             .putString(KEY_SCORES, scoresJson.toString())
             .putString(KEY_PLAYS, playsJson.toString())
             .putString(KEY_TRACK_DATA, trackDataJson.toString())
@@ -212,6 +318,7 @@ class TasteManager private constructor(context: Context) {
     @Synchronized
     fun reload() {
         scoresMap.clear(); playsMap.clear(); trackDataMap.clear()
+        reactionMap.clear(); reactedTracks.clear(); artistLike.clear(); artistDislike.clear()
         loadDataFromPrefs()
     }
 
@@ -275,6 +382,27 @@ class TasteManager private constructor(context: Context) {
         } catch (_: Exception) {
             scoresMap.clear(); playsMap.clear(); trackDataMap.clear()
         }
+        try {
+            val r = JSONObject(prefs.getString(KEY_REACTIONS, "{}") ?: "{}")
+            r.keys().forEach { k -> val v = r.optInt(k, 0); if (v != 0) reactionMap[k] = v }
+            val rt = JSONObject(prefs.getString(KEY_REACT_TRACKS, "{}") ?: "{}")
+            rt.keys().forEach { k ->
+                rt.optJSONObject(k)?.let { obj ->
+                    reactedTracks[k] = Track(
+                        id = obj.optString("id"), url = obj.optString("url"), title = obj.optString("title"),
+                        artist = obj.optString("artist"), thumbnailUrl = obj.optString("thumbnailUrl"),
+                        durationSeconds = obj.optLong("durationSeconds", 0L)
+                    )
+                }
+            }
+            val al = JSONObject(prefs.getString(KEY_ARTIST_LIKE, "{}") ?: "{}")
+            al.keys().forEach { k -> artistLike[k] = al.optInt(k, 0) }
+            val ad = JSONObject(prefs.getString(KEY_ARTIST_DISLIKE, "{}") ?: "{}")
+            ad.keys().forEach { k -> artistDislike[k] = ad.optInt(k, 0) }
+        } catch (_: Exception) {
+            reactionMap.clear(); reactedTracks.clear(); artistLike.clear(); artistDislike.clear()
+        }
+        _reactions.value = HashMap(reactionMap)
         refreshOnRepeat()
         refreshStatistics()
     }
@@ -340,6 +468,19 @@ class TasteManager private constructor(context: Context) {
         private const val KEY_PLAYS = "plays"
         private const val KEY_TRACK_DATA = "track_data"
         private const val KEY_RECENTS = "recents"
+        private const val KEY_REACTIONS = "reactions"
+        private const val KEY_REACT_TRACKS = "react_tracks"
+        private const val KEY_ARTIST_LIKE = "artist_like"
+        private const val KEY_ARTIST_DISLIKE = "artist_dislike"
+        private const val REACT_LIKE_DELTA = 14
+        private const val ARTIST_LIKE_STEP = 3
+        private const val ARTIST_LIKE_MAX = 15
+        private const val ARTIST_DISLIKE_MAX = 5
+        private const val JITTER = 6
+        /** Peluang lagu yang di-dislike tetap lolos ke rekomendasi ("muncul sih, tapi jarang"). */
+        private const val BLOCKED_TRACK_CHANCE = 0.03f
+        /** Peluang lagu lain dari artis yang di-dislike tetap lolos. */
+        private const val DISLIKED_ARTIST_CHANCE = 0.25f
         private const val MAX_RECENTS = 30
         private const val MAX_TRACK_ENTRIES = 100
         private const val PLAY_DELTA = 3
