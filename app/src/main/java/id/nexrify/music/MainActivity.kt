@@ -147,7 +147,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Tautan playlist (https://nexrify.biz.id/playlist/usr/<id>) yang dibuka dari browser, chat, dll. */
+    /** Tautan playlist (https://nexrify.biz.id/playlist/<username>/<id>) yang dibuka dari browser, chat, dll. */
     private fun handleLinkIntent(intent: android.content.Intent?) {
         if (intent?.action != android.content.Intent.ACTION_VIEW) return
         val playlistId = PlaylistShareNav.parseId(intent.data) ?: return
@@ -220,12 +220,17 @@ class MainActivity : ComponentActivity() {
                             CrashReportDialog(report = report, onClose = { CrashReporter.clear(appContext); crashReport = null })
                         }
                         val nexUser by AccountManager.getInstance().user.collectAsState()
+                        var sawLogout by remember { mutableStateOf(false) }
                         LaunchedEffect(nexUser?.id) {
-                            if (nexUser != null) {
+                            if (nexUser == null) {
+                                sawLogout = true
+                            } else {
                                 // Segarkan profil dan tarik data akun (tidak mengganggu kalau offline).
                                 AccountManager.getInstance().refresh()
                                 AccountSync.getInstance().initialSync(preferLocal = false)
                                 MailboxManager.getInstance().refresh()
+                                // Akun baru masuk setelah keluar: beranda dimuat ulang dari selera akun ini.
+                                if (sawLogout) { sawLogout = false; viewModel.refreshAfterLogin() }
                             }
                         }
                         if (nexUser == null) AuthScreen() else MainAppScreen(viewModel = viewModel)
