@@ -215,6 +215,8 @@ fun ProfileMenuSheet(
                         showLogoutConfirm = false
                         accountScope.launch {
                             AccountSync.getInstance().flush()
+                            // Hentikan musik dan kosongkan pemutar lebih dulu, baru hapus data akun (tema ikut kembali ke bawaan).
+                            viewModel.resetSession()
                             AccountSync.getInstance().wipeLocal()
                             AccountManager.getInstance().clearLocal()
                             onDismiss()
