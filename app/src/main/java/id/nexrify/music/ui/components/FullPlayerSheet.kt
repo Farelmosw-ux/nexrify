@@ -4,6 +4,7 @@ import id.nexrify.music.i18n.S
 import id.nexrify.music.ui.icons.NexIcons
 import android.content.Intent
 import android.graphics.Bitmap
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -21,7 +22,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -77,9 +81,7 @@ fun FullPlayerSheet(
     val durationMs by viewModel.duration.collectAsState()
 
     var showAddToPlaylist by remember { mutableStateOf(false) }
-    var showSettingsDialog by remember { mutableStateOf(false) }
     var showQueue by remember { mutableStateOf(false) }
-    var showOptionsMenu by remember { mutableStateOf(false) }
     var isLyricsExpanded by remember { mutableStateOf(false) }
     var showSongComments by remember { mutableStateOf(false) }
 
@@ -125,6 +127,40 @@ fun FullPlayerSheet(
         }
     }
 
+    val cdCollapse = S.cd("Collapse Player")
+    val cdQueue = S.cd("Queue")
+
+    // Bar atas: tutup, pilih gaya (Normal / Poster), antrian. Dipakai di dua mode supaya tidak ada tombol ganda.
+    val topBar: @Composable (Modifier) -> Unit = { mod ->
+        Row(
+            modifier = mod
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            PlayerRoundButton(NexIcons.KeyboardArrowDown, cdCollapse, 28.dp, onDismiss)
+
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(Color.Black.copy(alpha = 0.52f))
+                    .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(50))
+                    .padding(3.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ModeTabPill(text = "Normal", selected = visualMode == PlayerVisualMode.NORMAL) {
+                    visualMode = PlayerVisualMode.NORMAL
+                }
+                ModeTabPill(text = "Poster", selected = visualMode == PlayerVisualMode.POSTER_LIVE) {
+                    visualMode = PlayerVisualMode.POSTER_LIVE
+                }
+            }
+
+            PlayerRoundButton(NexIcons.QueueMusic, cdQueue, 20.dp) { showQueue = true }
+        }
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -132,43 +168,65 @@ fun FullPlayerSheet(
             .verticalScroll(scrollState)
     ) {
         // -------------------------------------------------------------
-        // TOP BAR + MODE SWITCHER (NORMAL vs POSTER)
+        // BAGIAN ATAS: sampul persegi rapi (Normal) atau poster live (Poster)
         // -------------------------------------------------------------
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(if (isV2 && visualMode == PlayerVisualMode.NORMAL) Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp) else Modifier)
-                .height(if (visualMode == PlayerVisualMode.POSTER_LIVE) 470.dp else if (isV2) 360.dp else 350.dp)
-                .then(if (isV2 && visualMode == PlayerVisualMode.NORMAL) Modifier.clip(RoundedCornerShape(36.dp)) else Modifier)
-        ) {
-            if (visualMode == PlayerVisualMode.NORMAL) {
-                // GAYA NORMAL (FOTO KE-2)
+        if (visualMode == PlayerVisualMode.NORMAL) {
+            val artShape = RoundedCornerShape(if (isV2) 36.dp else 28.dp)
+            Box(modifier = Modifier.fillMaxWidth()) {
+                // Latar blur dari sampul yang sama, memudar ke warna latar
                 AsyncImage(
-                    model = ImageRequest.Builder(LocalContext.current)
-                        .data(track.highResThumbnailUrl)
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = track.title,
-                    modifier = Modifier.fillMaxSize(),
+                    model = track.highResThumbnailUrl,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .matchParentSize()
+                        .then(if (Build.VERSION.SDK_INT >= 31) Modifier.blur(48.dp) else Modifier)
+                        .alpha(0.4f),
                     contentScale = ContentScale.Crop
                 )
-
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .matchParentSize()
                         .background(
                             Brush.verticalGradient(
-                                colors = listOf(
-                                    Color.Black.copy(alpha = 0.5f),
+                                listOf(
                                     Color.Transparent,
-                                    colors.background.copy(alpha = 0.35f),
-                                    colors.background.copy(alpha = 0.85f),
+                                    colors.background.copy(alpha = 0.55f),
                                     colors.background
                                 )
                             )
                         )
                 )
-            } else {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    topBar(Modifier)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 36.dp)
+                            .aspectRatio(1f)
+                            .shadow(24.dp, artShape, clip = false)
+                            .clip(artShape)
+                            .background(colors.card)
+                    ) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(track.highResThumbnailUrl)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = track.title,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(24.dp))
+                }
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(470.dp)
+            ) {
                 // GAYA POSTER LIVE (TIKTOK / AURALYS STYLE)
                 val effectiveDur = if (durationMs > 0) durationMs else (track.durationSeconds * 1000L).coerceAtLeast(1L)
                 val progress = (playbackPositionMs.toFloat() / effectiveDur.toFloat()).coerceIn(0f, 1f)
@@ -306,115 +364,13 @@ fun FullPlayerSheet(
                         }
                     }
                 }
-            }
 
-            // Overlaid Top Bar (Collapse Chevron, Mode Switcher Normal/Poster, More Options)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 14.dp)
-                    .align(Alignment.TopCenter),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.45f))
-                ) {
-                    Icon(
-                        imageVector = NexIcons.KeyboardArrowDown,
-                        contentDescription = S.cd("Collapse Player"),
-                        tint = Color.White,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-
-                // Switcher Gaya Pemutar: Normal vs Poster
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(Color.Black.copy(alpha = 0.52f))
-                        .border(1.dp, Color.White.copy(alpha = 0.2f), RoundedCornerShape(50))
-                        .padding(3.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    ModeTabPill(
-                        text = if (isEn) "Normal" else "Normal",
-                        selected = visualMode == PlayerVisualMode.NORMAL
-                    ) { visualMode = PlayerVisualMode.NORMAL }
-                    ModeTabPill(
-                        text = if (isEn) "Poster" else "Poster",
-                        selected = visualMode == PlayerVisualMode.POSTER_LIVE
-                    ) { visualMode = PlayerVisualMode.POSTER_LIVE }
-                }
-
-                Box {
-                    IconButton(
-                        onClick = { showOptionsMenu = true },
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.45f))
-                    ) {
-                        Icon(
-                            imageVector = NexIcons.MoreVert,
-                            contentDescription = S.cd("Options"),
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-
-                    DropdownMenu(
-                        expanded = showOptionsMenu,
-                        onDismissRequest = { showOptionsMenu = false },
-                        modifier = Modifier.background(colors.card)
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text(S.addToPlaylist, color = colors.textPrimary) },
-                            leadingIcon = {
-                                Icon(NexIcons.QueueMusic, contentDescription = null, tint = colors.textPrimary)
-                            },
-                            onClick = {
-                                showOptionsMenu = false
-                                showAddToPlaylist = true
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(S.settingsAudio, color = colors.textPrimary) },
-                            leadingIcon = {
-                                Icon(NexIcons.Tune, contentDescription = null, tint = colors.textPrimary)
-                            },
-                            onClick = {
-                                showOptionsMenu = false
-                                showSettingsDialog = true
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(S.shareSong, color = colors.textPrimary) },
-                            leadingIcon = {
-                                Icon(NexIcons.Share, contentDescription = null, tint = colors.textPrimary)
-                            },
-                            onClick = {
-                                showOptionsMenu = false
-                                try {
-                                    val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                                        putExtra(Intent.EXTRA_TEXT, id.nexrify.music.i18n.currentStrings().shareText(track.title, track.artist, track.url))
-                                        type = "text/plain"
-                                    }
-                                    context.startActivity(Intent.createChooser(sendIntent, id.nexrify.music.i18n.currentStrings().shareVia))
-                                } catch (_: Exception) {}
-                            }
-                        )
-                    }
-                }
+                topBar(Modifier.align(Alignment.TopCenter))
             }
         }
 
         // -------------------------------------------------------------
-        // MAIN CONTROLS SECTION (Padding 24.dp)
+        // KONTROL UTAMA
         // -------------------------------------------------------------
         Column(
             modifier = Modifier
@@ -429,10 +385,7 @@ fun FullPlayerSheet(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = track.title,
-                        style = Typography.headlineMedium.copy(
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.Bold
-                        ),
+                        style = Typography.headlineMedium.copy(fontSize = 24.sp, fontWeight = FontWeight.Bold),
                         color = colors.textPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -440,20 +393,14 @@ fun FullPlayerSheet(
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = track.artist,
-                        style = Typography.titleMedium.copy(
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium
-                        ),
+                        style = Typography.titleMedium.copy(fontSize = 15.sp, fontWeight = FontWeight.Medium),
                         color = colors.textMuted,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
 
-                IconButton(
-                    onClick = onFavoriteClick,
-                    modifier = Modifier.size(48.dp)
-                ) {
+                IconButton(onClick = onFavoriteClick, modifier = Modifier.size(48.dp)) {
                     Icon(
                         imageVector = if (track.isFavorite) NexIcons.Favorite else NexIcons.FavoriteBorder,
                         contentDescription = S.cd("Favorite"),
@@ -463,215 +410,111 @@ fun FullPlayerSheet(
                 }
             }
 
+            Spacer(modifier = Modifier.height(14.dp))
+
+            PlayerScrubber(viewModel = viewModel, track = track)
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Transport: acak, sebelumnya, putar/jeda, berikutnya, ulang
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onShuffleClick, modifier = Modifier.size(44.dp)) {
+                    Icon(
+                        imageVector = NexIcons.Shuffle,
+                        contentDescription = S.cd("Shuffle"),
+                        tint = if (isShuffle) colors.textPrimary else colors.textSecondary.copy(alpha = 0.4f),
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                IconButton(onClick = onSkipPreviousClick, modifier = Modifier.size(52.dp)) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_nexrify_rewind),
+                        contentDescription = S.cd("Previous Track"),
+                        tint = colors.textPrimary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(72.dp)
+                        .clip(CircleShape)
+                        .then(
+                            if (isV2) Modifier.background(Brush.linearGradient(listOf(colors.accent, colors.accentAlt)))
+                            else Modifier.background(colors.textPrimary)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isLoading) {
+                        CircularProgressIndicator(color = colors.background, strokeWidth = 3.dp, modifier = Modifier.size(32.dp))
+                    } else {
+                        IconButton(onClick = onPlayPauseClick, modifier = Modifier.size(72.dp)) {
+                            Icon(
+                                painter = if (isPlaying) painterResource(R.drawable.ic_nexrify_pause) else painterResource(R.drawable.ic_nexrify_play),
+                                contentDescription = if (isPlaying) S.cd("Pause") else S.cd("Play"),
+                                tint = colors.background,
+                                modifier = Modifier.size(34.dp)
+                            )
+                        }
+                    }
+                }
+
+                IconButton(onClick = onSkipNextClick, modifier = Modifier.size(52.dp)) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_nexrify_fast_forward),
+                        contentDescription = S.cd("Next Track"),
+                        tint = colors.textPrimary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+
+                IconButton(onClick = onRepeatClick, modifier = Modifier.size(44.dp)) {
+                    val icon = if (repeatMode == Player.REPEAT_MODE_ONE) NexIcons.RepeatOne else NexIcons.Repeat
+                    val tint = if (repeatMode != Player.REPEAT_MODE_OFF) colors.textPrimary else colors.textSecondary.copy(alpha = 0.4f)
+                    Icon(imageVector = icon, contentDescription = S.cd("Repeat"), tint = tint, modifier = Modifier.size(22.dp))
+                }
+            }
+
             Spacer(modifier = Modifier.height(18.dp))
 
-            val scrubberBlock: @Composable () -> Unit = {
-                PlayerScrubber(
-                    viewModel = viewModel,
-                    track = track
+            // Pemilih output audio (speaker / headset / Bluetooth)
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(colors.card)
+                    .border(1.dp, colors.border, RoundedCornerShape(20.dp))
+                    .clickable { viewModel.openAudioOutputSettings() }
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val icon = when (audioDeviceState.iconType) {
+                    id.nexrify.music.data.audio.OutputType.WIRED -> NexIcons.Headphones
+                    id.nexrify.music.data.audio.OutputType.BLUETOOTH -> NexIcons.BluetoothAudio
+                    id.nexrify.music.data.audio.OutputType.SPEAKER -> NexIcons.VolumeUp
+                }
+                Icon(
+                    imageVector = icon,
+                    contentDescription = S.cd("Audio Output"),
+                    tint = colors.textPrimary,
+                    modifier = Modifier.size(15.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = S.deviceLabel(audioDeviceState.title),
+                    style = Typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+                    color = colors.textPrimary,
+                    maxLines = 1
                 )
             }
-            val transportBlock: @Composable () -> Unit = {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = onShuffleClick,
-                        modifier = Modifier.size(44.dp)
-                    ) {
-                        Icon(
-                            imageVector = NexIcons.Shuffle,
-                            contentDescription = S.cd("Shuffle"),
-                            tint = if (isShuffle) colors.textPrimary else colors.textSecondary.copy(alpha = 0.4f),
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
 
-                    IconButton(
-                        onClick = onSkipPreviousClick,
-                        modifier = Modifier.size(52.dp)
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_nexrify_rewind),
-                            contentDescription = S.cd("Previous Track"),
-                            tint = colors.textPrimary,
-                            modifier = Modifier.size(32.dp)
-                        )
-                    }
+            Spacer(modifier = Modifier.height(14.dp))
 
-                    Box(
-                        modifier = Modifier
-                            .size(72.dp)
-                            .clip(CircleShape)
-                            .then(
-                                if (isV2) Modifier.background(Brush.linearGradient(listOf(colors.accent, colors.accentAlt)))
-                                else Modifier.background(colors.textPrimary)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (isLoading) {
-                            CircularProgressIndicator(
-                                color = colors.background,
-                                strokeWidth = 3.dp,
-                                modifier = Modifier.size(32.dp)
-                            )
-                        } else {
-                            IconButton(
-                                onClick = onPlayPauseClick,
-                                modifier = Modifier.size(72.dp)
-                            ) {
-                                Icon(
-                                    painter = if (isPlaying) painterResource(R.drawable.ic_nexrify_pause) else painterResource(R.drawable.ic_nexrify_play),
-                                    contentDescription = if (isPlaying) S.cd("Pause") else S.cd("Play"),
-                                    tint = colors.background,
-                                    modifier = Modifier.size(34.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    IconButton(
-                        onClick = onSkipNextClick,
-                        modifier = Modifier.size(52.dp)
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_nexrify_fast_forward),
-                            contentDescription = S.cd("Next Track"),
-                            tint = colors.textPrimary,
-                            modifier = Modifier.size(32.dp)
-                        )
-                    }
-
-                    IconButton(
-                        onClick = onRepeatClick,
-                        modifier = Modifier.size(44.dp)
-                    ) {
-                        val icon = if (repeatMode == Player.REPEAT_MODE_ONE) NexIcons.RepeatOne else NexIcons.Repeat
-                        val tint = if (repeatMode != Player.REPEAT_MODE_OFF) colors.textPrimary else colors.textSecondary.copy(alpha = 0.4f)
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = S.cd("Repeat"),
-                            tint = tint,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                }
-            }
-            val utilitiesBlock: @Composable () -> Unit = {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(colors.card)
-                            .border(1.dp, colors.border, RoundedCornerShape(20.dp))
-                            .clickable { viewModel.openAudioOutputSettings() }
-                            .padding(horizontal = 12.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val icon = when (audioDeviceState.iconType) {
-                            id.nexrify.music.data.audio.OutputType.WIRED -> NexIcons.Headphones
-                            id.nexrify.music.data.audio.OutputType.BLUETOOTH -> NexIcons.BluetoothAudio
-                            id.nexrify.music.data.audio.OutputType.SPEAKER -> NexIcons.VolumeUp
-                        }
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = S.cd("Audio Output"),
-                            tint = colors.textPrimary,
-                            modifier = Modifier.size(15.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = S.deviceLabel(audioDeviceState.title),
-                            style = Typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
-                            color = colors.textPrimary,
-                            maxLines = 1
-                        )
-                    }
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        IconButton(
-                            onClick = {
-                                isLyricsExpanded = !isLyricsExpanded
-                                if (isLyricsExpanded) {
-                                    scope.launch {
-                                        scrollState.animateScrollTo(scrollState.maxValue)
-                                    }
-                                }
-                            },
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(if (isLyricsExpanded) colors.accent else colors.card)
-                                .border(1.dp, colors.border, CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = NexIcons.ChatBubbleOutline,
-                                contentDescription = S.cd("Lyrics"),
-                                tint = if (isLyricsExpanded) colors.background else colors.textPrimary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = { showQueue = true },
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(colors.card)
-                                .border(1.dp, colors.border, CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = NexIcons.QueueMusic,
-                                contentDescription = S.cd("Queue"),
-                                tint = colors.textPrimary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = { showSettingsDialog = true },
-                            modifier = Modifier
-                                .size(38.dp)
-                                .clip(CircleShape)
-                                .background(colors.card)
-                                .border(1.dp, colors.border, CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = NexIcons.Tune,
-                                contentDescription = S.cd("Settings & Equalizer"),
-                                tint = colors.textPrimary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
-            if (isV2) {
-                Spacer(modifier = Modifier.height(14.dp))
-                utilitiesBlock()
-                Spacer(modifier = Modifier.height(20.dp))
-                transportBlock()
-                Spacer(modifier = Modifier.height(18.dp))
-                scrubberBlock()
-            } else {
-                scrubberBlock()
-                Spacer(modifier = Modifier.height(20.dp))
-                transportBlock()
-                Spacer(modifier = Modifier.height(20.dp))
-                utilitiesBlock()
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
+            // Satu-satunya deretan aksi: playlist, unduh, timer tidur, kecepatan, bagikan
             PlayerQuickActions(
                 track = track,
                 viewModel = viewModel,
@@ -680,9 +523,7 @@ fun FullPlayerSheet(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // -------------------------------------------------------------
-            // DESIGN #2 LYRICS CARD / DRAWER (Bottom) - Selalu terlihat jelas di V1 & V2
-            // -------------------------------------------------------------
+            // Lirik
             val hasLyrics = currentLyrics != null && currentLyrics!!.lines.isNotEmpty() &&
                     currentLyrics!!.lines.none { it.text.trim().equals("null", ignoreCase = true) }
 
@@ -698,26 +539,33 @@ fun FullPlayerSheet(
                     onExpandToggle = {
                         isLyricsExpanded = !isLyricsExpanded
                         if (isLyricsExpanded) {
-                            scope.launch {
-                                scrollState.animateScrollTo(scrollState.maxValue)
-                            }
+                            scope.launch { scrollState.animateScrollTo(scrollState.maxValue) }
                         }
                     },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(lyricsHeight)
                 )
-                Spacer(modifier = Modifier.height(36.dp))
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
-        OutlinedButton(
-            onClick = { showSongComments = true },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
-            shape = RoundedCornerShape(14.dp)
+        val commentShape = RoundedCornerShape(16.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 28.dp)
+                .clip(commentShape)
+                .background(colors.card)
+                .border(1.dp, colors.border, commentShape)
+                .clickable { showSongComments = true }
+                .padding(vertical = 14.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(NexIcons.ChatBubbleOutline, contentDescription = null, modifier = Modifier.size(18.dp))
+            Icon(NexIcons.ChatBubbleOutline, contentDescription = null, tint = colors.textPrimary, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text(S.songComments)
+            Text(S.songComments, style = Typography.labelLarge.copy(fontWeight = FontWeight.SemiBold), color = colors.textPrimary)
         }
     }
 
@@ -736,11 +584,18 @@ fun FullPlayerSheet(
     if (showSongComments) {
         SongCommentsSheet(track = track, onDismiss = { showSongComments = false })
     }
+}
 
-    if (showSettingsDialog) {
-        SettingsDialog(
-            onDismiss = { showSettingsDialog = false }
-        )
+@Composable
+private fun PlayerRoundButton(icon: androidx.compose.ui.graphics.vector.ImageVector, desc: String, iconSize: androidx.compose.ui.unit.Dp, onClick: () -> Unit) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier
+            .size(38.dp)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.45f))
+    ) {
+        Icon(imageVector = icon, contentDescription = desc, tint = Color.White, modifier = Modifier.size(iconSize))
     }
 }
 
