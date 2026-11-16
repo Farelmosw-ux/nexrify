@@ -7,4 +7,7 @@
     <string name="trending_title">Trending Now</string>
     <string name="library_title">Your Collection</string>
     <string name="widget_description">Kontrol musik Nexrify dari layar utama</string>
+    <string name="widget_description_compact">Nexrify · Ringkas (4×1): sampul, judul, dan kontrol putar</string>
+    <string name="widget_description_square">Nexrify · Kotak (2×2): sampul penuh dengan kontrol putar</string>
+    <string name="widget_description_large">Nexrify · Besar (4×2): sampul, suka, dan kontrol putar lengkap</string>
 </resources>
