@@ -177,7 +177,16 @@ class PlaylistManager private constructor(context: Context) {
     /** Simpan salinan playlist orang lain (dari tautan) sebagai playlist milik sendiri. Tidak ikut shareId, jadi tidak bisa menimpa tautan pemilik asli. */
     @Synchronized
     fun importPlaylist(name: String, tracks: List<Track>, coverUrl: String): Playlist =
-        createPlaylistWithTracks(name, tracks, coverUrl)
+        createPlaylistWithTracks(name, tracks, if (coverUrl.startsWith("data:image/")) saveDataCover(coverUrl) else coverUrl)
+
+    /** Sampul berbentuk data URI (dari playlist yang dibagikan) disimpan jadi file lokal supaya awet. */
+    private fun saveDataCover(data: String): String = try {
+        val bytes = android.util.Base64.decode(data.substringAfter("base64,"), android.util.Base64.DEFAULT)
+        val dir = java.io.File(appContext.filesDir, "playlist_covers").apply { mkdirs() }
+        val file = java.io.File(dir, "cover_shared_${System.currentTimeMillis()}.jpg")
+        file.writeBytes(bytes)
+        "file://" + file.absolutePath
+    } catch (_: Throwable) { "" }
 
     /** Ganti sampul (URL atau file://). Kosong = kembali ke kolase lagu. Sampul lokal lama dihapus. */
     @Synchronized
