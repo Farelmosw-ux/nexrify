@@ -74,7 +74,7 @@ fun PlayerQuickActions(
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         QuickActionTile(
-            icon = NexIcons.QueueMusic,
+            icon = NexIcons.Add,
             label = S.actionPlaylist,
             modifier = Modifier.weight(1f),
             onClick = onAddToPlaylist
