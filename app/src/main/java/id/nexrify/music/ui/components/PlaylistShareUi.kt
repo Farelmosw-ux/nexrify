@@ -186,7 +186,14 @@ fun SharedPlaylistHost(viewModel: MusicViewModel, onOpenLibrary: () -> Unit) {
         state = try {
             SharedState.Ready(PlaylistShare.fetch(id))
         } catch (e: AccountError) {
-            SharedState.Error(if (e.code == "not_found") str.sharedPlaylistNotFound else str.sharedPlaylistNetwork)
+            // Jangan semua dianggap masalah koneksi: tampilkan kode dari server supaya penyebab sebenarnya kelihatan.
+            SharedState.Error(
+                when (e.code) {
+                    "not_found" -> str.sharedPlaylistNotFound
+                    "network" -> str.sharedPlaylistNetwork
+                    else -> str.sharedPlaylistServer(e.message?.takeIf { it.isNotBlank() } ?: e.code)
+                }
+            )
         } catch (e: Exception) {
             SharedState.Error(str.sharedPlaylistNetwork)
         }
