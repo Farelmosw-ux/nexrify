@@ -507,6 +507,16 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 track != null && favs.any { it.id == track.id }
             }.collect { PlaybackBridge.isFavorite.value = it }
         }
+        // Tombol Putar di widget saat pemutar belum hidup: lanjutkan lagu terakhir.
+        viewModelScope.launch {
+            PlaybackBridge.widgetPlay.collect { want ->
+                if (!want) return@collect
+                PlaybackBridge.widgetPlay.value = false
+                var waited = 0
+                while (mediaController == null && waited < 50) { delay(100L); waited++ }
+                if (_currentTrack.value != null && !_isPlaying.value) togglePlayPause()
+            }
+        }
         restoreSnapshot()
         viewModelScope.launch {
             while (true) {
@@ -1270,6 +1280,55 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     fun logout() {
         id.nexrify.music.data.auth.AuthManager.getInstance().logout()
+    }
+
+    /**
+     * Keluar dari akun Nexrify: hentikan musik yang sedang diputar dan kosongkan semua status pemutar
+     * (antrian, lagu aktif, snapshot, timer tidur, widget) supaya tidak terbawa ke akun berikutnya.
+     * Dipanggil sebelum data akun dihapus dari perangkat.
+     */
+    fun resetSession() {
+        playJob?.cancel()
+        sleepJob?.cancel()
+        sleepEndOfTrackId = null
+        _sleepRemainingSec.value = null
+        stopProgressTracking()
+        mediaController?.let { c ->
+            runCatching {
+                c.pause()
+                c.stop()
+                c.clearMediaItems()
+                c.setPlaybackSpeed(1f)
+            }
+        }
+        synchronized(playlistQueue) { playlistQueue.clear() }
+        currentIndex = -1
+        restoredPending = false
+        restoredPositionMs = 0L
+        _currentTrack.value = null
+        _isPlaying.value = false
+        _isLoadingTrack.value = false
+        _playbackPosition.value = 0L
+        _duration.value = 0L
+        _isPlayerExpanded.value = false
+        _isShuffle.value = false
+        _repeatMode.value = Player.REPEAT_MODE_OFF
+        _playbackSpeed.value = 1f
+        _currentLyrics.value = null
+        _isLoadingLyrics.value = false
+        _searchResults.value = emptyList()
+        _suggestions.value = emptyList()
+        publishQueue()
+        playbackStore.clear()
+        PlaybackBridge.isFavorite.value = false
+        PlaybackBridge.isLoading.value = false
+        id.nexrify.music.NexrifyWidgetProvider.reset(getApplication<android.app.Application>())
+    }
+
+    /** Muat ulang beranda untuk akun yang baru masuk, bukan sisa data akun sebelumnya. */
+    fun refreshAfterLogin() {
+        _homeSections.value = emptyList()
+        loadTrending(forceRefresh = true)
     }
 
     override fun onCleared() {
