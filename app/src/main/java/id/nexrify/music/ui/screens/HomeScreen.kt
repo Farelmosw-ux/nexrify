@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -112,6 +113,17 @@ fun HomeScreen(
 
     val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
     val isV2 = id.nexrify.music.ui.theme.NexrifyAppTheme.isV2
+    // Daftar Beranda memakai key tiap item. Saat gaya tema berpindah (V1 <-> V2) urutan rak berubah, dan Compose
+    // menjaga item yang tadinya paling atas tetap di posisinya, sehingga daftar terlihat "scroll sendiri".
+    // Karena itu posisi dikembalikan ke atas, hanya ketika gayanya benar-benar berganti (bukan tiap kembali ke Beranda).
+    val homeListState = rememberLazyListState()
+    var lastIsV2 by rememberSaveable { mutableStateOf(isV2) }
+    LaunchedEffect(isV2) {
+        if (lastIsV2 != isV2) {
+            homeListState.scrollToItem(0)
+            lastIsV2 = isV2
+        }
+    }
     var localNow by remember { mutableStateOf(java.time.ZonedDateTime.now()) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -358,7 +370,7 @@ fun HomeScreen(
 
             }
 
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
+            LazyColumn(modifier = Modifier.fillMaxSize(), state = homeListState) {
                 if (isV2) {
                     // V2: pilihan untukmu (hero) dulu, lalu favorit, lalu putar lagi (urutan dibalik).
                     picksBlock(this)
@@ -408,7 +420,8 @@ fun HomeScreen(
             }
         } else {
             LazyColumn(
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                state = homeListState
             ) {
                 items(trendingTracks, key = { it.id }, contentType = { "track" }) { track ->
                     val isFav = track.id in favoriteIds
