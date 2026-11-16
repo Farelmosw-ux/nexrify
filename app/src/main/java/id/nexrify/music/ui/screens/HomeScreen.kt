@@ -101,6 +101,7 @@ fun HomeScreen(
     val currentLanguage by viewModel.settingsManager.language.collectAsState()
     val favorites by viewModel.favorites.collectAsState()
     val recentlyPlayed by viewModel.recentlyPlayed.collectAsState()
+    val reactions by viewModel.reactions.collectAsState()
     val favoriteIds by remember(favorites) { androidx.compose.runtime.derivedStateOf { favorites.mapTo(HashSet()) { it.id } } }
 
     var showProfileMenu by remember { mutableStateOf(false) }
@@ -400,7 +401,10 @@ fun HomeScreen(
                                     track = track,
                                     isPlaying = currentTrack?.id == track.id,
                                     onClick = { viewModel.playTrack(track, section.tracks) },
-                                    onLongClick = { trackForPlaylist = track }
+                                    onLongClick = { trackForPlaylist = track },
+                                    reaction = reactions[track.id] ?: 0,
+                                    onLike = { viewModel.reactToTrack(track, 1) },
+                                    onDislike = { viewModel.reactToTrack(track, -1) }
                                 )
                             }
                         }
@@ -494,13 +498,42 @@ fun AccountTopButton(
 }
 
 @OptIn(ExperimentalFoundationApi::class)
+/** Tombol jempol kecil di atas sampul kartu lagu. */
+@Composable
+private fun ReactionButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    active: Boolean,
+    description: String,
+    onClick: () -> Unit
+) {
+    val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
+    Box(
+        modifier = Modifier
+            .size(28.dp)
+            .clip(androidx.compose.foundation.shape.CircleShape)
+            .background(if (active) colors.accent.copy(alpha = 0.95f) else PureBlack.copy(alpha = 0.62f))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = description,
+            tint = if (active) colors.background else PureWhite,
+            modifier = Modifier.size(15.dp)
+        )
+    }
+}
+
 @Composable
 fun YtmMusicCard(
     track: Track,
     isPlaying: Boolean,
     onClick: () -> Unit,
     onLongClick: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    reaction: Int = 0,
+    onLike: (() -> Unit)? = null,
+    onDislike: (() -> Unit)? = null
 ) {
     val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
     val cardV2 = id.nexrify.music.ui.theme.NexrifyAppTheme.isV2
@@ -538,6 +571,26 @@ fun YtmMusicCard(
                         contentDescription = S.cd("Playing"),
                         tint = PureWhite,
                         modifier = Modifier.size(32.dp)
+                    )
+                }
+            }
+
+            if (onLike != null || onDislike != null) {
+                Row(
+                    modifier = Modifier.align(Alignment.BottomStart).padding(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (onLike != null) ReactionButton(
+                        icon = if (reaction == 1) NexIcons.ThumbUpFilled else NexIcons.ThumbUp,
+                        active = reaction == 1,
+                        description = S.likeSong,
+                        onClick = onLike
+                    )
+                    if (onDislike != null) ReactionButton(
+                        icon = if (reaction == -1) NexIcons.ThumbDownFilled else NexIcons.ThumbDown,
+                        active = reaction == -1,
+                        description = S.dislikeSong,
+                        onClick = onDislike
                     )
                 }
             }
