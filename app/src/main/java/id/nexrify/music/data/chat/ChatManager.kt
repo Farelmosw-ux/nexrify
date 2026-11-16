@@ -414,12 +414,20 @@ class ChatManager private constructor(private val context: Context) {
     /** seq → teks terjemahan yang sedang ditampilkan di bawah pesan. */
     val translated: StateFlow<Map<Long, String>> = _translated.asStateFlow()
 
+    private val _translatedLang = MutableStateFlow<Map<Long, String>>(emptyMap())
+    /** seq → bahasa terjemahan yang sedang tampil ("id" atau "en"). Dipakai tombol terjemah tunggal. */
+    val translatedLang: StateFlow<Map<Long, String>> = _translatedLang.asStateFlow()
+
     suspend fun translate(seq: Long, to: String) {
         val text = ChatXApi.translate(needToken(), seq, to)
         _translated.update { it + (seq to text) }
+        _translatedLang.update { it + (seq to to) }
     }
 
-    fun hideTranslation(seq: Long) { _translated.update { it - seq } }
+    fun hideTranslation(seq: Long) {
+        _translated.update { it - seq }
+        _translatedLang.update { it - seq }
+    }
 
     // ---- polling ----
     private val _myVotes = MutableStateFlow<Map<Long, Int>>(emptyMap())
