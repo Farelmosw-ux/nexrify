@@ -497,7 +497,6 @@ fun AccountTopButton(
     )
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 /** Tombol jempol kecil di atas sampul kartu lagu. */
 @Composable
 private fun ReactionButton(
@@ -524,6 +523,7 @@ private fun ReactionButton(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun YtmMusicCard(
     track: Track,
