@@ -37,6 +37,7 @@ class PlaybackService : MediaSessionService() {
     private var capsule: id.nexrify.music.capsule.MusicCapsuleController? = null
     private val serviceScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main + id.nexrify.music.util.CrashReporter.handler)
     private var favoriteJob: kotlinx.coroutines.Job? = null
+    private var widgetLikeJob: kotlinx.coroutines.Job? = null
 
     /** Tombol di notifikasi dan kontrol media: suka dan tampilkan/sembunyikan kapsul. */
     @OptIn(UnstableApi::class)
@@ -149,6 +150,14 @@ class PlaybackService : MediaSessionService() {
         const val ACTION_TOGGLE_LIKE = "id.nexrify.music.ACTION_TOGGLE_LIKE"
         const val ACTION_TOGGLE_CAPSULE = "id.nexrify.music.ACTION_TOGGLE_CAPSULE"
         const val ACTION_PREV = "id.nexrify.music.ACTION_PREV"
+
+        /** Pemutar milik layanan ini, dipakai widget untuk jeda/putar langsung. Null kalau layanan belum/tidak hidup. */
+        @Volatile var playerRef: Player? = null
+            private set
+
+        /** True selama layanan pemutar hidup di proses ini. Otomatis false lagi kalau proses dimatikan sistem. */
+        @Volatile var alive: Boolean = false
+            private set
     }
 
     @OptIn(UnstableApi::class)
@@ -253,6 +262,8 @@ class PlaybackService : MediaSessionService() {
         }
 
         player = forwardingPlayer
+        playerRef = forwardingPlayer
+        alive = true
 
         val openAppIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
@@ -286,6 +297,13 @@ class PlaybackService : MediaSessionService() {
                 id.nexrify.music.data.settings.SettingsManager.getInstance().capsuleEnabled
             ) { liked, capsuleOn -> liked to capsuleOn }.collect { (liked, capsuleOn) ->
                 mediaSession?.setCustomLayout(controlsLayout(liked, capsuleOn))
+            }
+        }
+        // Ikon suka di widget besar ikut berubah.
+        widgetLikeJob = serviceScope.launch {
+            PlaybackBridge.isFavorite.collect { liked ->
+                NexrifyWidgetProvider.saveLiked(this@PlaybackService, liked)
+                NexrifyWidgetProvider.refresh(this@PlaybackService)
             }
         }
 
@@ -362,9 +380,14 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        alive = false
+        playerRef = null
+        NexrifyWidgetProvider.save(this, "", "", false)
+        NexrifyWidgetProvider.refresh(this)
         capsule?.destroy()
         capsule = null
         favoriteJob?.cancel()
+        widgetLikeJob?.cancel()
         serviceScope.cancel()
         mediaSession?.run {
             player.release()
