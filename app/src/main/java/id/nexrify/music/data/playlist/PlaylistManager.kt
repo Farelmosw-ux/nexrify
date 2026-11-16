@@ -17,7 +17,7 @@ data class Playlist(
     val tracks: List<Track> = emptyList(),
     /** Sampul kustom: URL https (hasil import) atau file:// (dipilih dari galeri). Kosong = kolase lagu. */
     val coverUrl: String = "",
-    /** Id tautan berbagi (https://nexrify.biz.id/playlist/usr/<id>). Kosong = belum dibagikan. */
+    /** Id tautan berbagi (https://nexrify.biz.id/playlist/<username>/<id>). Kosong = belum dibagikan. */
     val shareId: String = ""
 )
 
