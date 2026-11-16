@@ -169,6 +169,7 @@ fun ChatScreen(viewModel: MusicViewModel, highlightSeq: Long, onBack: () -> Unit
     var pinIndex by remember { mutableStateOf(0) }
     val seen by manager.seen.collectAsState()
     val translated by manager.translated.collectAsState()
+    val translatedLang by manager.translatedLang.collectAsState()
     val myVotes by manager.myVotes.collectAsState()
     val donorRanks by DonateManager.ranks.collectAsState()
     // Tag TOP DONATE di chat: segarkan tiap 5 menit selama chat terbuka.
@@ -617,8 +618,12 @@ fun ChatScreen(viewModel: MusicViewModel, highlightSeq: Long, onBack: () -> Unit
             extra = buildList {
                 val st = currentStrings()
                 if (!m.deleted && !m.announce && m.poll == null && m.text.isNotBlank() && !mine && m.seq > 0) {
-                    add(ChatMenuItem(NexIcons.Translate, st.chatTranslateId) { translateMsg(m, "id") })
-                    add(ChatMenuItem(NexIcons.Translate, st.chatTranslateEn) { translateMsg(m, "en") })
+                    // Satu tombol saja: tiap diketuk pindah Indonesia -> Inggris -> teks asli.
+                    when (translatedLang[m.seq]) {
+                        "id" -> add(ChatMenuItem(NexIcons.Translate, st.chatTranslateEn) { translateMsg(m, "en") })
+                        "en" -> add(ChatMenuItem(NexIcons.Translate, st.chatTranslateOriginal) { menuMsg = null; manager.hideTranslation(m.seq) })
+                        else -> add(ChatMenuItem(NexIcons.Translate, st.chatTranslateId) { translateMsg(m, "id") })
+                    }
                 }
                 if (!m.deleted && m.seq > 0) add(ChatMenuItem(NexIcons.ChatBubbleOutline, st.chatThreadAction) { menuMsg = null; threadRoot = m })
                 if (!m.deleted && m.reactions.isNotEmpty()) add(ChatMenuItem(NexIcons.Favorite, st.chatViewReactions) { menuMsg = null; reactorsMsg = m })
