@@ -333,6 +333,7 @@ class Strings(val english: Boolean) {
     val sharedPlaylistLoading get() = t("Memuat playlist…", "Loading playlist…")
     val sharedPlaylistNotFound get() = t("Playlist tidak ditemukan atau pemiliknya sudah berhenti membagikannya.", "Playlist not found, or the owner stopped sharing it.")
     val sharedPlaylistNetwork get() = t("Gagal memuat playlist. Periksa koneksi lalu coba lagi.", "Couldn't load the playlist. Check your connection and try again.")
+    fun sharedPlaylistServer(detail: String) = t("Server menolak permintaan ($detail). Coba lagi nanti.", "The server rejected the request ($detail). Please try again later.")
     val sharedPlaylistClose get() = t("Tutup", "Close")
     val sharedPlaylistSave get() = t("Simpan ke Koleksi", "Save to Library")
     val sharedPlaylistPlay get() = t("Putar sekarang", "Play now")
