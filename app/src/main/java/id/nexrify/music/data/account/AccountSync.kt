@@ -32,7 +32,7 @@ class AccountSync private constructor(private val context: Context) {
         Spec("nexrify_search_history", strings = listOf("items")),
         Spec(
             "nexrify_settings",
-            strings = listOf("theme_mode", "audio_quality", "app_language"),
+            strings = listOf("theme_mode", "theme_style", "audio_quality", "app_language"),
             bools = listOf("lyrics_auto_translate", "music_capsule_enabled", "music_capsule_locked")
         ),
         Spec("nexrify_mailbox", sets = listOf("read", "hidden"))
