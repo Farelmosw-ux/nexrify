@@ -32,8 +32,32 @@ class MusicRepository {
         /** Filter pencarian YouTube Music: hanya Video (lagu yang cuma ada sebagai video, cover, remix, dll). */
         const val YTM_FILTER_VIDEOS = "EgWKAQIQAWoKEAkQBRAKEAMQBA=="
         const val MIN_YTM_RESULTS = 5
+        const val YTM_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+        val VISITOR_DATA_REGEX = Regex("\"VISITOR_DATA\"\\s*:\\s*\"([^\"]+)\"")
+        val VISITOR_DATA_REGEX_ALT = Regex("\"visitorData\"\\s*:\\s*\"([^\"]+)\"")
+        @Volatile var cachedVisitorData: String? = null
         val YTM_TYPE_LABELS = setOf("song", "video", "single", "ep", "album", "lagu", "playlist", "artist", "artis")
     }
+    /** Visitor id YouTube Music: bikin rak beranda ikut berubah-ubah, bukan itu-itu saja. */
+    private fun ensureVisitorData(): String? {
+        cachedVisitorData?.let { return it }
+        return try {
+            val req = okhttp3.Request.Builder()
+                .url("https://music.youtube.com/sw.js_data")
+                .header("User-Agent", YTM_UA)
+                .header("Referer", "https://music.youtube.com/")
+                .build()
+            HttpClientProvider.client.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return null
+                val raw = resp.body?.string().orEmpty()
+                val m = VISITOR_DATA_REGEX.find(raw)?.groupValues?.getOrNull(1)
+                    ?: VISITOR_DATA_REGEX_ALT.find(raw)?.groupValues?.getOrNull(1)
+                if (!m.isNullOrBlank()) cachedVisitorData = m
+                cachedVisitorData
+            }
+        } catch (_: Exception) { null }
+    }
+
     private val streamUrlCache = LruCache<String, Pair<ResolvedStream, Long>>(50)
     private val CACHE_EXPIRY_MS = 3 * 60 * 60 * 1000L
 
@@ -352,14 +376,14 @@ class MusicRepository {
             if (forceRefresh) homeCache = null
             homeCache?.let { (cached, time) ->
                 if (now - time < HOME_CACHE_TTL) {
-                    return@withContext cached
+                    return@withContext variate(cached)
                 }
             }
         }
         val ytmShelves = fetchYouTubeMusicShelves()
         if (ytmShelves.isNotEmpty()) {
             synchronized(this) { homeCache = Pair(ytmShelves, now) }
-            return@withContext ytmShelves
+            return@withContext variate(ytmShelves)
         }
 
         // Fallback: group into categories
@@ -372,6 +396,26 @@ class MusicRepository {
         } else {
             emptyList()
         }
+    }
+
+    /**
+     * Acak halus tiap beranda dimuat: urutan rak (2 teratas tetap) dan isi tiap rak (lagu pertama tetap) digeser,
+     * jadi isi beranda tidak itu-itu saja walau data dari server sama.
+     */
+    private fun variate(shelves: List<HomeSection>): List<HomeSection> {
+        if (shelves.size <= 2) return shelves
+        val head = shelves.take(2)
+        val tail = shelves.drop(2).shuffled()
+        return (head + tail).map { sec ->
+            if (sec.tracks.size > 3) sec.copy(tracks = sec.tracks.take(1) + sec.tracks.drop(1).shuffled()) else sec
+        }
+    }
+
+    /** Rak penemuan acak dari satu kata kunci (dipakai rak selera & jelajah). */
+    suspend fun getDiscoverShelf(query: String, title: String, subtitle: String = "", limit: Int = 12): HomeSection? {
+        val tracks = runCatching { searchTracks(query) }.getOrDefault(emptyList())
+        if (tracks.isEmpty()) return null
+        return HomeSection(title = title, subtitle = subtitle, tracks = tracks.shuffled().take(limit))
     }
 
     suspend fun getTrendingTracks(): List<Track> = withContext(Dispatchers.IO) {
@@ -498,8 +542,9 @@ class MusicRepository {
             val cookie = auth.getCookie() ?: ""
             val sapisidHash = auth.getSapisidHash(origin)
             val client = HttpClientProvider.client
+            val visitorData = ensureVisitorData()
 
-            fun fetchBrowse(browseId: String): org.json.JSONObject? {
+            fun fetchBrowse(browseId: String, continuation: String? = null): org.json.JSONObject? {
                 val payload = org.json.JSONObject().apply {
                     put("context", org.json.JSONObject().apply {
                         put("client", org.json.JSONObject().apply {
@@ -507,9 +552,10 @@ class MusicRepository {
                             put("clientVersion", YTM_CLIENT_VERSION)
                             put("hl", "id")
                             put("gl", "ID")
+                            if (!visitorData.isNullOrBlank()) put("visitorData", visitorData)
                         })
                     })
-                    put("browseId", browseId)
+                    if (continuation != null) put("continuation", continuation) else put("browseId", browseId)
                 }
                 val reqBuilder = okhttp3.Request.Builder()
                     .url("$origin/youtubei/v1/browse")
@@ -522,6 +568,7 @@ class MusicRepository {
                     .header("X-YouTube-Client-Version", YTM_CLIENT_VERSION)
                     .post(payload.toString().toRequestBody("application/json".toMediaType()))
 
+                if (!visitorData.isNullOrBlank()) reqBuilder.header("X-Goog-Visitor-Id", visitorData)
                 if (cookie.isNotBlank()) reqBuilder.header("Cookie", cookie)
                 if (!sapisidHash.isNullOrBlank()) {
                     reqBuilder.header("Authorization", sapisidHash)
@@ -541,6 +588,22 @@ class MusicRepository {
 
                 if (homeJson != null) {
                     result.addAll(parseYtmSections(homeJson, "Pilihan Cepat"))
+                    // Halaman lanjutan: rak tambahan supaya beranda lebih beragam.
+                    var cont = homeJson.optJSONObject("contents")
+                        ?.optJSONObject("singleColumnBrowseResultsRenderer")?.optJSONArray("tabs")
+                        ?.optJSONObject(0)?.optJSONObject("tabRenderer")?.optJSONObject("content")
+                        ?.optJSONObject("sectionListRenderer")?.optJSONArray("continuations")
+                        ?.optJSONObject(0)?.optJSONObject("nextContinuationData")
+                        ?.optString("continuation")?.takeIf { it.isNotBlank() }
+                    var pages = 0
+                    while (cont != null && pages < 2) {
+                        val next = fetchBrowse("FEmusic_home", cont) ?: break
+                        val list = next.optJSONObject("continuationContents")?.optJSONObject("sectionListContinuation")
+                        list?.optJSONArray("contents")?.let { result.addAll(parseYtmSectionsArray(it, "Pilihan Cepat")) }
+                        cont = list?.optJSONArray("continuations")?.optJSONObject(0)
+                            ?.optJSONObject("nextContinuationData")?.optString("continuation")?.takeIf { it.isNotBlank() }
+                        pages++
+                    }
                 }
                 if (exploreJson != null) {
                     result.addAll(parseYtmSections(exploreJson, "Lagu Trending"))
@@ -553,17 +616,20 @@ class MusicRepository {
     }
 
     private fun parseYtmSections(root: org.json.JSONObject, defaultTitle: String): List<HomeSection> {
+        val tabs = root.optJSONObject("contents")
+            ?.optJSONObject("singleColumnBrowseResultsRenderer")
+            ?.optJSONArray("tabs") ?: return emptyList()
+        val sections = tabs.optJSONObject(0)
+            ?.optJSONObject("tabRenderer")
+            ?.optJSONObject("content")
+            ?.optJSONObject("sectionListRenderer")
+            ?.optJSONArray("contents") ?: return emptyList()
+        return parseYtmSectionsArray(sections, defaultTitle)
+    }
+
+    private fun parseYtmSectionsArray(sections: org.json.JSONArray, defaultTitle: String): List<HomeSection> {
         val list = mutableListOf<HomeSection>()
         try {
-            val tabs = root.optJSONObject("contents")
-                ?.optJSONObject("singleColumnBrowseResultsRenderer")
-                ?.optJSONArray("tabs") ?: return emptyList()
-            val sections = tabs.optJSONObject(0)
-                ?.optJSONObject("tabRenderer")
-                ?.optJSONObject("content")
-                ?.optJSONObject("sectionListRenderer")
-                ?.optJSONArray("contents") ?: return emptyList()
-
             for (s in 0 until sections.length()) {
                 val shelfObj = sections.optJSONObject(s)?.optJSONObject("musicCarouselShelfRenderer") ?: continue
                 val hRuns = shelfObj.optJSONObject("header")
