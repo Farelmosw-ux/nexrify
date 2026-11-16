@@ -1,5 +1,6 @@
 package id.nexrify.music.ui.components
 
+import id.nexrify.music.ui.screens.PlaylistCollageIcon
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -38,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import id.nexrify.music.data.account.AccountError
 import id.nexrify.music.data.account.AccountManager
 import id.nexrify.music.data.playlist.Playlist
+import id.nexrify.music.data.playlist.PlaylistCoverExport
 import id.nexrify.music.data.playlist.PlaylistShare
 import id.nexrify.music.data.playlist.PlaylistShareNav
 import id.nexrify.music.data.playlist.SharedPlaylist
@@ -97,6 +99,9 @@ fun SharePlaylistDialog(playlist: Playlist, viewModel: MusicViewModel, onDismiss
                 Text(str.sharePlaylistPreparing, style = Typography.bodyMedium, color = colors.textMuted)
             }
             link.isNotBlank() && failed == null -> {
+                Box(Modifier.fillMaxWidth().padding(bottom = 14.dp), contentAlignment = Alignment.Center) {
+                    PlaylistCollageIcon(playlist = playlist, size = 112)
+                }
                 Text(
                     link,
                     style = Typography.bodyMedium,
@@ -111,8 +116,24 @@ fun SharePlaylistDialog(playlist: Playlist, viewModel: MusicViewModel, onDismiss
                 Spacer(Modifier.height(16.dp))
                 Button(
                     onClick = {
-                        val send = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, str.sharePlaylistText(playlist.name, link)) }
-                        runCatching { context.startActivity(Intent.createChooser(send, str.shareVia).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                        val shareText = str.sharePlaylistText(playlist.name, link)
+                        val chooserTitle = str.shareVia
+                        scope.launch {
+                            // Sampul playlist ikut terkirim sebagai gambar, tautan jadi keterangannya. Kalau gambar gagal dibuat, kirim teks saja.
+                            val cover = PlaylistCoverExport.export(context, playlist)
+                            val send = Intent(Intent.ACTION_SEND).apply {
+                                putExtra(Intent.EXTRA_TEXT, shareText)
+                                if (cover != null) {
+                                    type = "image/jpeg"
+                                    putExtra(Intent.EXTRA_STREAM, cover)
+                                    clipData = ClipData.newRawUri("", cover)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                } else {
+                                    type = "text/plain"
+                                }
+                            }
+                            runCatching { context.startActivity(Intent.createChooser(send, chooserTitle).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                        }
                     },
                     modifier = Modifier.fillMaxWidth().height(50.dp),
                     shape = RoundedCornerShape(16.dp),
@@ -232,6 +253,9 @@ fun SharedPlaylistHost(viewModel: MusicViewModel, onOpenLibrary: () -> Unit) {
             }
             is SharedState.Ready -> {
                 val p = st.playlist
+                Box(Modifier.fillMaxWidth().padding(bottom = 14.dp), contentAlignment = Alignment.Center) {
+                    PlaylistCollageIcon(playlist = Playlist(id = p.id, name = p.name, tracks = p.tracks, coverUrl = p.coverUrl), size = 112)
+                }
                 Text(str.sharedPlaylistBy(p.ownerName.ifBlank { "Nexrify" }, p.tracks.size), style = Typography.bodyMedium, color = colors.textMuted)
                 Spacer(Modifier.height(16.dp))
                 Button(
