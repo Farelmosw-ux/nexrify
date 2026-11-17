@@ -95,6 +95,12 @@ class MusicCapsuleController(
     private lateinit var textColumn: LinearLayout
 
     private var draggingSeek = false
+
+    // Posisi kapsul yang digeser pengguna (offset dari posisi bawaan, disimpan supaya tidak balik lagi).
+    private val posPrefs = context.getSharedPreferences("nexrify_capsule_pos", Context.MODE_PRIVATE)
+    private var savedX = posPrefs.getInt("x", 0)
+    private var savedY = posPrefs.getInt("y", Int.MIN_VALUE)
+    private var dragging = false
     @Volatile private var artworkKey: String? = null
     private var lastBitmap: Bitmap? = null
     private var placeholderShown = false
@@ -238,7 +244,8 @@ class MusicCapsuleController(
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = dp(COLLAPSED_TOP_MARGIN_DP)
+            x = savedX
+            y = collapsedY()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -491,13 +498,54 @@ class MusicCapsuleController(
                 return false
             }
         })
+        var downRawX = 0f
+        var downRawY = 0f
+        var startX = 0
+        var startY = 0
+        val slop = android.view.ViewConfiguration.get(context).scaledTouchSlop
         container.setOnTouchListener { _, event ->
-            if (event.action == MotionEvent.ACTION_OUTSIDE) {
-                if (expanded) setExpanded(false)
-                false
-            } else {
-                detector.onTouchEvent(event)
+            when (event.actionMasked) {
+                MotionEvent.ACTION_OUTSIDE -> {
+                    if (expanded) setExpanded(false)
+                    return@setOnTouchListener false
+                }
+                MotionEvent.ACTION_DOWN -> {
+                    val lp = params
+                    downRawX = event.rawX; downRawY = event.rawY
+                    startX = lp?.x ?: 0; startY = lp?.y ?: 0
+                    dragging = false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val lp = params
+                    val dx = event.rawX - downRawX
+                    val dy = event.rawY - downRawY
+                    if (!dragging && lp != null && (abs(dx) > slop || abs(dy) > slop)) {
+                        dragging = true
+                        // Batalkan tap / tekan lama yang sedang berjalan, ini geseran.
+                        val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
+                        detector.onTouchEvent(cancel)
+                        cancel.recycle()
+                        handler.removeCallbacks(autoCollapse)
+                    }
+                    if (dragging && lp != null) {
+                        moveTo(lp, startX + dx.toInt(), startY + dy.toInt())
+                        return@setOnTouchListener true
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (dragging) {
+                        dragging = false
+                        if (!expanded) {
+                            params?.let { savedX = it.x; savedY = it.y }
+                            posPrefs.edit().putInt("x", savedX).putInt("y", savedY).apply()
+                        } else {
+                            scheduleAutoCollapse()
+                        }
+                        return@setOnTouchListener true
+                    }
+                }
             }
+            detector.onTouchEvent(event)
         }
         container.isClickable = true
         return container
@@ -712,6 +760,7 @@ class MusicCapsuleController(
         val metrics = context.resources.displayMetrics
         if (value) {
             lp.width = metrics.widthPixels - dp(EXPANDED_SIDE_MARGIN_DP * 2)
+            lp.x = 0
             lp.y = 0
             setCorners(top = 0f, bottom = dp(EXPANDED_RADIUS_DP).toFloat())
             content.setPadding(dp(14), statusBarHeight().coerceAtLeast(dp(24)), dp(14), dp(6))
@@ -725,7 +774,8 @@ class MusicCapsuleController(
             scheduleAutoCollapse()
         } else {
             lp.width = collapsedWidth()
-            lp.y = dp(COLLAPSED_TOP_MARGIN_DP)
+            lp.x = savedX
+            lp.y = collapsedY()
             setCorners(top = dp(COLLAPSED_HEIGHT_DP / 2).toFloat(), bottom = dp(COLLAPSED_HEIGHT_DP / 2).toFloat())
             content.setPadding(dp(5), dp(5), dp(5), dp(5))
             artView.layoutParams = LinearLayout.LayoutParams(dp(COLLAPSED_ART_DP), dp(COLLAPSED_ART_DP))
@@ -758,6 +808,22 @@ class MusicCapsuleController(
         } catch (_: Exception) {
         }
         if (expanded) setExpanded(false)
+    }
+
+    private fun collapsedY(): Int =
+        if (savedY == Int.MIN_VALUE) dp(COLLAPSED_TOP_MARGIN_DP)
+        else savedY.coerceIn(0, (context.resources.displayMetrics.heightPixels - dp(COLLAPSED_HEIGHT_DP)).coerceAtLeast(0))
+
+    /** Geser jendela, tetap di dalam layar supaya selalu bisa diraih lagi. Panel penuh hanya bisa digeser vertikal. */
+    private fun moveTo(lp: WindowManager.LayoutParams, x: Int, y: Int) {
+        val view = root ?: return
+        val m = context.resources.displayMetrics
+        val w = if (lp.width > 0) lp.width else view.width
+        val h = view.height.takeIf { it > 0 } ?: dp(COLLAPSED_HEIGHT_DP)
+        val maxX = ((m.widthPixels - w) / 2).coerceAtLeast(0)
+        lp.x = if (expanded) 0 else x.coerceIn(-maxX, maxX)
+        lp.y = y.coerceIn(0, (m.heightPixels - h).coerceAtLeast(0))
+        try { windowManager.updateViewLayout(view, lp) } catch (_: Exception) {}
     }
 
     private fun collapsedWidth(): Int {
