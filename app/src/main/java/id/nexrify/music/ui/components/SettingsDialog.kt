@@ -118,6 +118,10 @@ fun SettingsDialog(
     val isTopDonor = (donorRanks[currentUsername.lowercase()] ?: 0) in 1..3
     val canUsePremiumThemes = isTopDonor || isPrivileged
     val currentQuality by settingsManager.audioQuality.collectAsState()
+    val downloadQuality by settingsManager.downloadQuality.collectAsState()
+    var showAudioPicker by remember { mutableStateOf(false) }
+    var showDownloadPicker by remember { mutableStateOf(false) }
+    var showLanguagePicker by remember { mutableStateOf(false) }
     val autoTranslate by settingsManager.autoTranslate.collectAsState()
     val currentLanguage by settingsManager.language.collectAsState()
 
@@ -151,6 +155,31 @@ fun SettingsDialog(
         cacheSize = settingsManager.getFormattedCacheSizeAsync()
     }
 
+    if (showAudioPicker) SelectDialog(
+        title = S.chooseAudioQuality,
+        options = AudioQuality.values().map { it to S.qualityTitle(it) },
+        descriptions = AudioQuality.values().associateWith { S.qualityDesc(it) },
+        selected = currentQuality,
+        onSelect = { settingsManager.setAudioQuality(it); showAudioPicker = false },
+        onDismiss = { showAudioPicker = false }
+    )
+    if (showDownloadPicker) SelectDialog(
+        title = S.chooseDownloadQuality,
+        options = AudioQuality.values().map { it to S.qualityTitle(it) },
+        descriptions = AudioQuality.values().associateWith { S.qualityDesc(it) },
+        selected = downloadQuality,
+        onSelect = { settingsManager.setDownloadQuality(it); showDownloadPicker = false },
+        onDismiss = { showDownloadPicker = false }
+    )
+    if (showLanguagePicker) SelectDialog(
+        title = S.chooseLanguage,
+        options = listOf(AppLanguage.SYSTEM to S.langSystem, AppLanguage.INDONESIAN to S.langId, AppLanguage.ENGLISH to S.langEn),
+        descriptions = emptyMap(),
+        selected = currentLanguage,
+        onSelect = { settingsManager.setLanguage(it); showLanguagePicker = false },
+        onDismiss = { showLanguagePicker = false }
+    )
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -174,12 +203,19 @@ fun SettingsDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = S.settings,
-                        style = Typography.headlineMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = colors.textPrimary
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        AppFavicon(34.dp)
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = S.settings,
+                                style = Typography.headlineMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.textPrimary
+                            )
+                            Text(S.appTagline, style = Typography.bodySmall, color = colors.textMuted)
+                        }
+                    }
 
                     IconButton(
                         onClick = onDismiss,
@@ -199,71 +235,105 @@ fun SettingsDialog(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // Language preference (persisted; SYSTEM follows device locale).
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(imageVector = NexIcons.Translate, contentDescription = null,
-                        tint = colors.textPrimary, modifier = Modifier.size(20.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Bahasa / Language", style = Typography.titleMedium,
-                        fontWeight = FontWeight.Bold, color = colors.textPrimary)
+                // ---- Gaya Kuro: baris pilihan (select), bukan kartu panjang ----
+                SettingsSectionHeader(S.settingsSectionAudio)
+                SettingsGroupCard {
+                    SettingsSelectRow(NexIcons.GraphicEq, S.audioQualityTitle, S.qualityTitle(currentQuality)) { showAudioPicker = true }
+                    SettingsRowDivider()
+                    SettingsSelectRow(NexIcons.Download, S.downloadQualityTitle, S.qualityTitle(downloadQuality)) { showDownloadPicker = true }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    listOf(
-                        AppLanguage.SYSTEM to S.langSystem,
-                        AppLanguage.INDONESIAN to S.langId,
-                        AppLanguage.ENGLISH to S.langEn
-                    ).forEach { (language, label) ->
-                        val selected = currentLanguage == language
-                        Text(label, modifier = Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
-                            .background(if (selected) colors.card else colors.surface)
-                            .border(1.dp, if (selected) colors.accent else colors.border, RoundedCornerShape(10.dp))
-                            .clickable { settingsManager.setLanguage(language) }
-                            .padding(horizontal = 8.dp, vertical = 12.dp),
-                            color = colors.textPrimary, fontSize = 11.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                    }
-                }
-                Spacer(modifier = Modifier.height(18.dp))
-                Text(S.updateTitle, style = Typography.titleMedium, fontWeight = FontWeight.Bold, color = colors.textPrimary)
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(S.updateDesc, style = Typography.bodySmall, color = colors.textMuted)
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = when (val st = updateState) {
-                        UpdateState.Idle -> S.updateNotChecked
-                        UpdateState.Checking -> S.updateChecking
-                        UpdateState.NoRelease -> S.updateNoRelease
-                        UpdateState.Failed -> S.updateFailed
-                        is UpdateState.Latest -> S.updateLatest(st.current)
-                        is UpdateState.Available -> S.updateAvailable(st.current, st.latest)
-                    },
-                    style = Typography.bodySmall,
-                    color = colors.textMuted
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    Button(onClick = {
-                        if (!updateBusy) scope.launch {
-                            updateBusy = true
-                            updateState = UpdateState.Checking
-                            val result = UpdateManager.getInstance().fetchLatest().map { release ->
-                                (release?.version.orEmpty()) to (release?.downloadUrl ?: NexrifyLinks.DOWNLOAD)
-                            }
-                            updateBusy = false
-                            result.onSuccess { (latest, url) ->
-                                latestReleaseUrl = url
-                                val current = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "0.0.0" }.getOrDefault("0.0.0")
-                                updateState = if (latest.isBlank()) UpdateState.NoRelease else if (compareVersions(current, latest) >= 0) UpdateState.Latest(current) else UpdateState.Available(current, latest)
-                            }.onFailure { updateState = UpdateState.Failed }
+
+                SettingsSectionHeader(S.settingsSectionLang)
+                SettingsGroupCard {
+                    SettingsSelectRow(
+                        NexIcons.Translate, S.languageTitle,
+                        when (currentLanguage) {
+                            AppLanguage.SYSTEM -> S.langSystem
+                            AppLanguage.INDONESIAN -> S.langId
+                            AppLanguage.ENGLISH -> S.langEn
                         }
-                    }, enabled = !updateBusy, colors = ButtonDefaults.buttonColors(containerColor = colors.card, contentColor = colors.textPrimary), modifier = Modifier.weight(1f)) {
-                        Text(if (updateBusy) S.checking else S.checkUpdate)
+                    ) { showLanguagePicker = true }
+                }
+
+                SettingsSectionHeader(S.settingsSectionLyrics)
+                SettingsGroupCard {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        SettingsIconBadge(NexIcons.Translate)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(S.lyricsTranslateTitle, style = Typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
+                            Text(S.lyricsTranslateDesc, style = Typography.bodySmall, color = colors.textMuted)
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Switch(
+                            checked = autoTranslate,
+                            onCheckedChange = { settingsManager.setAutoTranslate(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = colors.background,
+                                checkedTrackColor = colors.accent,
+                                uncheckedThumbColor = colors.textSecondary,
+                                uncheckedTrackColor = colors.card
+                            )
+                        )
                     }
-                    Button(onClick = {
-                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(NexrifyLinks.SITE))) }
+                }
+
+                SettingsSectionHeader(S.settingsSectionAbout)
+                SettingsGroupCard {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        AppFavicon(40.dp)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(S.appUpdateTitle, style = Typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
+                            Text(
+                                text = when (val st = updateState) {
+                                    UpdateState.Idle -> S.updateNotChecked
+                                    UpdateState.Checking -> S.updateChecking
+                                    UpdateState.NoRelease -> S.updateNoRelease
+                                    UpdateState.Failed -> S.updateFailed
+                                    is UpdateState.Latest -> S.updateLatest(st.current)
+                                    is UpdateState.Available -> S.updateAvailable(st.current, st.latest)
+                                },
+                                style = Typography.bodySmall,
+                                color = colors.textMuted
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = if (updateBusy) "…" else S.checkUpdate,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(colors.card)
+                                .border(1.dp, colors.border, RoundedCornerShape(10.dp))
+                                .clickable(enabled = !updateBusy) {
+                                    scope.launch {
+                                        updateBusy = true
+                                        updateState = UpdateState.Checking
+                                        val result = UpdateManager.getInstance().fetchLatest().map { release ->
+                                            (release?.version.orEmpty()) to (release?.downloadUrl ?: NexrifyLinks.DOWNLOAD)
+                                        }
+                                        updateBusy = false
+                                        result.onSuccess { (latest, url) ->
+                                            latestReleaseUrl = url
+                                            val current = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "0.0.0" }.getOrDefault("0.0.0")
+                                            updateState = if (latest.isBlank()) UpdateState.NoRelease else if (compareVersions(current, latest) >= 0) UpdateState.Latest(current) else UpdateState.Available(current, latest)
+                                        }.onFailure { updateState = UpdateState.Failed }
+                                    }
+                                }
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            color = colors.textPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    SettingsRowDivider()
+                    SettingsSelectRow(NexIcons.Info, S.openReleases, NexrifyLinks.SITE.removePrefix("https://")) {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(latestReleaseUrl.ifBlank { NexrifyLinks.SITE }))) }
                             .onFailure { NexNotifier.error(currentStrings().cannotOpenUpdate, currentStrings().noteUpdateTitle) }
-                    }, colors = ButtonDefaults.buttonColors(containerColor = colors.card, contentColor = colors.textPrimary), modifier = Modifier.weight(1f)) {
-                        Text(S.openReleases)
                     }
                 }
                 Spacer(modifier = Modifier.height(20.dp))
@@ -484,78 +554,6 @@ fun SettingsDialog(
                 HorizontalDivider(color = colors.border, thickness = 1.dp)
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // 1. Audio Quality Section
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = NexIcons.GraphicEq,
-                        contentDescription = null,
-                        tint = colors.textPrimary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = S.audioQualityTitle,
-                        style = Typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = colors.textPrimary
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                AudioQuality.values().forEach { quality ->
-                    val isSelected = currentQuality == quality
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (isSelected) colors.card else colors.surface)
-                            .border(1.dp, if (isSelected) colors.accent else colors.border, RoundedCornerShape(12.dp))
-                            .clickable { settingsManager.setAudioQuality(quality) }
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = S.qualityTitle(quality),
-                                style = Typography.bodyMedium,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                color = colors.textPrimary
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = S.qualityDesc(quality),
-                                style = Typography.bodySmall,
-                                color = colors.textMuted
-                            )
-                        }
-
-                        if (isSelected) {
-                            Box(
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .clip(CircleShape)
-                                    .background(colors.accent),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = NexIcons.Check,
-                                    contentDescription = S.selected,
-                                    tint = colors.background,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
-
-                Spacer(modifier = Modifier.height(20.dp))
-                HorizontalDivider(color = colors.border, thickness = 1.dp)
-                Spacer(modifier = Modifier.height(16.dp))
-
                 // 2. Theme Selection
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
@@ -634,58 +632,6 @@ fun SettingsDialog(
                 HorizontalDivider(color = colors.border, thickness = 1.dp)
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // 3. Lyrics Translation Toggle
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
-                        Icon(
-                            imageVector = NexIcons.Translate,
-                            contentDescription = null,
-                            tint = colors.textPrimary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Column {
-                            Text(
-                                text = S.lyricsTranslateTitle,
-                                style = Typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = colors.textPrimary
-                            )
-                            Text(
-                                text = S.lyricsTranslateDesc,
-                                style = Typography.bodySmall,
-                                color = colors.textMuted
-                            )
-                        }
-                    }
-
-                    Switch(
-                        modifier = if ((currentThemeStyle == ThemeStyle.LIQUID_GLASS || currentThemeStyle == ThemeStyle.LIQUID_GLASS_V2)) {
-                            val glassAlpha = if (currentThemeStyle == ThemeStyle.LIQUID_GLASS_V2) 0.62f else 0.42f
-                            Modifier.clip(RoundedCornerShape(18.dp))
-                                .background(colors.card.copy(alpha = glassAlpha))
-                                .border(1.dp, colors.border.copy(alpha = 0.72f), RoundedCornerShape(18.dp))
-                        } else Modifier,
-                        checked = autoTranslate,
-                        onCheckedChange = { settingsManager.setAutoTranslate(it) },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = colors.background,
-                            checkedTrackColor = colors.accent,
-                            uncheckedThumbColor = colors.textSecondary,
-                            uncheckedTrackColor = colors.card
-                        )
-                    )
-                }
-
-
-                Spacer(modifier = Modifier.height(20.dp))
-                HorizontalDivider(color = colors.border, thickness = 1.dp)
-                Spacer(modifier = Modifier.height(16.dp))
-
                 // 4. Storage & Cache
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -748,6 +694,136 @@ fun SettingsDialog(
                 NexFooter(showPrivateNote = false)
 
                 Spacer(modifier = Modifier.height(8.dp))
+            }
+        }
+    }
+}
+
+
+// ---------------------------------------------------------------- komponen gaya Kuro
+
+@Composable
+private fun SettingsSectionHeader(text: String) {
+    val colors = NexrifyAppTheme.colors
+    Text(
+        text = text,
+        style = Typography.labelLarge,
+        fontWeight = FontWeight.Bold,
+        color = colors.textMuted,
+        modifier = Modifier.padding(start = 4.dp, top = 14.dp, bottom = 8.dp)
+    )
+}
+
+@Composable
+private fun SettingsGroupCard(content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    val colors = NexrifyAppTheme.colors
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(colors.card)
+            .border(1.dp, colors.border, RoundedCornerShape(18.dp)),
+        content = content
+    )
+}
+
+@Composable
+private fun SettingsRowDivider() {
+    HorizontalDivider(color = NexrifyAppTheme.colors.border, thickness = 1.dp, modifier = Modifier.padding(start = 62.dp))
+}
+
+@Composable
+private fun SettingsIconBadge(icon: androidx.compose.ui.graphics.vector.ImageVector) {
+    val colors = NexrifyAppTheme.colors
+    Box(
+        modifier = Modifier.size(36.dp).clip(RoundedCornerShape(12.dp)).background(colors.surface),
+        contentAlignment = Alignment.Center
+    ) { Icon(icon, null, tint = colors.textPrimary, modifier = Modifier.size(18.dp)) }
+}
+
+/** Baris pengaturan: ikon, judul, nilai yang dipilih sekarang di bawahnya, dan panah. */
+@Composable
+private fun SettingsSelectRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    value: String,
+    onClick: () -> Unit
+) {
+    val colors = NexrifyAppTheme.colors
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        SettingsIconBadge(icon)
+        Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = Typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
+            Text(value, style = Typography.bodySmall, color = colors.textMuted, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+        }
+        Icon(NexIcons.ChevronRight, null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
+    }
+}
+
+/** Ikon aplikasi (favicon). Ikon adaptif tidak didukung painterResource, jadi dipasang lewat ImageView. */
+@Composable
+fun AppFavicon(size: androidx.compose.ui.unit.Dp) {
+    val colors = NexrifyAppTheme.colors
+    androidx.compose.ui.viewinterop.AndroidView(
+        factory = { ctx ->
+            android.widget.ImageView(ctx).apply {
+                setImageResource(id.nexrify.music.R.mipmap.ic_launcher)
+                scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+            }
+        },
+        modifier = Modifier.size(size).clip(RoundedCornerShape(size * 0.28f)).border(1.dp, colors.border, RoundedCornerShape(size * 0.28f))
+    )
+}
+
+/** Dialog pilih satu opsi (select), dengan centang pada pilihan aktif. */
+@Composable
+private fun <T> SelectDialog(
+    title: String,
+    options: List<Pair<T, String>>,
+    descriptions: Map<T, String>,
+    selected: T,
+    onSelect: (T) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val colors = NexrifyAppTheme.colors
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(0.88f)
+                .clip(RoundedCornerShape(24.dp))
+                .background(colors.surface)
+                .border(1.dp, colors.border, RoundedCornerShape(24.dp))
+                .padding(18.dp)
+        ) {
+            Text(title, style = Typography.titleMedium, fontWeight = FontWeight.Bold, color = colors.textPrimary)
+            Spacer(modifier = Modifier.height(12.dp))
+            options.forEach { (value, label) ->
+                val isSelected = value == selected
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(if (isSelected) colors.card else colors.surface)
+                        .border(1.dp, if (isSelected) colors.accent else colors.border, RoundedCornerShape(14.dp))
+                        .clickable { onSelect(value) }
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(label, style = Typography.bodyMedium, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium, color = colors.textPrimary)
+                        descriptions[value]?.let { Text(it, style = Typography.bodySmall, color = colors.textMuted) }
+                    }
+                    if (isSelected) {
+                        Box(Modifier.size(22.dp).clip(CircleShape).background(colors.accent), contentAlignment = Alignment.Center) {
+                            Icon(NexIcons.Check, null, tint = colors.background, modifier = Modifier.size(14.dp))
+                        }
+                    }
+                }
             }
         }
     }
