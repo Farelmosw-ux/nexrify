@@ -417,7 +417,10 @@ fun ChatBubble(
                                     Text(
                                         rt, fontSize = 10.sp,
                                         fontWeight = if (extras.receiptRead) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (extras.receiptRead) Color(0xFF2E9E5B) else subColor
+                                        color = if (extras.receiptRead) Color(0xFF2E9E5B) else subColor,
+                                        modifier = if (extras.receiptRead && extras.onReceiptClick != null)
+                                            Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = extras.onReceiptClick).padding(horizontal = 3.dp, vertical = 2.dp)
+                                        else Modifier
                                     )
                                     Spacer(Modifier.width(3.dp))
                                 }
