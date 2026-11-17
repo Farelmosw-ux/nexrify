@@ -51,7 +51,6 @@ class Strings(val english: Boolean) {
 
     // Pengaturan
     val settings get() = t("Pengaturan", "Settings")
-    val languageTitle get() = t("Bahasa", "Language")
     val langSystem get() = t("Ikuti perangkat", "Device default")
     val langId get() = "Indonesia"
     val langEn get() = "English"
