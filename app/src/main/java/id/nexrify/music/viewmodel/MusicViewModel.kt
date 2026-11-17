@@ -144,6 +144,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun openAudioOutputSettings() = audioOutputManager.openAudioSettings()
 
     val tasteManager = id.nexrify.music.data.recommendation.TasteManager.getInstance(getApplication())
+    /** Streak api: 1 menit mendengarkan per hari menyalakan api. */
+    val streakManager = id.nexrify.music.data.streak.StreakManager.getInstance(getApplication())
+    private var lastStreakTick = 0L
     val recentlyPlayed = tasteManager.recentlyPlayed
     val onRepeatTracks = tasteManager.onRepeatTracks
     /** id lagu -> 1 suka / -1 tidak suka (tombol jempol di beranda). */
@@ -361,8 +364,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
     val offlineTracks = offline.offlineTracks
     val downloads = offline.downloads
-    fun downloadTrack(track: Track) = offline.enqueue(track, settingsManager.audioQuality.value)
-    fun retryDownload(trackId: String) = offline.retry(trackId, settingsManager.audioQuality.value)
+    fun downloadTrack(track: Track) = offline.enqueue(track, settingsManager.downloadQuality.value)
+    fun retryDownload(trackId: String) = offline.retry(trackId, settingsManager.downloadQuality.value)
     fun cancelDownload(trackId: String) = offline.cancel(trackId)
     fun deleteOffline(trackId: String) = offline.delete(trackId)
     fun deleteAllOffline() = offline.deleteAll()
@@ -868,6 +871,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                 }
+                // Hitung lama mendengarkan nyata (hanya saat lagu benar-benar jalan) untuk streak.
+                val tick = System.currentTimeMillis()
+                if (_isPlaying.value && lastStreakTick > 0L) {
+                    streakManager.addListening((tick - lastStreakTick).coerceIn(0L, 1_000L))
+                }
+                lastStreakTick = tick
                 delay(250)
             }
         }
