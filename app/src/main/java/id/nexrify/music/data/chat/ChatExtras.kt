@@ -19,8 +19,12 @@ data class ModReport(val id: String, val seq: Long, val by: String, val author: 
 /** Status: open, planned, progress, done, rejected. kind: feature atau bug. */
 data class FeedbackItem(
     val id: String, val kind: String, val title: String, val body: String, val status: String, val note: String,
-    val votes: Int, val createdAt: Long, val mine: Boolean, val voted: Boolean, val author: String, val device: String
+    val votes: Int, val createdAt: Long, val mine: Boolean, val voted: Boolean, val author: String, val device: String,
+    val media: List<String> = emptyList() // caption tiap gambar lampiran (kosong = tanpa caption)
 )
+
+/** Gambar lampiran yang siap dikirim: JPEG ter-kompres (base64) + caption opsional. */
+data class FeedbackUpload(val data: String, val caption: String)
 
 /** Panggilan API untuk fitur chat lanjutan. Semua melempar AccountError kalau gagal. */
 object ChatXApi {
@@ -136,7 +140,8 @@ object ChatXApi {
     /* ---- saran dan bug ---- */
     private fun parseFb(o: JSONObject) = FeedbackItem(
         o.optString("id"), o.optString("kind"), o.optString("title"), o.optString("body"), o.optString("status"), o.optString("note"),
-        o.optInt("votes"), o.optLong("createdAt"), o.optBoolean("mine"), o.optBoolean("voted"), o.optString("author"), o.optString("device")
+        o.optInt("votes"), o.optLong("createdAt"), o.optBoolean("mine"), o.optBoolean("voted"), o.optString("author"), o.optString("device"),
+        o.optJSONArray("media")?.let { a -> List(a.length()) { i -> a.optJSONObject(i)?.optString("caption").orEmpty() } } ?: emptyList()
     )
 
     suspend fun feedbackList(token: String): List<FeedbackItem> {
@@ -144,8 +149,22 @@ object ChatXApi {
         return buildList { for (i in 0 until arr.length()) arr.optJSONObject(i)?.let { add(parseFb(it)) } }
     }
 
-    suspend fun feedbackSubmit(token: String, kind: String, title: String, body: String, device: String): FeedbackItem =
-        parseFb(ChatApi.post(token, JSONObject().put("action", "fb_submit").put("kind", kind).put("title", title).put("body", body).put("device", device)).getJSONObject("item"))
+    suspend fun feedbackSubmit(token: String, kind: String, title: String, body: String, device: String, media: List<FeedbackUpload> = emptyList()): FeedbackItem {
+        val arr = JSONArray()
+        media.forEach { arr.put(JSONObject().put("data", it.data).put("caption", it.caption)) }
+        return parseFb(
+            ChatApi.post(
+                token,
+                JSONObject().put("action", "fb_submit").put("kind", kind).put("title", title).put("body", body).put("device", device).put("media", arr)
+            ).getJSONObject("item")
+        )
+    }
+
+    /** Satu gambar lampiran sebagai bytes (JPEG/PNG/WebP). */
+    suspend fun feedbackMedia(token: String, id: String, n: Int): ByteArray {
+        val j = ChatApi.get(token, mapOf("fbm" to id, "n" to n.toString()))
+        return android.util.Base64.decode(j.optString("data"), android.util.Base64.DEFAULT)
+    }
 
     suspend fun feedbackVote(token: String, id: String): FeedbackItem =
         parseFb(ChatApi.post(token, JSONObject().put("action", "fb_vote").put("id", id)).getJSONObject("item"))
