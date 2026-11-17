@@ -69,15 +69,21 @@ class Strings(val english: Boolean) {
 
     val audioQualityTitle get() = t("Kualitas audio streaming", "Streaming audio quality")
     fun qualityTitle(q: AudioQuality) = when (q) {
-        AudioQuality.HIGH -> t("Kualitas tinggi (terbaik yang tersedia)", "High quality (best available)")
-        AudioQuality.MEDIUM -> t("Kualitas normal (sekitar 128 kbps)", "Normal quality (around 128 kbps)")
-        AudioQuality.LOW -> t("Hemat data (kualitas terendah)", "Data saver (lowest quality)")
+        AudioQuality.HIGH -> t("Kualitas Tinggi (Opus 160 / M4A 256 kbps)", "High Quality (Opus 160 / M4A 256 kbps)")
+        AudioQuality.MEDIUM -> t("Kualitas Normal (128 kbps)", "Normal Quality (128 kbps)")
+        AudioQuality.LOW -> t("Hemat Kuota (48 sampai 70 kbps)", "Data Saver (48 to 70 kbps)")
     }
     fun qualityDesc(q: AudioQuality) = when (q) {
-        AudioQuality.HIGH -> t("Suara paling jernih, sampai 256 kbps untuk akun YouTube Premium", "Crispest sound, up to 256 kbps with YouTube Premium")
-        AudioQuality.MEDIUM -> t("Seimbang antara kecepatan dan kuota", "Balanced speed and data usage")
-        AudioQuality.LOW -> t("Buffer paling cepat, kuota paling irit", "Fastest buffering, lowest data use")
+        AudioQuality.HIGH -> t("Suara jernih, detail audio terbaik", "Crisp sound, best audio fidelity")
+        AudioQuality.MEDIUM -> t("Seimbang antara kecepatan dan kuota data", "Balanced speed and data usage")
+        AudioQuality.LOW -> t("Buffer paling cepat, hemat penggunaan data", "Fastest buffer, minimal data usage")
     }
+    fun subQualityDesc(sub: id.nexrify.music.data.settings.AudioSubQuality) = t(sub.subtitleId, sub.subtitleEn)
+    val streamQualityTitle get() = t("Kualitas Audio Streaming", "Streaming Audio Quality")
+    val downloadQualityDefaultTitle get() = t("Kualitas Download Default", "Default Download Quality")
+    val themeStyleTitle get() = t("Gaya tema", "Theme style")
+    val chooseThemeStyle get() = t("Pilih gaya tema", "Choose theme style")
+    val chooseThemeMode get() = t("Pilih tema tampilan", "Choose appearance")
     val selected get() = t("Dipilih", "Selected")
 
     val themeTitle get() = t("Tema tampilan", "Appearance")
@@ -381,6 +387,7 @@ class Strings(val english: Boolean) {
     val locPromptSettings get() = t("Buka pengaturan izin", "Open permission settings")
     val locPromptSettingsHint get() = t("Izin lokasi ditolak permanen. Buka pengaturan aplikasi lalu aktifkan Lokasi.", "Location was denied permanently. Open app settings and turn on Location.")
     val locPromptLater get() = t("Nanti saja", "Maybe later")
+    val locPromptNever get() = t("Jangan tampilkan lagi", "Don't show again")
     val locGranted get() = t("Lokasi aktif, jadwal Maghrib sedang diperbarui", "Location is on, updating your Maghrib time")
 
     // Cari
@@ -934,37 +941,24 @@ class Strings(val english: Boolean) {
         4 -> t("Senior", "Senior")
         else -> t("Veteran", "Veteran")
     }
-    /** Lama jadi member, dibulatkan ke satuan terbesar: "3 hari", "2 jam", "1 tahun 2 bulan". */
-    fun memberDuration(ms: Long): String {
-        val minutes = ms / 60_000L
-        val hours = minutes / 60
-        val days = hours / 24
-        val years = days / 365
+    /** Lama jadi member dari tanggal kalender: "16 hari", "3 jam" (kalau masih hari yang sama), "1 tahun 2 bulan". */
+    fun memberDuration(joined: Long, now: Long): String {
+        val zone = java.time.ZoneId.systemDefault()
+        val from = java.time.Instant.ofEpochMilli(joined).atZone(zone).toLocalDate()
+        val to = java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate()
+        val period = java.time.Period.between(from, to)
+        val totalDays = java.time.temporal.ChronoUnit.DAYS.between(from, to)
+        val years = period.years
+        val months = period.months
         return when {
-            years >= 1 -> {
-                val months = ((days % 365) / 30).toInt()
-                if (months > 0) t("$years tahun $months bulan", "$years yr $months mo") else t("$years tahun", "$years yr")
+            years >= 1 -> if (months > 0) t("$years tahun $months bulan", "$years yr $months mo") else t("$years tahun", "$years yr")
+            totalDays >= 1 -> t("$totalDays hari", "$totalDays d")
+            else -> {
+                val minutes = ((now - joined) / 60_000L).coerceAtLeast(0L)
+                if (minutes >= 60) t("${minutes / 60} jam", "${minutes / 60} h") else t("$minutes menit", "$minutes min")
             }
-            days >= 1 -> t("$days hari", "$days d")
-            hours >= 1 -> t("$hours jam", "$hours h")
-            else -> t("${minutes.coerceAtLeast(0)} menit", "${minutes.coerceAtLeast(0)} min")
         }
     }
-    val chatReadBy get() = t("Dibaca oleh", "Read by")
-    fun chatReadByCount(n: Int) = t("$n pembaca", "$n readers")
-    fun chatReadByOthers(n: Int) = t("+$n orang lain juga sudah membaca (profilnya belum bisa ditampilkan)", "+$n others also read this (profile not available yet)")
-    val chatReadByEmpty get() = t("Belum ada yang membaca pesan ini.", "No one has read this message yet.")
-    val settingsSectionAudio get() = t("Audio dan unduhan", "Audio and downloads")
-    val settingsSectionLang get() = t("Tampilan dan bahasa", "Appearance and language")
-    val settingsSectionLyrics get() = t("Lirik", "Lyrics")
-    val settingsSectionAbout get() = t("Tentang", "About")
-    val downloadQualityTitle get() = t("Kualitas unduhan", "Download quality")
-    val languageTitle get() = t("Bahasa", "Language")
-    val chooseLanguage get() = t("Pilih bahasa", "Choose language")
-    val chooseAudioQuality get() = t("Pilih kualitas audio", "Choose audio quality")
-    val chooseDownloadQuality get() = t("Pilih kualitas unduhan", "Choose download quality")
-    val appUpdateTitle get() = t("Pembaruan aplikasi", "App updates")
-    val appTagline get() = t("Pemutar musik Nexrify", "Nexrify music player")
     val chatTranslateOriginal get() = t("Tampilkan teks asli", "Show original text")
     val chatTranslated get() = t("Terjemahan", "Translation")
     val chatHideTranslation get() = t("Sembunyikan terjemahan", "Hide translation")
