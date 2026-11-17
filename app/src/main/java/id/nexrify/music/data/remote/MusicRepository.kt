@@ -771,29 +771,40 @@ class MusicRepository {
     /** Bitrate yang bisa dipercaya; stream yang tidak melaporkan bitrate dianggap 0. */
     private fun bitrateOf(s: org.schabi.newpipe.extractor.stream.AudioStream) = s.averageBitrate.coerceAtLeast(0)
 
+    private fun isOpus(s: org.schabi.newpipe.extractor.stream.AudioStream) =
+        s.format == org.schabi.newpipe.extractor.MediaFormat.WEBMA_OPUS || s.format == org.schabi.newpipe.extractor.MediaFormat.WEBMA ||
+            s.content?.contains("itag=251") == true || s.content?.contains("itag=250") == true || s.content?.contains("itag=249") == true
+
+    /** Pilihan detail yang aktif untuk tingkat kualitas ini; kalau tidak cocok dipakai bawaan tingkat itu. */
+    private fun activeSub(quality: id.nexrify.music.data.settings.AudioQuality): id.nexrify.music.data.settings.AudioSubQuality =
+        runCatching {
+            val active = id.nexrify.music.data.settings.SettingsManager.getInstance().audioSubQuality.value
+            if (active.parent == quality) active else id.nexrify.music.data.settings.AudioSubQuality.defaultFor(quality)
+        }.getOrDefault(id.nexrify.music.data.settings.AudioSubQuality.defaultFor(quality))
+
     private fun pickAudio(
         streams: List<org.schabi.newpipe.extractor.stream.AudioStream>,
-        quality: id.nexrify.music.data.settings.AudioQuality
+        sub: id.nexrify.music.data.settings.AudioSubQuality
     ): org.schabi.newpipe.extractor.stream.AudioStream? {
         val http = streams.filter { isHttpAudio(it) }
         if (http.isEmpty()) return null
-        return when (quality) {
-            id.nexrify.music.data.settings.AudioQuality.LOW ->
-                http.filter { bitrateOf(it) > 0 }.minByOrNull { bitrateOf(it) } ?: http.first()
-            id.nexrify.music.data.settings.AudioQuality.MEDIUM -> {
-                val known = http.filter { bitrateOf(it) > 0 }
-                // Terdekat ke 128 kbps, M4A didahulukan kalau selisihnya sama.
-                known.minWithOrNull(compareBy({ kotlin.math.abs(bitrateOf(it) - 128) }, { if (isM4a(it)) 0 else 1 }))
-                    ?: http.first()
-            }
-            id.nexrify.music.data.settings.AudioQuality.HIGH -> {
-                // Bitrate tertinggi apa pun formatnya (Opus 160 kbps sering lebih bagus dari AAC 128 kbps).
-                // M4A dipilih kalau selisihnya kurang dari 10%, karena paling kompatibel.
-                val best = http.maxByOrNull { bitrateOf(it) } ?: return http.first()
-                val bestM4a = http.filter { isM4a(it) }.maxByOrNull { bitrateOf(it) }
-                if (bestM4a != null && bitrateOf(bestM4a) >= bitrateOf(best) * 0.9) bestM4a else best
-            }
-        }
+        val opus = http.filter { isOpus(it) }
+        val m4a = http.filter { isM4a(it) }
+        val known = { l: List<org.schabi.newpipe.extractor.stream.AudioStream> -> l.filter { bitrateOf(it) > 0 }.ifEmpty { l } }
+        val pool = (if (sub.preferOpus) opus else m4a).ifEmpty { http }
+        return when (sub) {
+            id.nexrify.music.data.settings.AudioSubQuality.HIGH_OPUS_160 -> opus.maxByOrNull { bitrateOf(it) } ?: http.maxByOrNull { bitrateOf(it) }
+            id.nexrify.music.data.settings.AudioSubQuality.HIGH_M4A_256 -> m4a.maxByOrNull { bitrateOf(it) } ?: http.maxByOrNull { bitrateOf(it) }
+            id.nexrify.music.data.settings.AudioSubQuality.MED_M4A_128,
+            id.nexrify.music.data.settings.AudioSubQuality.MED_OPUS_128 ->
+                known(pool).minByOrNull { kotlin.math.abs(bitrateOf(it) - 128) } ?: known(http).minByOrNull { kotlin.math.abs(bitrateOf(it) - 128) }
+            id.nexrify.music.data.settings.AudioSubQuality.LOW_OPUS_70 ->
+                known(pool).minByOrNull { kotlin.math.abs(bitrateOf(it) - 70) } ?: known(http).minByOrNull { bitrateOf(it) }
+            id.nexrify.music.data.settings.AudioSubQuality.LOW_OPUS_50 ->
+                known(pool).minByOrNull { bitrateOf(it) } ?: known(http).minByOrNull { bitrateOf(it) }
+            id.nexrify.music.data.settings.AudioSubQuality.LOW_M4A_48 ->
+                known(m4a).minByOrNull { bitrateOf(it) } ?: known(http).minByOrNull { bitrateOf(it) }
+        } ?: http.maxByOrNull { bitrateOf(it) } ?: http.first()
     }
 
     private fun mimeFor(s: org.schabi.newpipe.extractor.stream.AudioStream): String? =
@@ -801,9 +812,11 @@ class MusicRepository {
 
     suspend fun getAudioStream(
         url: String,
-        quality: id.nexrify.music.data.settings.AudioQuality = id.nexrify.music.data.settings.AudioQuality.HIGH
+        quality: id.nexrify.music.data.settings.AudioQuality = id.nexrify.music.data.settings.AudioQuality.HIGH,
+        subQualityOverride: id.nexrify.music.data.settings.AudioSubQuality? = null
     ): ResolvedStream? = withContext(Dispatchers.IO) {
-        val cacheKey = "$url#${quality.name}"
+        val sub = subQualityOverride ?: activeSub(quality)
+        val cacheKey = "$url#${quality.name}#${sub.name}"
         val now = System.currentTimeMillis()
         synchronized(streamUrlCache) {
             streamUrlCache.get(cacheKey)?.let { (cached, timestamp) ->
@@ -812,7 +825,7 @@ class MusicRepository {
         }
         try {
             val streamInfo = StreamInfo.getInfo(service, url)
-            val chosen = pickAudio(streamInfo.audioStreams, quality)
+            val chosen = pickAudio(streamInfo.audioStreams, sub)
             val resolved = if (chosen != null) {
                 // MIME diambil dari format stream yang benar-benar dipilih, bukan ditebak dari URL.
                 ResolvedStream(chosen.content, mimeFor(chosen))
