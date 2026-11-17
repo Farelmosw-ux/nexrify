@@ -17,6 +17,8 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.os.Bundle
 import android.widget.RemoteViews
+import id.nexrify.music.data.streak.FlameState
+import id.nexrify.music.data.streak.StreakManager
 import id.nexrify.music.i18n.currentStrings
 import id.nexrify.music.service.PlaybackBridge
 import id.nexrify.music.service.PlaybackService
@@ -272,6 +274,17 @@ open class NexrifyWidgetProvider : AppWidgetProvider() {
                 if (idle) currentStrings().noSongPlaying else artist
             )
             views.setImageViewResource(R.id.widget_play, if (playing) R.drawable.ic_widget_pause else R.drawable.ic_widget_play)
+
+            // Api streak: abu (belum mendengarkan hari ini), merah menyala, biru menyala (30 hari ke atas).
+            val streak = StreakManager.snapshot(context)
+            val (flameRes, flameInk) = when (streak.state) {
+                FlameState.BLUE -> R.drawable.ic_flame_blue to Color.parseColor("#FF6FC3FF")
+                FlameState.RED -> R.drawable.ic_flame_red to Color.parseColor("#FFFF7A59")
+                else -> R.drawable.ic_flame_gray to Color.parseColor("#FFB9BFCA")
+            }
+            views.setImageViewResource(R.id.widget_streak_icon, flameRes)
+            views.setTextViewText(R.id.widget_streak_text, streak.count.toString())
+            views.setTextColor(R.id.widget_streak_text, flameInk)
 
             when (kind) {
                 KIND_SQUARE -> {
