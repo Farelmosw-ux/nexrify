@@ -36,9 +36,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -65,6 +67,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import id.nexrify.music.data.settings.AudioQuality
+import id.nexrify.music.data.settings.AudioSubQuality
 import id.nexrify.music.data.settings.AppLanguage
 import id.nexrify.music.data.settings.SettingsManager
 import id.nexrify.music.data.settings.ThemeMode
@@ -119,7 +122,10 @@ fun SettingsDialog(
     val isTopDonor = (donorRanks[currentUsername.lowercase()] ?: 0) in 1..3
     val canUsePremiumThemes = isTopDonor || isPrivileged
     val currentQuality by settingsManager.audioQuality.collectAsState()
-    val downloadQuality by settingsManager.downloadQuality.collectAsState()
+    val currentSub by settingsManager.audioSubQuality.collectAsState()
+    val downloadSub by settingsManager.downloadSubQuality.collectAsState()
+    var showThemeModePicker by remember { mutableStateOf(false) }
+    var showThemeStylePicker by remember { mutableStateOf(false) }
     var showAudioPicker by remember { mutableStateOf(false) }
     var showDownloadPicker by remember { mutableStateOf(false) }
     var showLanguagePicker by remember { mutableStateOf(false) }
@@ -156,21 +162,40 @@ fun SettingsDialog(
         cacheSize = settingsManager.getFormattedCacheSizeAsync()
     }
 
-    if (showAudioPicker) SelectDialog(
-        title = S.chooseAudioQuality,
-        options = AudioQuality.values().map { it to S.qualityTitle(it) },
-        descriptions = AudioQuality.values().associateWith { S.qualityDesc(it) },
-        selected = currentQuality,
-        onSelect = { settingsManager.setAudioQuality(it); showAudioPicker = false },
+    if (showAudioPicker) AudioQualityDialog(
+        current = currentSub,
+        onSelect = { settingsManager.setAudioSubQuality(it) },
         onDismiss = { showAudioPicker = false }
     )
     if (showDownloadPicker) SelectDialog(
-        title = S.chooseDownloadQuality,
-        options = AudioQuality.values().map { it to S.qualityTitle(it) },
-        descriptions = AudioQuality.values().associateWith { S.qualityDesc(it) },
-        selected = downloadQuality,
-        onSelect = { settingsManager.setDownloadQuality(it); showDownloadPicker = false },
-        onDismiss = { showDownloadPicker = false }
+        title = S.downloadQualityDefaultTitle,
+        options = AudioSubQuality.values().map { it to it.badge },
+        descriptions = AudioSubQuality.values().associateWith { S.subQualityDesc(it) },
+        selected = downloadSub,
+        onSelect = { settingsManager.setDownloadSubQuality(it) },
+        onDismiss = { showDownloadPicker = false },
+        closeOnSelect = false
+    )
+    if (showThemeModePicker) SelectDialog(
+        title = S.chooseThemeMode,
+        options = listOf(ThemeMode.SYSTEM to S.themeSystem, ThemeMode.DARK to S.themeDark, ThemeMode.LIGHT to S.themeLight),
+        descriptions = mapOf(ThemeMode.SYSTEM to S.themeSystemDesc, ThemeMode.DARK to S.themeDarkDesc, ThemeMode.LIGHT to S.themeLightDesc),
+        selected = currentTheme,
+        onSelect = { settingsManager.setThemeMode(it); showThemeModePicker = false },
+        onDismiss = { showThemeModePicker = false }
+    )
+    if (showThemeStylePicker) SelectDialog(
+        title = S.chooseThemeStyle,
+        options = listOf(ThemeStyle.CLASSIC, ThemeStyle.LIQUID_GLASS, ThemeStyle.LIQUID_GLASS_V2).map { it to themeStyleName(it) },
+        descriptions = mapOf(
+            ThemeStyle.CLASSIC to (if (S.english) "Original Nexrify appearance" else "Tampilan asli Nexrify"),
+            ThemeStyle.LIQUID_GLASS to (if (S.english) "Free glass refresh with refined cool tones" else "Kaca gratis dengan warna sejuk yang diperhalus"),
+            ThemeStyle.LIQUID_GLASS_V2 to (if (S.english) "Aurora Violet palette, top navigation and a fully rearranged layout. Top 3 Donors, admins and staff only." else "Palet Aurora Violet, navigasi di atas, dan tata letak dirombak total. Khusus Top 3 Donatur, admin, dan staff.")
+        ),
+        selected = currentThemeStyle,
+        disabled = if (canUsePremiumThemes) emptySet() else setOf(ThemeStyle.LIQUID_GLASS_V2),
+        onSelect = { settingsManager.setThemeStyle(it); showThemeStylePicker = false },
+        onDismiss = { showThemeStylePicker = false }
     )
     if (showLanguagePicker) SelectDialog(
         title = S.chooseLanguage,
@@ -239,13 +264,20 @@ fun SettingsDialog(
                 // ---- Gaya Kuro: baris pilihan (select), bukan kartu panjang ----
                 SettingsSectionHeader(S.settingsSectionAudio)
                 SettingsGroupCard {
-                    SettingsSelectRow(NexIcons.GraphicEq, S.audioQualityTitle, S.qualityTitle(currentQuality)) { showAudioPicker = true }
+                    SettingsSelectRow(NexIcons.GraphicEq, S.streamQualityTitle, "${S.qualityTitle(currentQuality)} • ${currentSub.badge}") { showAudioPicker = true }
                     SettingsRowDivider()
-                    SettingsSelectRow(NexIcons.Download, S.downloadQualityTitle, S.qualityTitle(downloadQuality)) { showDownloadPicker = true }
+                    SettingsSelectRow(NexIcons.Download, S.downloadQualityDefaultTitle, downloadSub.badge) { showDownloadPicker = true }
                 }
 
                 SettingsSectionHeader(S.settingsSectionLang)
                 SettingsGroupCard {
+                    SettingsSelectRow(
+                        NexIcons.Palette, S.themeTitle,
+                        when (currentTheme) { ThemeMode.SYSTEM -> S.themeSystem; ThemeMode.DARK -> S.themeDark; ThemeMode.LIGHT -> S.themeLight }
+                    ) { showThemeModePicker = true }
+                    SettingsRowDivider()
+                    SettingsSelectRow(NexIcons.Palette, S.themeStyleTitle, themeStyleName(currentThemeStyle)) { showThemeStylePicker = true }
+                    SettingsRowDivider()
                     SettingsSelectRow(
                         NexIcons.Translate, S.languageTitle,
                         when (currentLanguage) {
@@ -419,54 +451,6 @@ fun SettingsDialog(
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(14.dp))
-                Text(if (S.english) "Theme style" else "Gaya tema", style = Typography.titleMedium, fontWeight = FontWeight.Bold, color = colors.textPrimary)
-                Text(
-                    if (S.english) "Liquid Glass is free for everyone. Liquid Glass V2 is reserved for Top 3 Donors; admins and staff get instant access."
-                    else "Liquid Glass gratis untuk semua. Liquid Glass V2 khusus Top 3 Donatur; admin dan staff mendapat akses langsung.",
-                    style = Typography.bodySmall,
-                    color = colors.textMuted
-                )
-                val styles = listOf(ThemeStyle.CLASSIC, ThemeStyle.LIQUID_GLASS, ThemeStyle.LIQUID_GLASS_V2)
-                styles.forEach { style ->
-                    val title = when (style) {
-                        ThemeStyle.CLASSIC -> "Classic"
-                        ThemeStyle.LIQUID_GLASS -> "Liquid Glass"
-                        else -> "Liquid Glass V2"
-                    }
-                    val desc = when (style) {
-                        ThemeStyle.CLASSIC -> if (S.english) "Original Nexrify appearance" else "Tampilan asli Nexrify"
-                        ThemeStyle.LIQUID_GLASS -> if (S.english) "Free glass refresh with refined cool tones" else "Kaca gratis dengan warna sejuk yang diperhalus"
-                        else -> if (S.english) "Aurora Violet palette, top navigation and a fully rearranged layout" else "Palet Aurora Violet, navigasi di atas, dan tata letak yang dirombak total"
-                    }
-                    val locked = style == ThemeStyle.LIQUID_GLASS_V2 && !canUsePremiumThemes
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clip(RoundedCornerShape(14.dp))
-                            .background(if (currentThemeStyle == style) colors.card else colors.surface)
-                            .border(1.dp, if (currentThemeStyle == style) colors.accent else colors.border, RoundedCornerShape(14.dp))
-                            .clickable(enabled = !locked) { settingsManager.setThemeStyle(style) }
-                            .padding(horizontal = 13.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(title, color = colors.textPrimary, fontWeight = FontWeight.SemiBold, style = Typography.bodyMedium)
-                            Text(desc, color = colors.textMuted, style = Typography.bodySmall)
-                        }
-                        Text(
-                            when {
-                                locked -> if (S.english) "TOP DONOR" else "TOP DONATUR"
-                                currentThemeStyle == style -> if (S.english) "ACTIVE" else "AKTIF"
-                                style == ThemeStyle.LIQUID_GLASS -> if (S.english) "FREE" else "GRATIS"
-                                style == ThemeStyle.LIQUID_GLASS_V2 -> if (S.english) "UNLOCKED" else "TERBUKA"
-                                else -> if (S.english) "FREE" else "GRATIS"
-                            },
-                            color = if (locked) colors.textMuted else colors.accent,
-                            style = Typography.labelSmall
-                        )
-                    }
-                }
-
                 Spacer(modifier = Modifier.height(20.dp))
                 HorizontalDivider(color = colors.border, thickness = 1.dp)
                 Spacer(modifier = Modifier.height(16.dp))
@@ -550,84 +534,6 @@ fun SettingsDialog(
                         )
                     )
                 }
-
-                Spacer(modifier = Modifier.height(20.dp))
-                HorizontalDivider(color = colors.border, thickness = 1.dp)
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // 2. Theme Selection
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = NexIcons.Palette,
-                        contentDescription = null,
-                        tint = colors.textPrimary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = S.themeTitle,
-                        style = Typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = colors.textPrimary
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                val themeOptions = listOf(
-                    Triple(ThemeMode.SYSTEM, S.themeSystem, S.themeSystemDesc),
-                    Triple(ThemeMode.DARK, S.themeDark, S.themeDarkDesc),
-                    Triple(ThemeMode.LIGHT, S.themeLight, S.themeLightDesc)
-                )
-
-                themeOptions.forEach { (mode, title, desc) ->
-                    val isSelected = currentTheme == mode
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (isSelected) colors.card else colors.surface)
-                            .border(1.dp, if (isSelected) colors.accent else colors.border, RoundedCornerShape(12.dp))
-                            .clickable { settingsManager.setThemeMode(mode) }
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = title,
-                                style = Typography.bodyMedium,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                color = colors.textPrimary
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = desc,
-                                style = Typography.bodySmall,
-                                color = colors.textMuted
-                            )
-                        }
-
-                        if (isSelected) {
-                            Box(
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .clip(CircleShape)
-                                    .background(colors.accent),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = NexIcons.Check,
-                                    contentDescription = S.selected,
-                                    tint = colors.background,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
 
                 Spacer(modifier = Modifier.height(20.dp))
                 HorizontalDivider(color = colors.border, thickness = 1.dp)
@@ -780,7 +686,22 @@ fun AppFavicon(size: androidx.compose.ui.unit.Dp) {
     )
 }
 
-/** Dialog pilih satu opsi (select), dengan centang pada pilihan aktif. */
+private fun themeStyleName(style: ThemeStyle) = when (style) {
+    ThemeStyle.CLASSIC -> "Classic"
+    ThemeStyle.LIQUID_GLASS -> "Liquid Glass"
+    ThemeStyle.LIQUID_GLASS_V2 -> "Liquid Glass V2"
+    else -> style.name
+}
+
+@Composable
+private fun CheckDot() {
+    val colors = NexrifyAppTheme.colors
+    Box(Modifier.size(22.dp).clip(CircleShape).background(colors.accent), contentAlignment = Alignment.Center) {
+        Icon(NexIcons.Check, null, tint = colors.background, modifier = Modifier.size(14.dp))
+    }
+}
+
+/** Dialog pilih satu opsi (select), dengan judul, deskripsi tiap opsi, centang, dan tombol Tutup seperti di Kuro. */
 @Composable
 private fun <T> SelectDialog(
     title: String,
@@ -788,44 +709,125 @@ private fun <T> SelectDialog(
     descriptions: Map<T, String>,
     selected: T,
     onSelect: (T) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    disabled: Set<T> = emptySet(),
+    closeOnSelect: Boolean = true
 ) {
     val colors = NexrifyAppTheme.colors
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
             modifier = Modifier
-                .fillMaxWidth(0.88f)
-                .clip(RoundedCornerShape(24.dp))
+                .fillMaxWidth(0.9f)
+                .heightIn(max = 640.dp)
+                .clip(RoundedCornerShape(26.dp))
                 .background(colors.surface)
-                .border(1.dp, colors.border, RoundedCornerShape(24.dp))
-                .padding(18.dp)
+                .border(1.dp, colors.border, RoundedCornerShape(26.dp))
+                .padding(20.dp)
         ) {
             Text(title, style = Typography.titleMedium, fontWeight = FontWeight.Bold, color = colors.textPrimary)
             Spacer(modifier = Modifier.height(12.dp))
-            options.forEach { (value, label) ->
-                val isSelected = value == selected
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(if (isSelected) colors.card else colors.surface)
-                        .border(1.dp, if (isSelected) colors.accent else colors.border, RoundedCornerShape(14.dp))
-                        .clickable { onSelect(value) }
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(label, style = Typography.bodyMedium, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium, color = colors.textPrimary)
-                        descriptions[value]?.let { Text(it, style = Typography.bodySmall, color = colors.textMuted) }
+            Column(modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                options.forEach { (value, label) ->
+                    val isSelected = value == selected
+                    val locked = value in disabled
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .border(if (isSelected) 1.5.dp else 1.dp, if (isSelected) colors.textPrimary else Color.Transparent, RoundedCornerShape(14.dp))
+                            .clickable(enabled = !locked) { onSelect(value); if (closeOnSelect) onDismiss() }
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(label, style = Typography.bodyMedium, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold, color = if (locked) colors.textMuted else colors.textPrimary)
+                            descriptions[value]?.let { Text(it, style = Typography.bodySmall, color = colors.textMuted) }
+                        }
+                        if (isSelected) CheckDot()
                     }
-                    if (isSelected) {
-                        Box(Modifier.size(22.dp).clip(CircleShape).background(colors.accent), contentAlignment = Alignment.Center) {
-                            Icon(NexIcons.Check, null, tint = colors.background, modifier = Modifier.size(14.dp))
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                S.close,
+                modifier = Modifier.align(Alignment.End).clip(RoundedCornerShape(10.dp)).clickable(onClick = onDismiss).padding(horizontal = 14.dp, vertical = 8.dp),
+                color = colors.textPrimary, fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+/** Kualitas streaming: tiga tingkat; tingkat yang dipilih membuka pilihan format dan bitrate di dalamnya. */
+@Composable
+private fun AudioQualityDialog(current: AudioSubQuality, onSelect: (AudioSubQuality) -> Unit, onDismiss: () -> Unit) {
+    val colors = NexrifyAppTheme.colors
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(0.9f)
+                .heightIn(max = 640.dp)
+                .clip(RoundedCornerShape(26.dp))
+                .background(colors.surface)
+                .border(1.dp, colors.border, RoundedCornerShape(26.dp))
+                .padding(20.dp)
+        ) {
+            Text(S.streamQualityTitle, style = Typography.titleMedium, fontWeight = FontWeight.Bold, color = colors.textPrimary)
+            Spacer(modifier = Modifier.height(12.dp))
+            Column(modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                AudioQuality.values().forEach { q ->
+                    val parentSelected = current.parent == q
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .border(if (parentSelected) 1.5.dp else 1.dp, if (parentSelected) colors.textPrimary else Color.Transparent, RoundedCornerShape(14.dp))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = !parentSelected) { onSelect(AudioSubQuality.defaultFor(q)) }
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(S.qualityTitle(q), style = Typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
+                                Text(S.qualityDesc(q), style = Typography.bodySmall, color = colors.textMuted)
+                            }
+                            if (parentSelected) CheckDot()
+                        }
+                        if (parentSelected) {
+                            AudioSubQuality.optionsFor(q).forEach { sub ->
+                                val subSelected = sub == current
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(start = 10.dp, end = 10.dp, bottom = 8.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(colors.card)
+                                        .border(1.dp, if (subSelected) colors.textPrimary else colors.border, RoundedCornerShape(12.dp))
+                                        .clickable { onSelect(sub) }
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(sub.badge, style = Typography.bodyMedium, fontWeight = FontWeight.Bold, color = colors.textPrimary)
+                                        Text(S.subQualityDesc(sub), style = Typography.bodySmall, color = colors.textMuted)
+                                    }
+                                    if (subSelected) CheckDot()
+                                }
+                            }
                         }
                     }
                 }
             }
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                S.close,
+                modifier = Modifier.align(Alignment.End).clip(RoundedCornerShape(10.dp)).clickable(onClick = onDismiss).padding(horizontal = 14.dp, vertical = 8.dp),
+                color = colors.textPrimary, fontWeight = FontWeight.Bold
+            )
         }
     }
 }
