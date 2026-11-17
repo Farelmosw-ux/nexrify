@@ -60,32 +60,41 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     else -> null
 }
 
+/**
+ * Semua yang menyentuh Activity.ScreenCaptureCallback (API 34) ada di objek ini, supaya kelas itu
+ * tidak ikut diverifikasi di Android 13 ke bawah (dulu bikin crash NoClassDefFoundError di Android 11).
+ */
+@androidx.annotation.RequiresApi(34)
+private object ScreenCaptureApi34 {
+    fun register(activity: Activity, context: android.content.Context, message: String): Any? {
+        val cb = Activity.ScreenCaptureCallback { Toast.makeText(context, message, Toast.LENGTH_LONG).show() }
+        return try {
+            activity.registerScreenCaptureCallback(ContextCompat.getMainExecutor(context), cb)
+            cb
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    fun unregister(activity: Activity, callback: Any) {
+        try {
+            (callback as? Activity.ScreenCaptureCallback)?.let { activity.unregisterScreenCaptureCallback(it) }
+        } catch (_: Throwable) {
+        }
+    }
+}
+
 /** Beri tahu pengguna kalau mencoba tangkap layar saat foto dilindungi (Android 14+). */
 @Composable
 private fun ScreenCaptureGuard() {
+    if (Build.VERSION.SDK_INT < 34) return
     val context = LocalContext.current
     val blockedMsg = S.screenshotBlocked
     DisposableEffect(Unit) {
         val activity = context.findActivity()
-        var callback: Activity.ScreenCaptureCallback? = null
-        if (Build.VERSION.SDK_INT >= 34 && activity != null) {
-            val cb = Activity.ScreenCaptureCallback {
-                Toast.makeText(context, blockedMsg, Toast.LENGTH_LONG).show()
-            }
-            try {
-                activity.registerScreenCaptureCallback(ContextCompat.getMainExecutor(context), cb)
-                callback = cb
-            } catch (_: Throwable) {
-            }
-        }
+        val callback: Any? = if (activity != null) ScreenCaptureApi34.register(activity, context, blockedMsg) else null
         onDispose {
-            val cb = callback
-            if (Build.VERSION.SDK_INT >= 34 && activity != null && cb != null) {
-                try {
-                    activity.unregisterScreenCaptureCallback(cb)
-                } catch (_: Throwable) {
-                }
-            }
+            if (activity != null && callback != null) ScreenCaptureApi34.unregister(activity, callback)
         }
     }
 }
