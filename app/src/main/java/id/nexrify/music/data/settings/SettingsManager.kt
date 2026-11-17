@@ -36,6 +36,19 @@ class SettingsManager private constructor(private val context: Context) {
     private val _audioQuality = MutableStateFlow(loadAudioQuality())
     val audioQuality: StateFlow<AudioQuality> = _audioQuality.asStateFlow()
 
+    private fun loadDownloadQuality(): AudioQuality {
+        val name = prefs.getString(KEY_DOWNLOAD_QUALITY, AudioQuality.HIGH.name) ?: AudioQuality.HIGH.name
+        return try { AudioQuality.valueOf(name) } catch (_: Exception) { AudioQuality.HIGH }
+    }
+    private val _downloadQuality = MutableStateFlow(loadDownloadQuality())
+    /** Kualitas file unduhan offline, terpisah dari kualitas streaming. */
+    val downloadQuality: StateFlow<AudioQuality> = _downloadQuality.asStateFlow()
+
+    fun setDownloadQuality(quality: AudioQuality) {
+        _downloadQuality.value = quality
+        prefs.edit().putString(KEY_DOWNLOAD_QUALITY, quality.name).apply()
+    }
+
     private val _autoTranslate = MutableStateFlow(prefs.getBoolean(KEY_AUTO_TRANSLATE, true))
     val autoTranslate: StateFlow<Boolean> = _autoTranslate.asStateFlow()
 
@@ -90,6 +103,7 @@ class SettingsManager private constructor(private val context: Context) {
         _themeMode.value = loadThemeMode()
         _themeStyle.value = loadThemeStyle()
         _audioQuality.value = loadAudioQuality()
+        _downloadQuality.value = loadDownloadQuality()
         _autoTranslate.value = prefs.getBoolean(KEY_AUTO_TRANSLATE, true)
         _language.value = loadLanguage()
         _capsuleEnabled.value = prefs.getBoolean(KEY_CAPSULE, true)
@@ -235,6 +249,7 @@ class SettingsManager private constructor(private val context: Context) {
         private const val PREF_NAME = "nexrify_settings"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_AUDIO_QUALITY = "audio_quality"
+        private const val KEY_DOWNLOAD_QUALITY = "download_quality"
         private const val KEY_THEME_STYLE = "theme_style"
         private const val KEY_AUTO_TRANSLATE = "lyrics_auto_translate"
         private const val KEY_LANGUAGE = "app_language"
