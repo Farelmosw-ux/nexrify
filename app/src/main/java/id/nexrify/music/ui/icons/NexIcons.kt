@@ -59,6 +59,7 @@ object NexIcons {
     val ThumbDown by lazy { icon("ThumbDown", "M7 13 V4 H4 A1 1 0 0 0 3 5 V12 A1 1 0 0 0 4 13 Z", "M7 13 L11 21 C12.5 21 13.5 20 13.5 18.5 V15 H19 C20.3 15 21.2 13.8 20.9 12.6 L19.4 5.6 C19.1 4.7 18.3 4 17.4 4 H7") }
     val ThumbDownFilled by lazy { icon("ThumbDownFilled", "M7 13 V4 H4 A1 1 0 0 0 3 5 V12 A1 1 0 0 0 4 13 Z", "M7 13 L11 21 C12.5 21 13.5 20 13.5 18.5 V15 H19 C20.3 15 21.2 13.8 20.9 12.6 L19.4 5.6 C19.1 4.7 18.3 4 17.4 4 H7", filled = true) }
     val TrendingUp by lazy { icon("TrendingUp", "M3 17 L9 11 L13 15 L21 7", "M15 7 H21 V13") }
+    val ChevronRight by lazy { icon("ChevronRight", "M9.5 5 L16.5 12 L9.5 19") }
     val Search by lazy { icon("Search", circle(11f, 11f, 8f), "M21 21 L16.8 16.8") }
     val LibraryMusic by lazy {
         icon(
