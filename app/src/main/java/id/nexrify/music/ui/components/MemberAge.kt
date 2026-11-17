@@ -61,8 +61,8 @@ fun MemberAgeChip(joined: Long, modifier: Modifier = Modifier, compact: Boolean 
     val now by produceState(System.currentTimeMillis()) {
         while (true) { delay(30_000L); value = System.currentTimeMillis() }
     }
-    val elapsed = (now - joined).coerceAtLeast(0L)
-    val days = elapsed / 86_400_000L
+    // Hari dihitung dari selisih TANGGAL kalender (1 Nov ke 17 Nov = 16 hari), sama dengan tanggal "Bergabung" di profil.
+    val days = calendarDaysBetween(joined, now)
     val tier = tierFor(days)
     val shape = RoundedCornerShape(10.dp)
     val bg = if (NexrifyAppTheme.isV2)
@@ -79,6 +79,14 @@ fun MemberAgeChip(joined: Long, modifier: Modifier = Modifier, compact: Boolean 
         Box(Modifier.size(if (compact) 5.dp else 7.dp).clip(CircleShape).background(tier.color))
         Spacer(Modifier.width(if (compact) 4.dp else 6.dp))
         Text(S.memberTier(tier.index), fontSize = if (compact) 9.sp else 11.sp, fontWeight = FontWeight.Bold, color = tier.color)
-        if (!compact) Text("  ${S.memberDuration(elapsed)}", fontSize = 11.sp, color = colors.textSecondary)
+        if (!compact) Text("  ${S.memberDuration(joined, now)}", fontSize = 11.sp, color = colors.textSecondary)
     }
+}
+
+/** Selisih hari kalender antara dua waktu, memakai zona waktu perangkat. Tidak pernah negatif. */
+fun calendarDaysBetween(fromMs: Long, toMs: Long): Long {
+    val zone = java.time.ZoneId.systemDefault()
+    val from = java.time.Instant.ofEpochMilli(fromMs).atZone(zone).toLocalDate()
+    val to = java.time.Instant.ofEpochMilli(toMs).atZone(zone).toLocalDate()
+    return java.time.temporal.ChronoUnit.DAYS.between(from, to).coerceAtLeast(0L)
 }
