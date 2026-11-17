@@ -235,6 +235,7 @@ fun ChatBubble(
     onReactionClick: (String) -> Unit,
     onRetry: () -> Unit,
     onSwipeReply: () -> Unit = {},
+    replyFullText: String? = null,
     topRank: Int = 0,
     extras: BubbleExtras = BubbleExtras()
 ) {
@@ -257,8 +258,8 @@ fun ChatBubble(
     }
     val textColor = if (mine) colors.background else colors.textPrimary
     val subColor = if (mine) colors.background.copy(alpha = 0.6f) else colors.textMuted
-    val shape = if (mine) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp)
-    else RoundedCornerShape(if (showHeader) 6.dp else 20.dp, 20.dp, 20.dp, 20.dp)
+    val shape = if (mine) RoundedCornerShape(22.dp, 22.dp, 6.dp, 22.dp)
+    else RoundedCornerShape(if (showHeader) 6.dp else 22.dp, 22.dp, 22.dp, 22.dp)
 
     // Tarik pesan sedikit ke kanan untuk membalas (seperti di WhatsApp).
     val canSwipe = !msg.deleted && msg.status == SendStatus.SENT && msg.seq > 0
@@ -349,7 +350,7 @@ fun ChatBubble(
                     .widthIn(max = 290.dp)
                     .clip(shape)
                     .background(bubbleBg)
-                    .then(if (msg.deleted) Modifier.border(1.dp, colors.border, shape) else Modifier)
+                    .then(if (msg.deleted || !mine) Modifier.border(1.dp, colors.border.copy(alpha = if (msg.deleted) 1f else 0.7f), shape) else Modifier)
                     .combinedClickable(
                         onClick = { if (msg.status == SendStatus.FAILED) onRetry() },
                         onLongClick = {
@@ -359,25 +360,30 @@ fun ChatBubble(
                             }
                         }
                     )
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .padding(horizontal = 13.dp, vertical = 9.dp)
             ) {
                 msg.reply?.let { r ->
+                    // Kutipan memuat isi pesan asli (sampai 4 baris), bukan potongan pendek.
+                    val quoted = (replyFullText?.takeIf { it.length > r.text.length } ?: r.text).trim()
+                    val accent = if (mine) colors.background.copy(alpha = 0.65f) else colors.textPrimary.copy(alpha = 0.75f)
                     Row(
                         modifier = Modifier
-                            .padding(bottom = 6.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (mine) colors.background.copy(alpha = 0.12f) else colors.border.copy(alpha = 0.55f))
+                            .padding(bottom = 7.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (mine) colors.background.copy(alpha = 0.14f) else colors.background.copy(alpha = 0.45f))
                             .clickable { onReplyClick(r.seq) }
                             .height(IntrinsicSize.Min)
                     ) {
-                        Box(Modifier.width(4.dp).fillMaxHeight().background(if (mine) colors.background.copy(alpha = 0.55f) else colors.textSecondary))
-                        Column(Modifier.padding(horizontal = 8.dp, vertical = 5.dp)) {
-                            Text("@${r.username}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = textColor, maxLines = 1)
+                        Box(Modifier.width(3.5.dp).fillMaxHeight().background(accent))
+                        Column(Modifier.padding(start = 9.dp, end = 10.dp, top = 6.dp, bottom = 6.dp)) {
+                            Text("@${r.username}", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = textColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Spacer(Modifier.height(1.dp))
                             Text(
-                                r.text.ifEmpty { S.chatDeletedMsg },
-                                fontSize = 12.sp,
+                                quoted.ifEmpty { S.chatDeletedMsg },
+                                fontSize = 12.5.sp,
+                                lineHeight = 16.sp,
                                 color = subColor,
-                                maxLines = 2,
+                                maxLines = 4,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
