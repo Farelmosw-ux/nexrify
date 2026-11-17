@@ -44,6 +44,8 @@ class BubbleExtras(
     val threadCount: Int = 0,
     val onThread: () -> Unit = {},
     val onReactionsLong: () -> Unit = {},
+    /** Ketuk "Dibaca N" untuk melihat siapa saja yang sudah membaca. */
+    val onReceiptClick: (() -> Unit)? = null,
     val myVote: Int = -1,
     val onVote: (Int) -> Unit = {}
 )
