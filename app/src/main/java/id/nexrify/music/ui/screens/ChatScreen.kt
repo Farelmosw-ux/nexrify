@@ -72,6 +72,7 @@ import id.nexrify.music.ui.components.ChatMessageSearchSheet
 import id.nexrify.music.ui.components.ChatPollCreateSheet
 import id.nexrify.music.ui.components.ChatPrivacySheet
 import id.nexrify.music.ui.components.ChatReactorsSheet
+import id.nexrify.music.ui.components.ChatReadersSheet
 import id.nexrify.music.ui.components.ChatReportsSheet
 import id.nexrify.music.ui.components.ChatThreadSheet
 import id.nexrify.music.ui.components.ModMuteDialog
@@ -79,6 +80,7 @@ import id.nexrify.music.ui.components.ModWarnDialog
 import id.nexrify.music.ui.components.PinnedBar
 import id.nexrify.music.ui.components.chatErrText
 import id.nexrify.music.ui.components.chatReceiptText
+import id.nexrify.music.ui.components.chatReadCount
 import id.nexrify.music.ui.components.ChatDateHeader
 import id.nexrify.music.ui.components.ChatGroupSheet
 import id.nexrify.music.ui.components.GroupAvatar
@@ -164,6 +166,7 @@ fun ChatScreen(viewModel: MusicViewModel, highlightSeq: Long, onBack: () -> Unit
     var showReports by remember { mutableStateOf(false) }
     var threadRoot by remember { mutableStateOf<ChatMessage?>(null) }
     var reactorsMsg by remember { mutableStateOf<ChatMessage?>(null) }
+    var readersMsg by remember { mutableStateOf<ChatMessage?>(null) }
     var warnTarget by remember { mutableStateOf<String?>(null) }
     var muteTarget by remember { mutableStateOf<String?>(null) }
     var pinIndex by remember { mutableStateOf(0) }
@@ -451,6 +454,7 @@ fun ChatScreen(viewModel: MusicViewModel, highlightSeq: Long, onBack: () -> Unit
                                         threadCount = replyCounts[m.seq] ?: 0,
                                         onThread = { threadRoot = m },
                                         onReactionsLong = { reactorsMsg = m },
+                                        onReceiptClick = { readersMsg = m },
                                         myVote = myVotes[m.seq] ?: -1,
                                         onVote = { idx ->
                                             scope.launch {
@@ -627,6 +631,7 @@ fun ChatScreen(viewModel: MusicViewModel, highlightSeq: Long, onBack: () -> Unit
                 }
                 if (!m.deleted && m.seq > 0) add(ChatMenuItem(NexIcons.ChatBubbleOutline, st.chatThreadAction) { menuMsg = null; threadRoot = m })
                 if (!m.deleted && m.reactions.isNotEmpty()) add(ChatMenuItem(NexIcons.Favorite, st.chatViewReactions) { menuMsg = null; reactorsMsg = m })
+                if (!m.deleted && m.uid == myId && chatReadCount(m, seen) > 0) add(ChatMenuItem(NexIcons.Check, st.chatReadBy) { menuMsg = null; readersMsg = m })
                 if (!mine && !m.announce && m.seq > 0) {
                     add(ChatMenuItem(NexIcons.Block, st.chatBlockAction, danger = true) {
                         menuMsg = null
@@ -741,6 +746,9 @@ fun ChatScreen(viewModel: MusicViewModel, highlightSeq: Long, onBack: () -> Unit
     if (showReports) ChatReportsSheet(onDismiss = { showReports = false })
     threadRoot?.let { root ->
         ChatThreadSheet(root, myId, myName, onOpenProfile = { threadRoot = null; profileName = it }, onDismiss = { threadRoot = null })
+    }
+    readersMsg?.let { rm ->
+        ChatReadersSheet(rm, seen, messages, onOpenProfile = { readersMsg = null; profileName = it }, onDismiss = { readersMsg = null })
     }
     reactorsMsg?.let { rm ->
         ChatReactorsSheet(rm, onOpenProfile = { reactorsMsg = null; profileName = it }, onDismiss = { reactorsMsg = null })
