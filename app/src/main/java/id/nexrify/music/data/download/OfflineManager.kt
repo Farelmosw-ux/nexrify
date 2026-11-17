@@ -184,7 +184,10 @@ class OfflineManager private constructor(private val context: Context) {
         val dest = File(dir, name + AUDIO_EXT)
         try {
             setState(track, DownloadState.Downloading(0f))
-            val stream = repository.getAudioStream(track.url, quality)
+            val stream = repository.getAudioStream(
+                track.url, quality,
+                runCatching { id.nexrify.music.data.settings.SettingsManager.getInstance().downloadSubQuality.value }.getOrNull()?.takeIf { it.parent == quality }
+            )
                 ?: throw IOException("Alamat audio tidak ditemukan")
 
             var lastPercent = -1
