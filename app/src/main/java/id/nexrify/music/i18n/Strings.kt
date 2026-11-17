@@ -959,6 +959,21 @@ class Strings(val english: Boolean) {
             }
         }
     }
+    val chatReadBy get() = t("Dibaca oleh", "Read by")
+    fun chatReadByCount(n: Int) = t("$n pembaca", "$n readers")
+    fun chatReadByOthers(n: Int) = t("+$n orang lain juga sudah membaca (profilnya belum bisa ditampilkan)", "+$n others also read this (profile not available yet)")
+    val chatReadByEmpty get() = t("Belum ada yang membaca pesan ini.", "No one has read this message yet.")
+    val settingsSectionAudio get() = t("Audio dan unduhan", "Audio and downloads")
+    val settingsSectionLang get() = t("Tampilan dan bahasa", "Appearance and language")
+    val settingsSectionLyrics get() = t("Lirik", "Lyrics")
+    val settingsSectionAbout get() = t("Tentang", "About")
+    val downloadQualityTitle get() = t("Kualitas unduhan", "Download quality")
+    val languageTitle get() = t("Bahasa", "Language")
+    val chooseLanguage get() = t("Pilih bahasa", "Choose language")
+    val chooseAudioQuality get() = t("Pilih kualitas audio", "Choose audio quality")
+    val chooseDownloadQuality get() = t("Pilih kualitas unduhan", "Choose download quality")
+    val appUpdateTitle get() = t("Pembaruan aplikasi", "App updates")
+    val appTagline get() = t("Pemutar musik Nexrify", "Nexrify music player")
     val chatTranslateOriginal get() = t("Tampilkan teks asli", "Show original text")
     val chatTranslated get() = t("Terjemahan", "Translation")
     val chatHideTranslation get() = t("Sembunyikan terjemahan", "Hide translation")
