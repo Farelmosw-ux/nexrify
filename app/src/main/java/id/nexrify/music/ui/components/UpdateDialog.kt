@@ -90,13 +90,16 @@ fun UpdateDialog(
                     .background(colors.card)
                     .border(1.dp, colors.border, RoundedCornerShape(14.dp))
             ) {
-                Text(
-                    text = notes,
-                    style = Typography.bodySmall,
-                    color = colors.textSecondary,
-                    lineHeight = 19.sp,
-                    modifier = Modifier.verticalScroll(rememberScrollState()).padding(14.dp)
-                )
+                // Teks bisa ditekan lama untuk dipilih dan disalin.
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    Text(
+                        text = notes,
+                        style = Typography.bodySmall,
+                        color = colors.textSecondary,
+                        lineHeight = 19.sp,
+                        modifier = Modifier.verticalScroll(rememberScrollState()).padding(14.dp)
+                    )
+                }
             }
 
             Spacer(Modifier.height(18.dp))
