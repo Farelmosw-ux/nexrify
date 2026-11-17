@@ -185,6 +185,7 @@ fun ChatScreen(viewModel: MusicViewModel, highlightSeq: Long, onBack: () -> Unit
     val group by manager.group.collectAsState()
     val isStaff = group?.canEdit == true
     val pins = group?.pins.orEmpty()
+    val msgBySeq = remember(messages) { messages.filter { it.seq > 0 }.associateBy { it.seq } }
     val replyCounts = remember(messages) {
         val map = HashMap<Long, Int>()
         for (m in messages) { val r = m.reply?.seq ?: continue; if (r > 0 && !m.deleted) map[r] = (map[r] ?: 0) + 1 }
@@ -356,7 +357,7 @@ fun ChatScreen(viewModel: MusicViewModel, highlightSeq: Long, onBack: () -> Unit
 
     Column(Modifier.fillMaxSize().background(colors.background)) {
         // ---- header ----
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().background(colors.surface).padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             HeaderIcon(NexIcons.ArrowBack, onClick = onBack)
             Row(
                 Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable { showGroup = true }.padding(horizontal = 4.dp, vertical = 2.dp),
@@ -441,6 +442,7 @@ fun ChatScreen(viewModel: MusicViewModel, highlightSeq: Long, onBack: () -> Unit
                                     onAvatarClick = { if (!m.announce) profileName = m.username },
                                     onReactionClick = { manager.react(m.seq, it) },
                                     onRetry = { m.localId?.let { id -> manager.retry(id) } },
+                                    replyFullText = m.reply?.let { rr -> msgBySeq[rr.seq]?.takeIf { x -> !x.deleted }?.text },
                                     onSwipeReply = {
                                         if (editing != null) input = TextFieldValue("")
                                         editing = null
@@ -525,18 +527,18 @@ fun ChatScreen(viewModel: MusicViewModel, highlightSeq: Long, onBack: () -> Unit
         val banner = editing ?: replyTo
         if (banner != null) {
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 6.dp).clip(RoundedCornerShape(14.dp)).background(colors.card)
-                    .border(1.dp, colors.border, RoundedCornerShape(14.dp)).padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 6.dp).clip(RoundedCornerShape(18.dp)).background(colors.card)
+                    .border(1.dp, colors.border, RoundedCornerShape(18.dp)).padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(if (editing != null) NexIcons.Edit else NexIcons.Reply, null, tint = colors.textPrimary, modifier = Modifier.size(18.dp))
+                Box(Modifier.width(3.dp).height(32.dp).clip(CircleShape).background(colors.textPrimary))
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
                         if (editing != null) S.chatEditing else S.chatReplyingTo("@${banner.username}"),
                         fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary
                     )
-                    Text(banner.text, fontSize = 12.sp, color = colors.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(banner.text, fontSize = 12.sp, lineHeight = 16.sp, color = colors.textMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 HeaderIcon(NexIcons.Close, small = true) {
                     if (editing != null) { editing = null; input = TextFieldValue("") }
@@ -555,7 +557,7 @@ fun ChatScreen(viewModel: MusicViewModel, highlightSeq: Long, onBack: () -> Unit
                 Spacer(Modifier.width(8.dp))
             }
             Box(
-                Modifier.weight(1f).clip(RoundedCornerShape(24.dp)).background(colors.card).border(1.dp, colors.border, RoundedCornerShape(24.dp))
+                Modifier.weight(1f).clip(RoundedCornerShape(26.dp)).background(colors.card).border(1.dp, colors.border, RoundedCornerShape(26.dp))
                     .padding(horizontal = 16.dp, vertical = 11.dp)
             ) {
                 if (input.text.isEmpty()) Text(S.chatInputHint, color = colors.textMuted, fontSize = 15.sp)
