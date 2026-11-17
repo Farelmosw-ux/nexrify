@@ -64,7 +64,9 @@ import androidx.compose.ui.unit.sp
 import id.nexrify.music.data.account.AccountError
 import id.nexrify.music.data.chat.ChatManager
 import id.nexrify.music.data.chat.ChatMessage
+import id.nexrify.music.data.chat.ChatPerson
 import id.nexrify.music.data.chat.ChatPrivacy
+import id.nexrify.music.data.chat.ChatSeen
 import id.nexrify.music.data.chat.ChatThread
 import id.nexrify.music.data.chat.ModReport
 import id.nexrify.music.data.chat.ReactionGroup
@@ -416,6 +418,8 @@ fun ChatReactorsSheet(msg: ChatMessage, onOpenProfile: (String) -> Unit, onDismi
         catch (e: Throwable) { groups = emptyList(); NexNotifier.warning(chatErrText(e), currentStrings().chatReactionsTitle) }
     }
 
+    val reactorProfiles by rememberChatProfiles(groups?.flatMap { grp -> grp.users.map { it.username } }.orEmpty())
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = colors.background,
@@ -450,9 +454,79 @@ fun ChatReactorsSheet(msg: ChatMessage, onOpenProfile: (String) -> Unit, onDismi
                                 Column(Modifier.weight(1f)) {
                                     Text(p.display, color = colors.textPrimary, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     Text("@${p.username}", color = colors.textMuted, fontSize = 12.sp)
+                                    PersonTags(reactorProfiles[p.username.lowercase()], Modifier.padding(top = 2.dp))
                                 }
                                 Text(e, fontSize = 22.sp)
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/* ======================= daftar pembaca ======================= */
+
+/**
+ * Siapa saja yang sudah membaca pesan kita. Identitas diambil dari pengguna yang terlihat di chat;
+ * yang belum pernah muncul di chat hanya dihitung jumlahnya.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ChatReadersSheet(
+    msg: ChatMessage,
+    seen: List<ChatSeen>,
+    messages: List<ChatMessage>,
+    onOpenProfile: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val colors = NexrifyAppTheme.colors
+    val readerUids = remember(msg.seq, seen) {
+        seen.filter { it.uid != msg.uid && it.seq >= msg.seq }.map { it.uid }.distinct()
+    }
+    val known = remember(messages) {
+        val map = HashMap<String, ChatPerson>()
+        messages.forEach { m -> if (m.uid.isNotEmpty() && m.uid != "sys") map[m.uid] = ChatPerson(m.uid, m.username, m.display, m.av) }
+        map
+    }
+    val people = remember(readerUids, known) { readerUids.mapNotNull { known[it] } }
+    val unknown = readerUids.size - people.size
+    val profiles by rememberChatProfiles(people.map { it.username })
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = colors.background,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        dragHandle = { XHandle() }
+    ) {
+        Column(Modifier.fillMaxWidth().fillMaxHeight(0.7f).padding(horizontal = 20.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(S.chatReadBy, style = Typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary, modifier = Modifier.weight(1f))
+                Text(S.chatReadByCount(readerUids.size), color = colors.textMuted, fontSize = 12.sp)
+            }
+            Spacer(Modifier.height(10.dp))
+            if (readerUids.isEmpty()) {
+                Text(S.chatReadByEmpty, color = colors.textMuted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp))
+            } else {
+                LazyColumn(Modifier.fillMaxWidth()) {
+                    items(people, key = { it.uid }) { p ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { onOpenProfile(p.username) }.padding(vertical = 8.dp, horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            ChatAvatar(p.uid, p.av, p.display, 40.dp)
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(p.display, color = colors.textPrimary, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("@${p.username}", color = colors.textMuted, fontSize = 12.sp)
+                                PersonTags(profiles[p.username.lowercase()], Modifier.padding(top = 2.dp))
+                            }
+                        }
+                    }
+                    if (unknown > 0) {
+                        item {
+                            Text(S.chatReadByOthers(unknown), color = colors.textMuted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 12.dp, horizontal = 4.dp))
                         }
                     }
                 }
