@@ -910,6 +910,62 @@ class Strings(val english: Boolean) {
     val dislikeSong get() = t("Kurangi lagu seperti ini", "Show less like this")
     val trendingSearches get() = t("Pencarian trend", "Trending searches")
     val mostSearched get() = t("Paling banyak dicari", "Most searched")
+    fun streakDays(n: Int) = t("$n hari beruntun", "$n day streak")
+    fun streakDaysShort(n: Int) = t("$n hari", "$n days")
+    val streakStateNone get() = t("Dengarkan musik 1 menit untuk menyalakan api pertamamu.", "Listen for 1 minute to light your first flame.")
+    val streakStateRed get() = t("Api menyala! Kamu sudah mendengarkan musik hari ini.", "Your flame is lit! You've listened today.")
+    val streakStateBlue get() = t("Api biru! Streak-mu sudah lebih dari sebulan, tingkat tertinggi.", "Blue flame! Your streak is over a month, the top level.")
+    fun streakStateGray(daysLeft: Int) = t(
+        "Api abu abu. Dengarkan musik 1 menit hari ini supaya menyala lagi. Sisa $daysLeft hari sebelum streak hangus.",
+        "Grey flame. Listen for 1 minute today to relight it. $daysLeft days left before the streak is lost."
+    )
+    val streakToday get() = t("Hari ini", "Today")
+    val streakSecondsUnit get() = t("detik", "sec")
+    val streakBest get() = t("Streak terbaik", "Best streak")
+    fun streakNextLevel(daysLeft: Int) = t("Api berubah biru {n} hari lagi.".replace("{n}", daysLeft.toString()), "The flame turns blue in $daysLeft days.")
+    val streakRules get() = t(
+        "Dengarkan musik 1 menit tiap hari. Kalau 3 hari tidak mendengarkan sama sekali, streak hangus.",
+        "Listen for 1 minute every day. If you skip 3 days in a row, the streak is lost."
+    )
+    fun memberTier(i: Int) = when (i) {
+        0 -> t("Member Baru", "New Member")
+        1 -> t("Pendatang", "Newcomer")
+        2 -> t("Warga", "Resident")
+        3 -> t("Anggota Setia", "Loyal Member")
+        4 -> t("Senior", "Senior")
+        else -> t("Veteran", "Veteran")
+    }
+    /** Lama jadi member, dibulatkan ke satuan terbesar: "3 hari", "2 jam", "1 tahun 2 bulan". */
+    fun memberDuration(ms: Long): String {
+        val minutes = ms / 60_000L
+        val hours = minutes / 60
+        val days = hours / 24
+        val years = days / 365
+        return when {
+            years >= 1 -> {
+                val months = ((days % 365) / 30).toInt()
+                if (months > 0) t("$years tahun $months bulan", "$years yr $months mo") else t("$years tahun", "$years yr")
+            }
+            days >= 1 -> t("$days hari", "$days d")
+            hours >= 1 -> t("$hours jam", "$hours h")
+            else -> t("${minutes.coerceAtLeast(0)} menit", "${minutes.coerceAtLeast(0)} min")
+        }
+    }
+    val chatReadBy get() = t("Dibaca oleh", "Read by")
+    fun chatReadByCount(n: Int) = t("$n pembaca", "$n readers")
+    fun chatReadByOthers(n: Int) = t("+$n orang lain juga sudah membaca (profilnya belum bisa ditampilkan)", "+$n others also read this (profile not available yet)")
+    val chatReadByEmpty get() = t("Belum ada yang membaca pesan ini.", "No one has read this message yet.")
+    val settingsSectionAudio get() = t("Audio dan unduhan", "Audio and downloads")
+    val settingsSectionLang get() = t("Tampilan dan bahasa", "Appearance and language")
+    val settingsSectionLyrics get() = t("Lirik", "Lyrics")
+    val settingsSectionAbout get() = t("Tentang", "About")
+    val downloadQualityTitle get() = t("Kualitas unduhan", "Download quality")
+    val languageTitle get() = t("Bahasa", "Language")
+    val chooseLanguage get() = t("Pilih bahasa", "Choose language")
+    val chooseAudioQuality get() = t("Pilih kualitas audio", "Choose audio quality")
+    val chooseDownloadQuality get() = t("Pilih kualitas unduhan", "Choose download quality")
+    val appUpdateTitle get() = t("Pembaruan aplikasi", "App updates")
+    val appTagline get() = t("Pemutar musik Nexrify", "Nexrify music player")
     val chatTranslateOriginal get() = t("Tampilkan teks asli", "Show original text")
     val chatTranslated get() = t("Terjemahan", "Translation")
     val chatHideTranslation get() = t("Sembunyikan terjemahan", "Hide translation")
