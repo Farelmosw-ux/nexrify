@@ -433,10 +433,12 @@ fun ChatProfileSheet(
                             Spacer(Modifier.height(8.dp))
                             TopTag(p.donateRank)
                         }
-                        if (p.badges.isNotEmpty()) {
+                        // Lencana "OG / Early member" diganti chip umur akun yang dihitung realtime.
+                        val shownBadges = p.badges.filter { it != "early" }
+                        if (shownBadges.isNotEmpty() || p.joined > 0L) {
                             Spacer(Modifier.height(8.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                p.badges.forEach { b ->
+                                shownBadges.forEach { b ->
                                     Row(
                                         modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(colors.card)
                                             .border(1.dp, colors.border, RoundedCornerShape(10.dp)).padding(horizontal = 9.dp, vertical = 4.dp),
@@ -447,6 +449,7 @@ fun ChatProfileSheet(
                                         Text(badgeFull(b, S), fontSize = 11.sp, color = colors.textSecondary)
                                     }
                                 }
+                                MemberAgeChip(p.joined)
                             }
                         }
                     }
