@@ -1081,6 +1081,20 @@ class Strings(val english: Boolean) {
     val feedbackDeviceNote get() = t("Info perangkat dan versi aplikasi ikut dikirim untuk laporan bug.", "Device and app version are included with bug reports.")
     val feedbackBugPrivacy get() = t("Laporan bug hanya terlihat olehmu dan owner.", "Bug reports are only visible to you and the owner.")
     val feedbackDeleted get() = t("Dihapus", "Deleted")
+    val feedbackAttachTitle get() = t("Lampiran gambar", "Image attachments")
+    val feedbackAttachAdd get() = t("Tambah gambar", "Add image")
+    val feedbackAttachHint get() = t("Opsional, maksimal 3 gambar. Caption dan penjelasan boleh dikosongkan.", "Optional, up to 3 images. Caption and description can be left empty.")
+    val feedbackCaptionHint get() = t("Caption (opsional)", "Caption (optional)")
+    val feedbackOptional get() = t("opsional", "optional")
+    val feedbackBodyHintMedia get() = t("Penjelasan (opsional kalau ada gambar)", "Description (optional with images)")
+    val feedbackMediaFail get() = t("Gambar tidak bisa dibaca", "Couldn't read that image")
+    val feedbackMediaMax get() = t("Maksimal 3 gambar", "Up to 3 images")
+    val feedbackSending get() = t("Mengirim...", "Sending...")
+    val feedbackNeedTitle get() = t("Isi judul dulu (minimal 4 karakter)", "Add a title first (at least 4 characters)")
+    val feedbackNeedBody get() = t("Isi penjelasan (minimal 10 karakter) atau lampirkan gambar", "Add a description (10+ characters) or attach an image")
+    val feedbackKindHintFeature get() = t("Usulkan fitur baru yang kamu mau", "Suggest a feature you'd like")
+    val feedbackKindHintBug get() = t("Laporkan masalah yang kamu temui", "Report a problem you ran into")
+    val feedbackClose get() = t("Tutup", "Close")
 
 }
 
