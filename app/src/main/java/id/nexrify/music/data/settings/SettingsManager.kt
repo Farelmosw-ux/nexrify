@@ -23,6 +23,33 @@ enum class AudioQuality(val title: String, val description: String) {
     LOW("Data Saver (64 kbps)", "Fastest buffer, minimal data usage")
 }
 
+/** Pilihan detail di dalam tiap tingkat kualitas (format dan bitrate), sama seperti di Kuro. */
+enum class AudioSubQuality(
+    val parent: AudioQuality,
+    val badge: String,
+    val subtitleId: String,
+    val subtitleEn: String,
+    val targetBitrate: Int,
+    val preferOpus: Boolean
+) {
+    HIGH_OPUS_160(AudioQuality.HIGH, "WebM Opus • ~160 kbps", "Kualitas tertinggi YouTube Music (setara 256 kbps AAC)", "Highest YouTube Music clarity (itag 251 / 774)", 160, true),
+    HIGH_M4A_256(AudioQuality.HIGH, "M4A AAC • 128–256 kbps", "Hardware decoder ramah TWS & hemat baterai (itag 141 / 140)", "Hardware decoder friendly & low battery usage (itag 141 / 140)", 256, false),
+    MED_M4A_128(AudioQuality.MEDIUM, "M4A AAC • 128 kbps", "Standar seimbang & kompatibilitas tinggi (itag 140)", "Balanced standard AAC stream (itag 140)", 128, false),
+    MED_OPUS_128(AudioQuality.MEDIUM, "WebM Opus • ~128 kbps", "Karakter vokal & separasi instrumen lebih tajam", "Crisp vocal & instrument separation", 128, true),
+    LOW_OPUS_70(AudioQuality.LOW, "WebM Opus • ~70 kbps", "Hemat kuota dengan suara tetap jernih (itag 250)", "Data saver with clean vocals (itag 250)", 70, true),
+    LOW_OPUS_50(AudioQuality.LOW, "WebM Opus • ~50 kbps", "Ultra hemat kuota (itag 249)", "Ultra data saver (itag 249)", 50, true),
+    LOW_M4A_48(AudioQuality.LOW, "M4A HE-AAC • ~48 kbps", "Buffer paling cepat di sinyal lemah (itag 139)", "Fastest buffer on weak mobile signal (itag 139)", 48, false);
+
+    companion object {
+        fun optionsFor(quality: AudioQuality): List<AudioSubQuality> = values().filter { it.parent == quality }
+        fun defaultFor(quality: AudioQuality): AudioSubQuality = when (quality) {
+            AudioQuality.HIGH -> HIGH_OPUS_160
+            AudioQuality.MEDIUM -> MED_M4A_128
+            AudioQuality.LOW -> LOW_OPUS_70
+        }
+    }
+}
+
 class SettingsManager private constructor(private val context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -36,11 +63,35 @@ class SettingsManager private constructor(private val context: Context) {
     private val _audioQuality = MutableStateFlow(loadAudioQuality())
     val audioQuality: StateFlow<AudioQuality> = _audioQuality.asStateFlow()
 
+    private fun loadSub(key: String, parent: AudioQuality): AudioSubQuality {
+        val saved = prefs.getString(key, null)?.let { runCatching { AudioSubQuality.valueOf(it) }.getOrNull() }
+        return if (saved != null && saved.parent == parent) saved else AudioSubQuality.defaultFor(parent)
+    }
+
+    private val _audioSubQuality = MutableStateFlow(loadSub(KEY_AUDIO_SUB, loadAudioQuality()))
+    /** Pilihan detail kualitas streaming (format dan bitrate). */
+    val audioSubQuality: StateFlow<AudioSubQuality> = _audioSubQuality.asStateFlow()
+
+    fun setAudioSubQuality(sub: AudioSubQuality) {
+        _audioSubQuality.value = sub
+        _audioQuality.value = sub.parent
+        prefs.edit().putString(KEY_AUDIO_SUB, sub.name).putString(KEY_AUDIO_QUALITY, sub.parent.name).apply()
+    }
+
     private fun loadDownloadQuality(): AudioQuality {
         val name = prefs.getString(KEY_DOWNLOAD_QUALITY, AudioQuality.HIGH.name) ?: AudioQuality.HIGH.name
         return try { AudioQuality.valueOf(name) } catch (_: Exception) { AudioQuality.HIGH }
     }
     private val _downloadQuality = MutableStateFlow(loadDownloadQuality())
+    private val _downloadSubQuality = MutableStateFlow(loadSub(KEY_DOWNLOAD_SUB, loadDownloadQuality()))
+    /** Pilihan detail kualitas unduhan offline. */
+    val downloadSubQuality: StateFlow<AudioSubQuality> = _downloadSubQuality.asStateFlow()
+
+    fun setDownloadSubQuality(sub: AudioSubQuality) {
+        _downloadSubQuality.value = sub
+        _downloadQuality.value = sub.parent
+        prefs.edit().putString(KEY_DOWNLOAD_SUB, sub.name).putString(KEY_DOWNLOAD_QUALITY, sub.parent.name).apply()
+    }
     /** Kualitas file unduhan offline, terpisah dari kualitas streaming. */
     val downloadQuality: StateFlow<AudioQuality> = _downloadQuality.asStateFlow()
 
@@ -104,6 +155,8 @@ class SettingsManager private constructor(private val context: Context) {
         _themeStyle.value = loadThemeStyle()
         _audioQuality.value = loadAudioQuality()
         _downloadQuality.value = loadDownloadQuality()
+        _audioSubQuality.value = loadSub(KEY_AUDIO_SUB, _audioQuality.value)
+        _downloadSubQuality.value = loadSub(KEY_DOWNLOAD_SUB, _downloadQuality.value)
         _autoTranslate.value = prefs.getBoolean(KEY_AUTO_TRANSLATE, true)
         _language.value = loadLanguage()
         _capsuleEnabled.value = prefs.getBoolean(KEY_CAPSULE, true)
@@ -250,6 +303,8 @@ class SettingsManager private constructor(private val context: Context) {
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_AUDIO_QUALITY = "audio_quality"
         private const val KEY_DOWNLOAD_QUALITY = "download_quality"
+        private const val KEY_AUDIO_SUB = "audio_sub_quality"
+        private const val KEY_DOWNLOAD_SUB = "download_sub_quality"
         private const val KEY_THEME_STYLE = "theme_style"
         private const val KEY_AUTO_TRANSLATE = "lyrics_auto_translate"
         private const val KEY_LANGUAGE = "app_language"
