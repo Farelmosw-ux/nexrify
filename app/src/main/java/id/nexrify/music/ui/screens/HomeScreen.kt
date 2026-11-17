@@ -76,6 +76,9 @@ import id.nexrify.music.ui.theme.DarkBorder
 import id.nexrify.music.ui.theme.DarkCard
 import id.nexrify.music.ui.theme.MutedText
 import id.nexrify.music.ui.theme.PureBlack
+import id.nexrify.music.data.streak.StreakInfo
+import id.nexrify.music.ui.components.StreakChip
+import id.nexrify.music.ui.components.StreakDialog
 import id.nexrify.music.ui.theme.PureWhite
 import id.nexrify.music.ui.theme.SubtleGray
 import id.nexrify.music.ui.theme.Typography
@@ -102,6 +105,10 @@ fun HomeScreen(
     val favorites by viewModel.favorites.collectAsState()
     val recentlyPlayed by viewModel.recentlyPlayed.collectAsState()
     val reactions by viewModel.reactions.collectAsState()
+    val streak by viewModel.streakManager.info.collectAsState()
+    var showStreak by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { viewModel.streakManager.refresh() }
+    if (showStreak) StreakDialog(streak) { showStreak = false }
     val favoriteIds by remember(favorites) { androidx.compose.runtime.derivedStateOf { favorites.mapTo(HashSet()) { it.id } } }
 
     var showProfileMenu by remember { mutableStateOf(false) }
@@ -172,7 +179,9 @@ fun HomeScreen(
                 onProfile = { showProfileMenu = true },
                 onChat = onOpenChat,
                 onMail = onOpenMailbox,
-                onSettings = { showSettingsDialog = true }
+                onSettings = { showSettingsDialog = true },
+                streak = streak,
+                onStreak = { showStreak = true }
             )
             V2HomeHeader(
                 greeting = S.period(timeContextV2.period),
@@ -201,6 +210,8 @@ fun HomeScreen(
             }
             val unreadMail by id.nexrify.music.data.mailbox.MailboxManager.getInstance().unreadCount.collectAsState()
             val chatUnread by id.nexrify.music.data.chat.ChatManager.getInstance().mentionUnread.collectAsState()
+            StreakChip(streak, onClick = { showStreak = true })
+            Spacer(modifier = Modifier.width(10.dp))
             ChatTopButton(unread = chatUnread, onClick = onOpenChat)
             Spacer(modifier = Modifier.width(10.dp))
             MailboxTopButton(unread = unreadMail, onClick = onOpenMailbox)
@@ -1063,7 +1074,9 @@ private fun V2UtilityBar(
     onProfile: () -> Unit,
     onChat: () -> Unit,
     onMail: () -> Unit,
-    onSettings: () -> Unit
+    onSettings: () -> Unit,
+    streak: StreakInfo,
+    onStreak: () -> Unit
 ) {
     val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
     val shape = RoundedCornerShape(30.dp)
@@ -1081,6 +1094,8 @@ private fun V2UtilityBar(
         Spacer(modifier = Modifier.width(10.dp))
         Text("Nexrify", style = Typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary)
         Spacer(modifier = Modifier.weight(1f))
+        StreakChip(streak, onClick = onStreak)
+        Spacer(modifier = Modifier.width(8.dp))
         ChatTopButton(unread = chatUnread, onClick = onChat)
         Spacer(modifier = Modifier.width(8.dp))
         MailboxTopButton(unread = mailUnread, onClick = onMail)
