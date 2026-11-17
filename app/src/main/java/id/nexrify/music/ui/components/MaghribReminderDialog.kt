@@ -38,6 +38,7 @@ import androidx.core.app.ActivityCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import id.nexrify.music.capsule.AppVisibility
+import id.nexrify.music.data.account.AccountManager
 import id.nexrify.music.data.prayer.MaghribManager
 import id.nexrify.music.data.prayer.MaghribReminder
 import id.nexrify.music.i18n.S
@@ -147,7 +148,8 @@ fun MaghribReminderHost(viewModel: MusicViewModel) {
 }
 
 /**
- * Meminta izin lokasi untuk fitur Maghrib. Muncul tiap aplikasi dibuka selama izin belum diberikan.
+ * Meminta izin lokasi untuk fitur Maghrib. Muncul tiap aplikasi dibuka selama izin belum diberikan dan akun ini
+ * belum memilih "Jangan tampilkan lagi".
  * Kalau izin ditolak permanen, tombolnya berubah jadi pembuka pengaturan aplikasi.
  */
 @Composable
@@ -155,8 +157,15 @@ fun LocationPermissionPrompt() {
     val context = LocalContext.current
     val manager = remember { MaghribManager.getInstance() }
     var hasPermission by remember { mutableStateOf(manager.hasPermission()) }
-    var dismissed by remember { mutableStateOf(false) }
     var needSettings by remember { mutableStateOf(false) }
+
+    // Izin lokasi itu milik perangkat, jadi ganti akun tidak meminta ulang kalau izinnya sudah ada.
+    // "Jangan tampilkan lagi" disimpan per akun: akun lain yang belum memilihnya tetap bisa ditawari.
+    val account by AccountManager.getInstance().user.collectAsState()
+    val accountKey = account?.username?.trim()?.lowercase().orEmpty().ifEmpty { "guest" }
+    val promptPrefs = remember { context.getSharedPreferences("nexrify_location_prompt", Context.MODE_PRIVATE) }
+    var neverAsk by remember(accountKey) { mutableStateOf(promptPrefs.getBoolean("never_$accountKey", false)) }
+    var dismissed by remember(accountKey) { mutableStateOf(false) }
 
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         hasPermission = granted || manager.hasPermission()
@@ -187,7 +196,7 @@ fun LocationPermissionPrompt() {
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    if (hasPermission || dismissed) return
+    if (hasPermission || dismissed || neverAsk) return
     val colors = NexrifyAppTheme.colors
 
     NexDialogCard(
@@ -224,6 +233,15 @@ fun LocationPermissionPrompt() {
         Spacer(Modifier.height(4.dp))
         TextButton(onClick = { dismissed = true }, modifier = Modifier.fillMaxWidth()) {
             Text(S.locPromptLater, color = colors.textSecondary)
+        }
+        TextButton(
+            onClick = {
+                promptPrefs.edit().putBoolean("never_$accountKey", true).apply()
+                neverAsk = true
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(S.locPromptNever, color = colors.textMuted, style = Typography.bodySmall)
         }
     }
 }
