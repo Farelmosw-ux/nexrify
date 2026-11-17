@@ -47,6 +47,7 @@ fun SongCommentsSheet(track: Track, onDismiss: () -> Unit) {
     var showActivity by remember { mutableStateOf(false) }
     var sending by remember { mutableStateOf(false) }
     var menuFor by remember { mutableStateOf<SongComment?>(null) }
+    val profiles by rememberChatProfiles(comments.map { it.username })
     suspend fun refresh() { loading = true; try { comments = SongCommentsApi.list(track.id); error = "" } catch (e: Exception) { error = e.message ?: str.commentLoadFail }; loading = false }
     LaunchedEffect(track.id) { refresh(); runCatching { activity = SongCommentsApi.notifications().second } }
     Dialog(
@@ -84,13 +85,21 @@ fun SongCommentsSheet(track: Track, onDismiss: () -> Unit) {
                     items(comments, key = { it.id }) { c ->
                         val isReply = c.parentId.isNotBlank()
                         Row(Modifier.fillMaxWidth().padding(start = if (isReply) 28.dp else 0.dp), verticalAlignment = Alignment.Top) {
+                            val prof = profiles[c.username.lowercase()]
+                            val shownName = c.display.ifBlank { c.username }
+                            ChatAvatar(c.uid, prof?.av.orEmpty(), shownName, if (isReply) 28.dp else 38.dp)
+                            Spacer(Modifier.width(10.dp))
                             Column(
                                 Modifier.weight(1f).combinedClickable(
                                     onClick = { },
                                     onLongClick = { menuFor = c }
                                 )
                             ) {
-                                Text("@${c.username}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(shownName, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary, maxLines = 1, modifier = Modifier.weight(1f, fill = false))
+                                    Text("  @${c.username}", fontSize = 11.sp, color = colors.textMuted, maxLines = 1)
+                                }
+                                if (prof != null) PersonTags(prof, Modifier.padding(top = 2.dp, bottom = 2.dp))
                                 Text(c.text, fontSize = 14.sp, color = colors.textPrimary)
                                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text(SimpleDateFormat("dd MMM · HH:mm", Locale("id", "ID")).format(Date(c.ts)), fontSize = 10.sp, color = colors.textMuted)
