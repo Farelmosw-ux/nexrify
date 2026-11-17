@@ -459,22 +459,25 @@ fun ChatBubble(
                 ) {
                     msg.reactions.forEach { (emoji, users) ->
                         val iReacted = users.contains(myId)
+                        // Gaya pil ala Telegram: emoji + jumlah. Ketuk sekali = batal (kalau punyamu) atau ikut bereaksi (kalau punya orang lain).
+                        val pill = RoundedCornerShape(50)
+                        val tint = Color(0xFF5AA9FF)
                         Row(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (iReacted) colors.textPrimary else colors.card)
-                                .border(1.dp, if (iReacted) colors.textPrimary else colors.border, RoundedCornerShape(12.dp))
+                                .clip(pill)
+                                .background(if (iReacted) tint.copy(alpha = 0.30f) else colors.card)
+                                .border(1.dp, if (iReacted) tint else colors.border, pill)
                                 .combinedClickable(onClick = { onReactionClick(emoji) }, onLongClick = extras.onReactionsLong)
-                                .padding(horizontal = 7.dp, vertical = 2.dp),
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(emoji, fontSize = 12.sp)
-                            Spacer(Modifier.width(3.dp))
+                            Text(emoji, fontSize = 15.sp)
+                            Spacer(Modifier.width(5.dp))
                             Text(
                                 users.size.toString(),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (iReacted) colors.background else colors.textSecondary
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (iReacted) colors.textPrimary else colors.textSecondary
                             )
                         }
                     }
