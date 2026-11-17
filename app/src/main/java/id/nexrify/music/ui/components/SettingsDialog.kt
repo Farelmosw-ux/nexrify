@@ -12,6 +12,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import id.nexrify.music.capsule.MusicCapsuleController
+import id.nexrify.music.R
 import id.nexrify.music.i18n.S
 import id.nexrify.music.i18n.currentStrings
 import id.nexrify.music.ui.components.NexFooter
@@ -771,7 +772,7 @@ fun AppFavicon(size: androidx.compose.ui.unit.Dp) {
     androidx.compose.ui.viewinterop.AndroidView(
         factory = { ctx ->
             android.widget.ImageView(ctx).apply {
-                setImageResource(id.nexrify.music.R.mipmap.ic_launcher)
+                setImageResource(R.mipmap.ic_launcher)
                 scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
             }
         },
