@@ -1096,6 +1096,79 @@ class Strings(val english: Boolean) {
     val feedbackKindHintBug get() = t("Laporkan masalah yang kamu temui", "Report a problem you ran into")
     val feedbackClose get() = t("Tutup", "Close")
 
+    // Title (pendengar terlama, top streak, konten kreator)
+    val titleCreator get() = t("Kreator", "Creator")
+    val titleCreatorFull get() = t("Konten Kreator", "Content Creator")
+    val titleMarathon get() = t("Pendengar Terlama", "Longest Listener")
+    val titleMarathonShort get() = t("Terlama", "Longest")
+    val titleStreak get() = t("Top Streak", "Top Streak")
+    val titleLoved get() = t("Disukai", "Loved")
+    val titleActive get() = t("Aktif", "Active")
+    val titleDonor get() = t("Top Donatur", "Top Donor")
+    val titleHowDonor get() = t("Jadi 3 donatur terbesar di Nexrify.", "Be one of the top 3 donors on Nexrify.")
+    val titleHowMarathon get() = t(
+        "Hanya 1 orang. Diberikan ke pengguna yang paling lama bertahan di Nexrify tanpa keluar dari aplikasi (minimal 30 menit). Keluar dari aplikasi mengulang hitungan ke 0, dan title pindah kalau ada yang menyalip.",
+        "Only 1 person. Given to whoever has stayed in Nexrify the longest without leaving the app (30 minutes minimum). Leaving the app resets the count to 0, and the title moves if someone overtakes you."
+    )
+    val titleHowStreak get() = t(
+        "Hanya 1 orang. Diberikan ke pemilik streak mendengarkan terpanjang (minimal 3 hari). Title pindah kalau streakmu disalip.",
+        "Only 1 person. Given to whoever has the longest listening streak (3 days minimum). The title moves if your streak is overtaken."
+    )
+    val titleHowCreator get() = t("Ajukan verifikasi dengan mengisi formulir. Dicek oleh owner lewat Telegram.", "Apply for verification with the form. The owner checks it on Telegram.")
+    val titleHowLoved get() = t("Dapatkan 25 reaksi di Global Chat.", "Get 25 reactions in Global Chat.")
+    val titleHowActive get() = t("Kirim 100 pesan di Global Chat.", "Send 100 messages in Global Chat.")
+    val titleOnlyOne get() = t("Hanya 1 pemegang", "Single holder")
+    val titleLocked get() = t("Belum dimiliki", "Not owned yet")
+    fun titleStreakLabel(n: Int) = t("Top Streak · $n hari", "Top Streak · $n days")
+    val titleMine get() = t("Title saya", "My titles")
+    val titleSelect get() = t("Pilih title", "Select titles")
+    val titleNone get() = t("Belum ada title dipasang", "No title equipped")
+    fun titleSelectedCount(n: Int, max: Int) = t("Dipasang $n dari $max", "Equipped $n of $max")
+    val titleSave get() = t("Simpan", "Save")
+    val titleSaved get() = t("Title diperbarui", "Titles updated")
+    val titleLimit get() = t("Maksimal 3 title yang bisa dipasang", "You can equip up to 3 titles")
+    val titlePickerSub get() = t("Pilih sampai 3 title untuk dipasang di profil dan chat.", "Pick up to 3 titles to show on your profile and in chat.")
+    val titleSaveFail get() = t("Gagal menyimpan title", "Couldn't save titles")
+    val titleNotOwned get() = t("Kamu belum memiliki title itu", "You don't own that title yet")
+
+    // Pengajuan Konten Kreator
+    val creatorApplyTitle get() = t("Ajukan Konten Kreator", "Apply as Content Creator")
+    val creatorApplyCta get() = t("Jadi Konten Kreator", "Become a Content Creator")
+    val creatorApplySub get() = t(
+        "Punya channel TikTok atau YouTube? Ajukan verifikasi supaya dapat title Kreator.",
+        "Got a TikTok or YouTube channel? Apply for verification to get the Creator title."
+    )
+    val creatorFormIntro get() = t(
+        "Isi data channelmu dengan benar. Formulir dikirim ke owner lewat Telegram. Peninjauan paling lama 1-3 hari, tergantung cepat atau lambatnya.",
+        "Fill in your channel details accurately. The form is sent to the owner on Telegram. Review takes up to 1-3 days, depending on how busy it is."
+    )
+    val creatorLinkLabel get() = t("Link channel", "Channel link")
+    val creatorLinkHint get() = t("https://tiktok.com/@kamu atau https://youtube.com/@kamu", "https://tiktok.com/@you or https://youtube.com/@you")
+    val creatorLinkDetectTiktok get() = t("TikTok terdeteksi", "TikTok detected")
+    val creatorLinkDetectYoutube get() = t("YouTube terdeteksi", "YouTube detected")
+    val creatorLinkInvalid get() = t("Belum dikenali. Pakai link channel TikTok atau YouTube.", "Not recognized. Use a TikTok or YouTube channel link.")
+    val creatorAddLink get() = t("Tambah link platform lain", "Add another platform link")
+    val creatorChannelName get() = t("Nama channel", "Channel name")
+    val creatorWhatsapp get() = t("Kontak WhatsApp (wajib)", "WhatsApp contact (required)")
+    val creatorWhatsappHint get() = t("Contoh 081234567890", "Example 081234567890")
+    val creatorFollowers get() = t("Pengikut / subscriber (opsional)", "Followers / subscribers (optional)")
+    val creatorContent get() = t("Jenis konten (opsional)", "Content type (optional)")
+    val creatorNote get() = t("Catatan untuk owner (opsional)", "Note for the owner (optional)")
+    val creatorAgree get() = t("Saya menyatakan data di atas benar dan channel itu milik saya.", "I confirm the details above are true and the channel is mine.")
+    val creatorSubmit get() = t("Kirim pengajuan", "Submit application")
+    val creatorSent get() = t("Pengajuan terkirim ke owner. Estimasi tinjau 1-3 hari.", "Application sent to the owner. Review takes about 1-3 days.")
+    val creatorNeedLink get() = t("Isi minimal satu link channel TikTok atau YouTube yang valid", "Add at least one valid TikTok or YouTube channel link")
+    val creatorNeedName get() = t("Nama channel wajib diisi", "Channel name is required")
+    val creatorNeedContact get() = t("Nomor WhatsApp wajib diisi dengan benar", "A valid WhatsApp number is required")
+    val creatorNeedAgree get() = t("Centang pernyataan dulu", "Tick the confirmation first")
+    val creatorStatusPending get() = t("Pengajuan sedang ditinjau", "Application under review")
+    val creatorStatusPendingSub get() = t("Estimasi 1-3 hari. Kamu akan melihat title Kreator di profil begitu disetujui.", "Takes about 1-3 days. You'll see the Creator title on your profile once approved.")
+    val creatorStatusApproved get() = t("Kamu sudah jadi Konten Kreator", "You're a verified Content Creator")
+    val creatorStatusRejected get() = t("Pengajuan sebelumnya ditolak", "Your last application was rejected")
+    val creatorStatusRejectedSub get() = t("Kamu boleh mengajukan lagi dengan data yang lebih lengkap.", "You can apply again with more complete details.")
+    val creatorPending409 get() = t("Pengajuanmu masih ditinjau", "Your application is still under review")
+    val creatorRateLimited get() = t("Terlalu banyak pengajuan hari ini. Coba lagi besok.", "Too many applications today. Try again tomorrow.")
+
 }
 
 val LocalStrings = staticCompositionLocalOf { Strings(false) }
