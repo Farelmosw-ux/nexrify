@@ -55,7 +55,31 @@ data class ChatProfile(
     val musicHidden: Boolean = false,
     val chatBlocked: Boolean = false,
     val donateRank: Int = 0,
-    val titleOn: Boolean = true
+    val titleOn: Boolean = true,
+    /** Title yang dipasang pengguna (maks 3), urut tampil. */
+    val titles: List<ProfileTitle> = emptyList(),
+    /** Semua title yang dimiliki (hanya terisi untuk profil sendiri). */
+    val titlesOwned: List<ProfileTitle> = emptyList(),
+    val titlesMax: Int = 3,
+    /** Status pengajuan Konten Kreator (hanya profil sendiri). */
+    val creatorApp: CreatorApp? = null
+)
+
+/** Title pengguna. code: donor, marathon, streak, creator, loved, active. platform: tiktok / youtube / both (kreator). */
+data class ProfileTitle(val code: String, val platform: String = "", val rank: Int = 0, val n: Int = 0)
+
+/** Status pengajuan Konten Kreator: pending, approved, rejected, revoked. */
+data class CreatorApp(val status: String, val platform: String, val createdAt: Long, val reviewedAt: Long, val reason: String)
+
+/** Isi formulir pengajuan Konten Kreator. */
+data class CreatorForm(
+    val links: List<String>,
+    val channelName: String,
+    val whatsapp: String,
+    val followers: Long,
+    val content: String,
+    val note: String,
+    val agree: Boolean
 )
 
 data class ChatUserHit(val username: String, val uid: String, val display: String)
