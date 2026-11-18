@@ -62,13 +62,13 @@ fun rememberChatProfiles(usernames: List<String>): State<Map<String, ChatProfile
     return state
 }
 
-/** Tag di samping nama: peringkat donasi, lencana peran, dan tingkat umur akun. */
+/** Tag di samping nama: title yang dipasang, lencana peran, dan tingkat umur akun. */
 @Composable
 fun PersonTags(profile: ChatProfile?, modifier: Modifier = Modifier) {
     if (profile == null) return
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (profile.donateRank in 1..3 && profile.titleOn) TopTag(profile.donateRank)
-        profile.badges.filter { it != "early" }.forEach { BadgeChip(it) }
+        profile.titles.forEach { TitleChip(it, compact = true) }
+        profile.badges.filter { it != "early" && it != "active" && it != "loved" }.forEach { BadgeChip(it) }
         MemberAgeChip(profile.joined, compact = true)
     }
 }
