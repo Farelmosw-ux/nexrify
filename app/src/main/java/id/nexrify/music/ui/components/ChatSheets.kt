@@ -390,6 +390,8 @@ fun ChatProfileSheet(
     var status by remember { mutableStateOf("") }
     var saving by remember { mutableStateOf(false) }
     var showPhoto by remember { mutableStateOf(false) }
+    var showTitlePicker by remember { mutableStateOf(false) }
+    var showCreatorForm by remember { mutableStateOf(false) }
 
     LaunchedEffect(username) {
         val p = manager.profile(username)
@@ -403,6 +405,17 @@ fun ChatProfileSheet(
         dragHandle = { SheetHandleBar() }
     ) {
         val p = profile
+        if (showTitlePicker && p != null) {
+            TitlePickerSheet(
+                profile = p,
+                onDismiss = { showTitlePicker = false },
+                onSaved = { profile = it },
+                onApplyCreator = { showTitlePicker = false; showCreatorForm = true }
+            )
+        }
+        if (showCreatorForm && p != null) {
+            CreatorApplySheet(profile = p, onDismiss = { showCreatorForm = false }, onDone = { profile = it })
+        }
         if (showPhoto && p != null && p.av.isNotEmpty()) {
             RemoteAvatarViewerDialog(
                 imageUrl = ChatApi.avatarUrl(p.uid, p.av),
@@ -429,12 +442,12 @@ fun ChatProfileSheet(
                         } else if (!p.online && p.lastSeen > 0) {
                             Text(S.chatLastSeen(chatAgo(p.lastSeen, S)), fontSize = 11.sp, color = colors.textMuted, modifier = Modifier.padding(top = 4.dp))
                         }
-                        if (p.donateRank in 1..3 && p.titleOn) {
-                            Spacer(Modifier.height(8.dp))
-                            TopTag(p.donateRank)
+                        if (p.titles.isNotEmpty()) {
+                            Spacer(Modifier.height(10.dp))
+                            TitleRow(p.titles, compact = false)
                         }
-                        // Lencana "OG / Early member" diganti chip umur akun yang dihitung realtime.
-                        val shownBadges = p.badges.filter { it != "early" }
+                        // Lencana "OG / Early member" diganti chip umur akun yang dihitung realtime. Aktif/Disukai sekarang jadi title.
+                        val shownBadges = p.badges.filter { it != "early" && it != "active" && it != "loved" }
                         if (shownBadges.isNotEmpty() || p.joined > 0L) {
                             Spacer(Modifier.height(8.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -491,40 +504,30 @@ fun ChatProfileSheet(
                             Text(if (p.profileHidden) S.chatProfileHiddenInfo else S.chatMusicHiddenInfo, fontSize = 12.sp, color = colors.textMuted)
                         }
                     }
-                    if (isMe && p.donateRank in 1..3) {
+                    if (isMe) {
                         Spacer(Modifier.height(12.dp))
-                        var titleOn by remember(p.titleOn) { mutableStateOf(p.titleOn) }
                         Column(
                             Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(colors.card).border(1.dp, colors.border, RoundedCornerShape(14.dp)).padding(12.dp)
                         ) {
-                            Text(S.donateProfileTitleSection, fontSize = 11.sp, color = colors.textMuted, fontWeight = FontWeight.SemiBold)
-                            Spacer(Modifier.height(6.dp))
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    TopTag(p.donateRank)
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(S.donateTitleSwitch, fontSize = 12.sp, color = colors.textSecondary)
+                                Text(S.titleMine, fontSize = 11.sp, color = colors.textMuted, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                                Text(S.titleSelectedCount(p.titles.size, p.titlesMax), fontSize = 11.sp, color = colors.textMuted)
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            if (p.titles.isEmpty()) Text(S.titleNone, fontSize = 12.sp, color = colors.textMuted)
+                            else TitleRow(p.titles, compact = false, modifier = Modifier.fillMaxWidth())
+                            Spacer(Modifier.height(10.dp))
+                            PillButton(S.titleSelect, filled = false, modifier = Modifier.fillMaxWidth()) { showTitlePicker = true }
+                            val appStatus = p.creatorApp?.status.orEmpty()
+                            val isCreator = p.titlesOwned.any { it.code == "creator" }
+                            if (!isCreator) {
+                                Spacer(Modifier.height(8.dp))
+                                if (appStatus == "pending") {
+                                    Text(S.creatorStatusPending, fontSize = 12.sp, color = colors.textSecondary, fontWeight = FontWeight.SemiBold)
+                                    Text(S.creatorStatusPendingSub, fontSize = 11.sp, color = colors.textMuted)
+                                } else {
+                                    PillButton(S.creatorApplyCta, filled = false, modifier = Modifier.fillMaxWidth()) { showCreatorForm = true }
                                 }
-                                Switch(
-                                    checked = titleOn,
-                                    onCheckedChange = { v ->
-                                        titleOn = v
-                                        scope.launch {
-                                            try {
-                                                DonateManager.setTitle(v)
-                                                profile = manager.profile(username) ?: profile
-                                            } catch (e: kotlinx.coroutines.CancellationException) {
-                                                throw e
-                                            } catch (_: Throwable) {
-                                                titleOn = !v
-                                            }
-                                        }
-                                    },
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = colors.background, checkedTrackColor = colors.textPrimary,
-                                        uncheckedThumbColor = colors.textMuted, uncheckedTrackColor = colors.card, uncheckedBorderColor = colors.border
-                                    )
-                                )
                             }
                         }
                     }
