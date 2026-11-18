@@ -57,6 +57,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import id.nexrify.music.data.chat.ChatApi
+import id.nexrify.music.data.chat.ChatManager
+import androidx.compose.runtime.collectAsState
 import id.nexrify.music.data.chat.ChatMessage
 import id.nexrify.music.data.chat.SendStatus
 import id.nexrify.music.i18n.S
@@ -342,6 +344,9 @@ fun ChatBubble(
                     Text("  @${msg.username}", style = Typography.labelSmall, color = colors.textMuted, maxLines = 1)
                     if (topRank in 1..3) { Spacer(Modifier.width(4.dp)); TopTag(topRank) }
                     msg.badges.forEach { Spacer(Modifier.width(4.dp)); BadgeChip(it) }
+                    // Title khusus (kreator, pendengar terlama, top streak) diambil live supaya ikut pindah saat direbut.
+                    val titleDir by remember { ChatManager.getInstance().titleDir }.collectAsState()
+                    titleDir[msg.username.lowercase()]?.forEach { Spacer(Modifier.width(4.dp)); TitleChip(it) }
                     if (msg.pinned) { Spacer(Modifier.width(5.dp)); Icon(NexIcons.Pin, null, tint = colors.textMuted, modifier = Modifier.size(11.dp)) }
                 }
             }
