@@ -133,10 +133,12 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         AppVisibility.set(true)
+        runCatching { id.nexrify.music.data.chat.ChatManager.getInstance().appForeground(true) }
     }
 
     override fun onStop() {
         AppVisibility.set(false)
+        runCatching { id.nexrify.music.data.chat.ChatManager.getInstance().appForeground(false) }
         super.onStop()
     }
 
