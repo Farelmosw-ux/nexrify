@@ -129,8 +129,31 @@ object ChatApi {
             lastSeen = o.optLong("lastSeen"), presenceHidden = o.optBoolean("presenceHidden"), profileHidden = o.optBoolean("profileHidden"),
             musicHidden = o.optBoolean("musicHidden"), chatBlocked = o.optBoolean("chatBlocked"),
             donateRank = o.optInt("donateRank", 0),
-            titleOn = o.optBoolean("titleOn", true)
+            titleOn = o.optBoolean("titleOn", true),
+            titles = parseTitles(o.optJSONArray("titles")),
+            titlesOwned = parseTitles(o.optJSONArray("titlesOwned")),
+            titlesMax = o.optInt("titlesMax", 3),
+            creatorApp = o.optJSONObject("creatorApp")?.let {
+                CreatorApp(it.optString("status"), it.optString("platform"), it.optLong("createdAt"), it.optLong("reviewedAt"), it.optString("reason"))
+            }
         )
+    }
+
+    fun parseTitles(arr: JSONArray?): List<ProfileTitle> {
+        if (arr == null) return emptyList()
+        return buildList {
+            for (i in 0 until arr.length()) {
+                val t = arr.optJSONObject(i) ?: continue
+                val code = t.optString("c")
+                if (code.isNotEmpty()) add(ProfileTitle(code, t.optString("p"), t.optInt("r"), t.optInt("n")))
+            }
+        }
+    }
+
+    /** Title khusus (kreator, pendengar terlama, top streak) per username huruf kecil. */
+    suspend fun titleDirectory(token: String): Map<String, List<ProfileTitle>> {
+        val o = get(token, mapOf("titles" to "1")).optJSONObject("titles") ?: return emptyMap()
+        return buildMap { o.keys().forEach { k -> put(k.lowercase(), parseTitles(o.optJSONArray(k))) } }
     }
 
     fun parseMessage(o: JSONObject): ChatMessage {
