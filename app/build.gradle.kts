@@ -17,6 +17,8 @@ android {
         versionName = "4.0.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Hanya ABI HP (ARM). x86/x86_64 untuk emulator dibuang supaya APK lebih kecil.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
         vectorDrawables {
             useSupportLibrary = true
         }
