@@ -97,7 +97,7 @@ class ChatManager private constructor(private val context: Context) {
         isActive = active
         if (active) {
             _mentionUnread.value = 0
-            scope.launch { runCatching { join() }; refreshGroup(); runCatching { refreshMy() }; runCatching { loadMyVotes() } }
+            scope.launch { runCatching { join() }; refreshGroup(); runCatching { refreshMy() }; runCatching { loadMyVotes() }; refreshTitleDir() }
             pollJob?.cancel()
             pollJob = scope.launch { pollLoop() }
         } else {
@@ -135,6 +135,7 @@ class ChatManager private constructor(private val context: Context) {
             }
             idle = if (changed) 0 else idle + 1
             if (++pollCount % 10 == 0) refreshGroup()
+            if (pollCount % 20 == 0) refreshTitleDir()
             val wait = when {
                 failures > 0 -> minOf(30_000L, 3_000L * failures)
                 idle < 8 -> 3_000L
@@ -378,6 +379,75 @@ class ChatManager private constructor(private val context: Context) {
                 ChatApi.post(t, JSONObject().put("action", "stats").put("liked", liked).put("playlists", playlists).put("top", arr))
             }
         }
+    }
+
+
+    /* ================= title (pendengar terlama, top streak, kreator) ================= */
+
+    private val _titleDir = MutableStateFlow<Map<String, List<ProfileTitle>>>(emptyMap())
+    /** Title khusus per username (huruf kecil), dipakai untuk menampilkan title di samping nama pesan. */
+    val titleDir: StateFlow<Map<String, List<ProfileTitle>>> = _titleDir.asStateFlow()
+
+    fun refreshTitleDir() {
+        scope.launch {
+            val t = token() ?: return@launch
+            runCatching { _titleDir.value = ChatApi.titleDirectory(t) }
+        }
+    }
+
+    private var heartbeatJob: Job? = null
+
+    /**
+     * Dipanggil MainActivity: true saat aplikasi terlihat di layar, false saat keluar dari aplikasi.
+     * Selama terlihat, server dikabari tiap 45 detik supaya waktu "bertahan di Nexrify" terhitung.
+     * Keluar dari aplikasi mengakhiri sesi, jadi hitungannya mulai dari 0 lagi.
+     */
+    fun appForeground(visible: Boolean) {
+        if (visible) {
+            if (heartbeatJob?.isActive == true) return
+            heartbeatJob = scope.launch {
+                while (true) {
+                    val t = token()
+                    if (t != null) {
+                        val streak = id.nexrify.music.data.streak.StreakManager.getInstance(context).info.value.count
+                        runCatching { ChatApi.post(t, JSONObject().put("action", "ping").put("streak", streak)) }
+                    }
+                    kotlinx.coroutines.delay(45_000L)
+                }
+            }
+        } else {
+            heartbeatJob?.cancel()
+            heartbeatJob = null
+            scope.launch {
+                val t = token() ?: return@launch
+                runCatching { ChatApi.post(t, JSONObject().put("action", "session_end")) }
+            }
+        }
+    }
+
+    /** Simpan title yang dipasang (maks 3). Mengembalikan profil terbaru, atau melempar AccountError dari server. */
+    suspend fun setTitles(codes: List<String>): ChatProfile {
+        val t = needToken()
+        val arr = JSONArray(); codes.forEach { arr.put(it) }
+        val r = ChatApi.post(t, JSONObject().put("action", "titles_set").put("codes", arr))
+        val p = ChatApi.parseProfile(r.getJSONObject("profile"))
+        _me.value = p
+        refreshTitleDir()
+        return p
+    }
+
+    /** Ajukan verifikasi Konten Kreator. Melempar AccountError (code: link, name, contact, agree, pending, already, rate_limited). */
+    suspend fun applyCreator(f: CreatorForm): ChatProfile {
+        val t = needToken()
+        val links = JSONArray(); f.links.forEach { links.put(it) }
+        val r = ChatApi.post(
+            t,
+            JSONObject().put("action", "creator_apply").put("links", links).put("channelName", f.channelName)
+                .put("whatsapp", f.whatsapp).put("followers", f.followers).put("content", f.content).put("note", f.note).put("agree", f.agree)
+        )
+        val p = ChatApi.parseProfile(r.getJSONObject("profile"))
+        _me.value = p
+        return p
     }
 
     /** Dipakai untuk menyarankan @mention: pengguna yang baru bicara di chat, terbaru dulu. */
