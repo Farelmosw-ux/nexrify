@@ -3,6 +3,7 @@ package id.nexrify.music.ui.components
 import android.content.Intent
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.widthIn
@@ -392,6 +393,33 @@ fun ChatProfileSheet(
     var showPhoto by remember { mutableStateOf(false) }
     var showTitlePicker by remember { mutableStateOf(false) }
     var showCreatorForm by remember { mutableStateOf(false) }
+    var coverBusy by remember { mutableStateOf(false) }
+    var followBusy by remember { mutableStateOf(false) }
+    var listKind by remember { mutableStateOf<String?>(null) }
+    var nestedUser by remember { mutableStateOf<String?>(null) }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val coverPicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) scope.launch {
+            coverBusy = true
+            val data = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                runCatching { toCoverDataUrl(ctx, uri) }.getOrNull()
+            }
+            if (data == null) NexNotifier.warning(currentStrings().coverInvalid)
+            else try {
+                profile = manager.setCover(data)
+                NexNotifier.success(currentStrings().coverSaved)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: id.nexrify.music.data.account.AccountError) {
+                NexNotifier.error(if (e.code == "rate_limited") currentStrings().coverTooMany else currentStrings().coverInvalid)
+            } catch (_: Throwable) {
+                NexNotifier.error(currentStrings().socialFail)
+            }
+            coverBusy = false
+        }
+    }
 
     LaunchedEffect(username) {
         val p = manager.profile(username)
@@ -405,6 +433,24 @@ fun ChatProfileSheet(
         dragHandle = { SheetHandleBar() }
     ) {
         val p = profile
+        listKind?.let { k ->
+            if (p != null) FollowListSheet(
+                username = p.username, startKind = k,
+                onDismiss = { listKind = null },
+                onOpenProfile = { nestedUser = it }
+            )
+        }
+        nestedUser?.let { u ->
+            ChatProfileSheet(
+                username = u,
+                isMe = u == manager.me.value?.username,
+                isMuted = false,
+                onMention = {},
+                onToggleMute = {},
+                onDismiss = { nestedUser = null },
+                showActions = false
+            )
+        }
         if (showTitlePicker && p != null) {
             TitlePickerSheet(
                 profile = p,
@@ -427,14 +473,46 @@ fun ChatProfileSheet(
             when {
                 p != null -> {
                     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                        // Ketuk foto untuk melihatnya layar penuh (kalau pengguna punya foto).
-                        ChatAvatar(
-                            p.uid, p.av, p.display, 84.dp,
-                            Modifier.clip(CircleShape).clickable(enabled = p.av.isNotEmpty()) { showPhoto = true }
-                        )
-                        Spacer(Modifier.height(12.dp))
+                        // Background di belakang profil; foto profil menimpa bagian bawahnya.
+                        Box(Modifier.fillMaxWidth()) {
+                            ProfileCover(
+                                profile = p, isMe = isMe, busy = coverBusy,
+                                onPick = { coverPicker.launch("image/*") },
+                                onRemove = {
+                                    scope.launch {
+                                        coverBusy = true
+                                        try {
+                                            profile = manager.clearCover()
+                                            NexNotifier.info(currentStrings().coverRemoved)
+                                        } catch (e: kotlinx.coroutines.CancellationException) {
+                                            throw e
+                                        } catch (_: Throwable) {
+                                            NexNotifier.error(currentStrings().socialFail)
+                                        }
+                                        coverBusy = false
+                                    }
+                                }
+                            )
+                            // Ketuk foto untuk melihatnya layar penuh (kalau pengguna punya foto).
+                            Box(
+                                Modifier.align(Alignment.BottomCenter).offset(y = 44.dp)
+                                    .clip(CircleShape).background(colors.background).padding(4.dp)
+                            ) {
+                                ChatAvatar(
+                                    p.uid, p.av, p.display, 84.dp,
+                                    Modifier.clip(CircleShape).clickable(enabled = p.av.isNotEmpty()) { showPhoto = true }
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(54.dp))
                         Text(p.display, style = Typography.titleLarge.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary)
-                        Text("@${p.username}", style = Typography.bodyMedium, color = colors.textMuted)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("@${p.username}", style = Typography.bodyMedium, color = colors.textMuted)
+                            if (!isMe && (p.friend || (p.followsMe && !p.iFollow))) {
+                                Spacer(Modifier.width(6.dp))
+                                RelationTag(p.iFollow, p.followsMe, p.friend)
+                            }
+                        }
                         Spacer(Modifier.height(6.dp))
                         PresenceTag(p.online)
                         if (p.presenceHidden) {
@@ -463,6 +541,22 @@ fun ChatProfileSheet(
                                     }
                                 }
                                 MemberAgeChip(p.joined)
+                            }
+                        }
+                        if (!p.followHidden || isMe) {
+                            Spacer(Modifier.height(14.dp))
+                            FollowStatsRow(p, onOpen = { listKind = it })
+                        }
+                        if (!isMe) {
+                            Spacer(Modifier.height(10.dp))
+                            FollowButton(p.iFollow, p.followsMe, followBusy, compact = false, modifier = Modifier.fillMaxWidth()) {
+                                scope.launch {
+                                    followBusy = true
+                                    val np = runFollow(p.username, p.iFollow)
+                                    // Hanya angka dan hubungan yang diperbarui; data pribadi tetap dari profil yang sudah dimuat.
+                                    if (np != null) profile = np.copy(chatBlocked = p.chatBlocked, blockedByMe = p.blockedByMe)
+                                    followBusy = false
+                                }
                             }
                         }
                     }
