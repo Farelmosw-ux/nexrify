@@ -132,6 +132,8 @@ fun ChatMessageMenu(
     onProfile: () -> Unit,
     onToggleMute: () -> Unit,
     extra: List<ChatMenuItem> = emptyList(),
+    moderation: Boolean = true,
+    canDeleteOthers: Boolean = false,
     onDismiss: () -> Unit
 ) {
     val colors = NexrifyAppTheme.colors
@@ -157,8 +159,11 @@ fun ChatMessageMenu(
         if (mine) {
             if (!msg.deleted) add(MenuEntry(NexIcons.DeleteOutline, S.chatDeleteAction, danger = true, onClick = onDelete))
         } else if (!msg.announce) {
-            add(MenuEntry(if (isMuted) NexIcons.Bell else NexIcons.BellOff, if (isMuted) S.chatUnmuteAction else S.chatMuteAction, onClick = onToggleMute))
-            if (!msg.deleted) add(MenuEntry(NexIcons.Flag, S.chatReportAction, danger = true, onClick = onReport))
+            if (moderation) {
+                add(MenuEntry(if (isMuted) NexIcons.Bell else NexIcons.BellOff, if (isMuted) S.chatUnmuteAction else S.chatMuteAction, onClick = onToggleMute))
+                if (!msg.deleted) add(MenuEntry(NexIcons.Flag, S.chatReportAction, danger = true, onClick = onReport))
+            }
+            if (canDeleteOthers && !msg.deleted) add(MenuEntry(NexIcons.DeleteOutline, S.chatDeleteAction, danger = true, onClick = onDelete))
         }
     }
 
