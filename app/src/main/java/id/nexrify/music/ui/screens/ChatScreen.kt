@@ -64,6 +64,7 @@ import id.nexrify.music.data.chat.ChatUserHit
 import id.nexrify.music.data.chat.SendStatus
 import id.nexrify.music.i18n.S
 import id.nexrify.music.i18n.currentStrings
+import id.nexrify.music.data.account.AccountError
 import id.nexrify.music.ui.components.ChatAvatar
 import id.nexrify.music.ui.components.BubbleExtras
 import id.nexrify.music.ui.components.ChatBubble
@@ -184,6 +185,27 @@ fun ChatScreen(viewModel: MusicViewModel, highlightSeq: Long, onBack: () -> Unit
     }
     val group by manager.group.collectAsState()
     val isStaff = group?.canEdit == true
+    // ---- pesan suara: hanya Dev, Admin, Staf (server juga menolak peran lain) ----
+    val recorder = remember { id.nexrify.music.util.VoiceRecorder(context) }
+    var recording by remember { mutableStateOf(false) }
+    var sendingVoice by remember { mutableStateOf(false) }
+    DisposableEffect(Unit) { onDispose { recorder.cancel(); id.nexrify.music.util.VoicePlayer.stop() } }
+    fun beginRecording() {
+        if (recorder.start()) recording = true else NexNotifier.warning(currentStrings().voiceMicFail, currentStrings().chatTitle)
+    }
+    val micLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) beginRecording() else NexNotifier.warning(currentStrings().voiceMicDenied, currentStrings().chatTitle)
+    }
+    fun startVoice() {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) beginRecording()
+        else micLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+    }
+    LaunchedEffect(Unit) {
+        id.nexrify.music.util.VoicePlayer.errors.collect { code ->
+            val st = currentStrings()
+            NexNotifier.warning(if (code == "vn_gone") st.voiceGone else if (code == "network") st.chatNoNetwork else st.voicePlayFail, st.chatTitle)
+        }
+    }
     val pins = group?.pins.orEmpty()
     val msgBySeq = remember(messages) { messages.filter { it.seq > 0 }.associateBy { it.seq } }
     val replyCounts = remember(messages) {
@@ -539,7 +561,7 @@ fun ChatScreen(viewModel: MusicViewModel, highlightSeq: Long, onBack: () -> Unit
                         if (editing != null) S.chatEditing else S.chatReplyingTo("@${banner.username}"),
                         fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary
                     )
-                    Text(banner.text, fontSize = 12.sp, lineHeight = 16.sp, color = colors.textMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(if (banner.voice != null) "🎤 " + S.voiceLabel else banner.text, fontSize = 12.sp, lineHeight = 16.sp, color = colors.textMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 HeaderIcon(NexIcons.Close, small = true) {
                     if (editing != null) { editing = null; input = TextFieldValue("") }
@@ -549,6 +571,43 @@ fun ChatScreen(viewModel: MusicViewModel, highlightSeq: Long, onBack: () -> Unit
         }
 
         // ---- kolom input ----
+        if (recording) {
+            id.nexrify.music.ui.components.VoiceRecordBar(
+                recorder = recorder, sending = sendingVoice,
+                onCancel = { recording = false },
+                onTooShort = { recording = false; NexNotifier.info(currentStrings().voiceTooShort, currentStrings().chatTitle) },
+                onSend = { clip ->
+                    val rt = replyTo
+                    sendingVoice = true
+                    scope.launch {
+                        try {
+                            manager.sendVoice(clip, rt)
+                            replyTo = null
+                            recording = false
+                        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                        catch (e: AccountError) {
+                            val st = currentStrings()
+                            recording = false
+                            runCatching { clip.file.delete() }
+                            NexNotifier.warning(
+                                when (e.code) {
+                                    "vn_forbidden" -> st.voiceForbidden
+                                    "vn_short" -> st.voiceTooShort
+                                    "chat_banned" -> st.chatBannedMsg
+                                    "rate_limited" -> st.chatSlowDown
+                                    "network" -> st.chatNoNetwork
+                                    else -> st.voiceSendFail
+                                }, st.chatTitle
+                            )
+                        } catch (_: Throwable) {
+                            recording = false
+                            runCatching { clip.file.delete() }
+                            NexNotifier.warning(currentStrings().voiceSendFail, currentStrings().chatTitle)
+                        } finally { sendingVoice = false }
+                    }
+                }
+            )
+        } else
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.Bottom) {
             if (isStaff && editing == null) {
                 Box(
@@ -577,15 +636,16 @@ fun ChatScreen(viewModel: MusicViewModel, highlightSeq: Long, onBack: () -> Unit
             }
             Spacer(Modifier.width(8.dp))
             val canSend = input.text.isNotBlank()
+            val micMode = isStaff && editing == null && !canSend
             Box(
-                Modifier.size(46.dp).clip(CircleShape).background(if (canSend) colors.textPrimary else colors.card)
-                    .border(1.dp, if (canSend) colors.textPrimary else colors.border, CircleShape)
-                    .clickable(enabled = canSend) { submit() },
+                Modifier.size(46.dp).clip(CircleShape).background(if (canSend || micMode) colors.textPrimary else colors.card)
+                    .border(1.dp, if (canSend || micMode) colors.textPrimary else colors.border, CircleShape)
+                    .clickable(enabled = canSend || micMode) { if (micMode) startVoice() else submit() },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    if (editing != null) NexIcons.Check else NexIcons.Send, null,
-                    tint = if (canSend) colors.background else colors.textMuted,
+                    if (micMode) NexIcons.Mic else if (editing != null) NexIcons.Check else NexIcons.Send, if (micMode) S.voiceSend else null,
+                    tint = if (canSend || micMode) colors.background else colors.textMuted,
                     modifier = Modifier.size(22.dp)
                 )
             }
