@@ -22,6 +22,7 @@ object ChatApi {
     private const val PATH = "/api/chat"
 
     fun avatarUrl(uid: String, av: String): String = "${NexrifyLinks.SITE}$PATH?avatar=$uid&v=$av"
+    fun coverUrl(uid: String, v: String): String = "${NexrifyLinks.SITE}$PATH?cover=$uid&v=$v"
     fun groupPhotoUrl(v: String): String = "${NexrifyLinks.SITE}$PATH?group_photo=1&v=$v"
 
     private fun execute(request: Request): JSONObject {
@@ -133,10 +134,27 @@ object ChatApi {
             titles = parseTitles(o.optJSONArray("titles")),
             titlesOwned = parseTitles(o.optJSONArray("titlesOwned")),
             titlesMax = o.optInt("titlesMax", 3),
+            followers = o.optInt("followers"), following = o.optInt("following"), friends = o.optInt("friends"),
+            iFollow = o.optBoolean("iFollow"), followsMe = o.optBoolean("followsMe"), friend = o.optBoolean("friend"),
+            followHidden = o.optBoolean("followHidden"), hasCover = o.optBoolean("hasCover"), coverV = o.optString("coverV"),
             creatorApp = o.optJSONObject("creatorApp")?.let {
                 CreatorApp(it.optString("status"), it.optString("platform"), it.optLong("createdAt"), it.optLong("reviewedAt"), it.optString("reason"))
             }
         )
+    }
+
+    /** kind: followers | following | friends. cursor 0 = halaman pertama. */
+    suspend fun follows(token: String, username: String, kind: String, cursor: Int): FollowPage {
+        val o = get(token, mapOf("follows" to username, "kind" to kind, "cursor" to cursor.toString()))
+        val arr = o.optJSONArray("items")
+        val items = buildList {
+            if (arr != null) for (i in 0 until arr.length()) {
+                val r = arr.optJSONObject(i) ?: continue
+                add(FollowUser(r.optString("uid"), r.optString("username"), r.optString("display"), r.optString("av"),
+                    r.optBoolean("iFollow"), r.optBoolean("followsMe"), r.optBoolean("friend")))
+            }
+        }
+        return FollowPage(items, o.optInt("next"), o.optInt("total"), o.optBoolean("hidden"))
     }
 
     fun parseTitles(arr: JSONArray?): List<ProfileTitle> {
@@ -167,7 +185,7 @@ object ChatApi {
             badges = o.optJSONArray("badges").toStringList(), av = o.optString("av"), text = o.optString("text"),
             ts = o.optLong("ts"), edited = o.optLong("edited"), deleted = o.optBoolean("deleted"),
             announce = o.optBoolean("announce"), mentions = o.optJSONArray("mentions").toStringList(),
-            reply = r?.let { ChatReply(it.optLong("seq"), it.optString("username"), it.optString("text")) },
+            reply = r?.let { ChatReply(it.optLong("seq"), it.optString("username"), it.optString("text"), it.optBoolean("deleted")) },
             reactions = reactions,
             pinned = o.optBoolean("pinned", false),
             poll = o.optJSONObject("poll")?.let { p ->
