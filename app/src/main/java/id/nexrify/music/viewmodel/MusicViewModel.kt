@@ -1421,6 +1421,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Lagu dihentikan oleh pemegang giliran: berhenti, kontrol tetap terkunci. */
+    fun mubarPause() { mediaController?.pause() }
+
     /** Ruangan bubar / keluar: lagu bersama berhenti dan kontrol dibuka lagi. */
     fun mubarStop() {
         mubarLocked = false
