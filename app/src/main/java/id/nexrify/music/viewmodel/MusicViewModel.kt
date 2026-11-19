@@ -383,6 +383,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun playFromQueue(index: Int) {
+        if (mubarBlocked()) return
         val track = synchronized(playlistQueue) { playlistQueue.getOrNull(index) } ?: return
         currentIndex = index
         playTrack(track)
@@ -425,6 +426,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Sisipkan lagu tepat setelah lagu yang sedang diputar. Kalau belum ada yang diputar, langsung diputar. */
     fun playNext(track: Track) {
+        if (mubarBlocked()) return
         val current = _currentTrack.value
         if (current == null || synchronized(playlistQueue) { playlistQueue.isEmpty() }) {
             playTrackFromSearch(track)
@@ -701,7 +703,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                             }
                             Player.STATE_ENDED -> {
                                 _isLoadingTrack.value = false
-                                skipNext()
+                                // Di Musik Bareng giliran berikutnya diatur server, jangan lompat ke lagu antrian.
+                                if (!mubarLocked) skipNext()
                             }
                             Player.STATE_IDLE -> {
                                 _isLoadingTrack.value = false
@@ -1021,6 +1024,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun playTrackFromSearch(track: Track) {
+        if (mubarBlocked()) return
         playlistQueue.clear()
         playlistQueue.add(track)
         currentIndex = 0
@@ -1201,6 +1205,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun seekTo(positionMs: Long) {
+        if (mubarBlocked()) return
         val target = positionMs.coerceAtLeast(0L)
         if (restoredPending && mediaController?.currentMediaItem == null) {
             resumeRestored(target)
@@ -1220,6 +1225,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun getPositionMs(): Long = _playbackPosition.value
 
     fun skipNext() {
+        if (mubarBlocked()) return
         if (playlistQueue.isEmpty()) return
         val current = _currentTrack.value
         if (current != null && trackStartTime > 0L) {
@@ -1275,6 +1281,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun skipPrevious() {
+        if (mubarBlocked()) return
         if (playlistQueue.isEmpty()) return
         val prevIndex = if (!network.isOnline()) {
             prevOfflineIndex()
@@ -1384,9 +1391,61 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     private val _playbackSpeed = MutableStateFlow(1f)
     val playbackSpeed = _playbackSpeed.asStateFlow()
 
+    /* ---------------- Musik Bareng: kontrol pemutar dikunci selama di dalam ruangan ---------------- */
+
+    @Volatile var mubarLocked: Boolean = false
+        private set
+
+    fun setMubarLocked(on: Boolean) { mubarLocked = on }
+
+    private var lastMubarToast = 0L
+
+    private fun mubarBlocked(): Boolean {
+        if (!mubarLocked) return false
+        val now = System.currentTimeMillis()
+        if (now - lastMubarToast > 4_000L) {
+            lastMubarToast = now
+            val st = id.nexrify.music.i18n.currentStrings()
+            id.nexrify.music.ui.components.NexNotifier.info(st.mubarControlsLocked, st.mubarTitle)
+        }
+        return true
+    }
+
+    /** Dipanggil sinkronisasi Musik Bareng: loncat ke posisi bersama tanpa terhalang kunci. */
+    fun mubarSeek(positionMs: Long) {
+        val target = positionMs.coerceAtLeast(0L)
+        _playbackPosition.value = target
+        mediaController?.let { c ->
+            c.seekTo(target)
+            if (!c.isPlaying) c.play()
+        }
+    }
+
+    /** Ruangan bubar / keluar: lagu bersama berhenti dan kontrol dibuka lagi. */
+    fun mubarStop() {
+        mubarLocked = false
+        mediaController?.pause()
+    }
+
+    private val _voiceStyle = MutableStateFlow(VoiceStyle.NORMAL)
+    val voiceStyle = _voiceStyle.asStateFlow()
+
+    /** Gaya suara: mengatur kecepatan, nada, dan gema sekaligus. Kembali ke Normal tiap aplikasi dibuka ulang, sama seperti kecepatan. */
+    fun setVoiceStyle(style: VoiceStyle) {
+        _voiceStyle.value = style
+        _playbackSpeed.value = style.speed
+        mediaController?.playbackParameters = androidx.media3.common.PlaybackParameters(style.speed, style.pitch)
+        id.nexrify.music.service.PlaybackService.setReverb(style.reverb)
+    }
+
     fun setPlaybackSpeed(speed: Float) {
+        // Memilih kecepatan manual berarti keluar dari gaya suara: nada dikembalikan normal dan gema dimatikan.
+        if (_voiceStyle.value != VoiceStyle.NORMAL) {
+            _voiceStyle.value = VoiceStyle.NORMAL
+            id.nexrify.music.service.PlaybackService.setReverb(false)
+        }
         _playbackSpeed.value = speed
-        mediaController?.setPlaybackSpeed(speed)
+        mediaController?.playbackParameters = androidx.media3.common.PlaybackParameters(speed, 1f)
     }
 
     fun expandPlayer(expand: Boolean) {
@@ -1415,7 +1474,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 c.pause()
                 c.stop()
                 c.clearMediaItems()
-                c.setPlaybackSpeed(1f)
+                c.playbackParameters = androidx.media3.common.PlaybackParameters(1f, 1f)
+                id.nexrify.music.service.PlaybackService.setReverb(false)
             }
         }
         synchronized(playlistQueue) { playlistQueue.clear() }
@@ -1431,6 +1491,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         _isShuffle.value = false
         _repeatMode.value = Player.REPEAT_MODE_OFF
         _playbackSpeed.value = 1f
+        _voiceStyle.value = VoiceStyle.NORMAL
         _currentLyrics.value = null
         _isLoadingLyrics.value = false
         _searchResults.value = emptyList()
@@ -1476,4 +1537,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         "lagu religi islami" to "Religi",
         "lagu dangdut koplo" to "Dangdut Koplo"
     )
+}
+
+/** Gaya suara pemutar. Nada ikut berubah bersama kecepatan, seperti versi speed up / slowed di internet. */
+enum class VoiceStyle(val speed: Float, val pitch: Float, val reverb: Boolean) {
+    NORMAL(1f, 1f, false),
+    SPEED_UP(1.25f, 1.25f, false),
+    SLOWED_REVERB(0.85f, 0.85f, true)
 }
