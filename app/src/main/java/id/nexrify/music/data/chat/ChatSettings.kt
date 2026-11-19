@@ -22,6 +22,8 @@ class ChatSettings private constructor(context: Context) {
     val notifAnnounce: StateFlow<Boolean> = _announce.asStateFlow()
     private val _dm = MutableStateFlow(prefs.getBoolean(K_DM, true))
     val notifDm: StateFlow<Boolean> = _dm.asStateFlow()
+    private val _follow = MutableStateFlow(prefs.getBoolean(K_FOLLOW, true))
+    val notifFollow: StateFlow<Boolean> = _follow.asStateFlow()
     private val _muted = MutableStateFlow(prefs.getStringSet(K_MUTED, emptySet()).orEmpty().toSet())
     val muted: StateFlow<Set<String>> = _muted.asStateFlow()
     private val _blocked = MutableStateFlow(prefs.getStringSet(K_BLOCKED, emptySet()).orEmpty().toSet())
@@ -37,6 +39,7 @@ class ChatSettings private constructor(context: Context) {
     fun setReply(v: Boolean) { _reply.value = v; prefs.edit().putBoolean(K_REPLY, v).apply() }
     fun setReaction(v: Boolean) { _reaction.value = v; prefs.edit().putBoolean(K_REACTION, v).apply() }
     fun setAnnounce(v: Boolean) { _announce.value = v; prefs.edit().putBoolean(K_ANNOUNCE, v).apply() }
+    fun setFollow(v: Boolean) { _follow.value = v; prefs.edit().putBoolean(K_FOLLOW, v).apply() }
     fun setDm(v: Boolean) { _dm.value = v; prefs.edit().putBoolean(K_DM, v).apply() }
     fun dismissRules() { _rulesSeen.value = true; prefs.edit().putBoolean(K_RULES, true).apply() }
 
@@ -57,6 +60,7 @@ class ChatSettings private constructor(context: Context) {
         private const val K_REACTION = "notif_reaction"
         private const val K_ANNOUNCE = "notif_announce"
         private const val K_DM = "notif_dm"
+        private const val K_FOLLOW = "notif_follow"
         private const val K_MUTED = "muted"
         private const val K_RULES = "rules_seen"
         private const val K_LAST_TS = "last_notif_ts"
