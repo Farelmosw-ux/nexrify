@@ -158,6 +158,12 @@ fun ChatScreen(viewModel: MusicViewModel, highlightSeq: Long, onBack: () -> Unit
     var deleteMsg by remember { mutableStateOf<ChatMessage?>(null) }
     var reportMsg by remember { mutableStateOf<ChatMessage?>(null) }
     var profileName by remember { mutableStateOf<String?>(null) }
+    val profileReq by id.nexrify.music.data.chat.ChatNav.profileRequest.collectAsState()
+    LaunchedEffect(profileReq) {
+        val name = profileReq ?: return@LaunchedEffect
+        id.nexrify.music.data.chat.ChatNav.profileRequest.value = null
+        profileName = name
+    }
     var showSearch by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showGroup by remember { mutableStateOf(false) }
