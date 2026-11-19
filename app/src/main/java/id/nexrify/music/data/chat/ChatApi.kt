@@ -52,6 +52,27 @@ object ChatApi {
         )
     }
 
+    /** Unduh audio VN ke [dest]. Melempar AccountError("vn_gone") kalau sudah kedaluwarsa. */
+    suspend fun downloadVoice(token: String, id: String, dest: java.io.File) = withContext(Dispatchers.IO) {
+        val url = (NexrifyLinks.SITE + PATH).toHttpUrl().newBuilder().addQueryParameter("vn", id).build()
+        val req = Request.Builder().url(url).get().header("User-Agent", "Nexrify-Android").header("Authorization", "Bearer $token").build()
+        val c = client.newBuilder().callTimeout(30, TimeUnit.SECONDS).build()
+        try {
+            c.newCall(req).execute().use { r ->
+                if (!r.isSuccessful) throw AccountError(if (r.code == 404) "vn_gone" else "server", "HTTP ${r.code}")
+                val body = r.body ?: throw AccountError("server", "empty")
+                dest.parentFile?.mkdirs()
+                val tmp = java.io.File(dest.parentFile, dest.name + ".part")
+                body.byteStream().use { inp -> tmp.outputStream().use { out -> inp.copyTo(out) } }
+                if (!tmp.renameTo(dest)) throw AccountError("server", "rename")
+            }
+        } catch (e: AccountError) {
+            throw e
+        } catch (e: IOException) {
+            throw AccountError("network", e.message ?: "network")
+        }
+    }
+
     suspend fun post(token: String, body: JSONObject): JSONObject = withContext(Dispatchers.IO) {
         execute(
             Request.Builder().url(NexrifyLinks.SITE + PATH).post(body.toString().toRequestBody(JSON_TYPE))
@@ -188,6 +209,7 @@ object ChatApi {
             reply = r?.let { ChatReply(it.optLong("seq"), it.optString("username"), it.optString("text"), it.optBoolean("deleted")) },
             reactions = reactions,
             pinned = o.optBoolean("pinned", false),
+            voice = o.optJSONObject("voice")?.let { v -> ChatVoice(v.optString("id"), v.optLong("durMs"), v.optString("wave")) },
             poll = o.optJSONObject("poll")?.let { p ->
                 val opts = p.optJSONArray("options")
                 ChatPoll(
