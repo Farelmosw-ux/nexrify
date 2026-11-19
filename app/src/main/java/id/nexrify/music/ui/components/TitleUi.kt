@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import id.nexrify.music.data.account.AccountError
@@ -284,49 +285,52 @@ fun TitlePickerSheet(profile: ChatProfile, onDismiss: () -> Unit, onSaved: (Chat
                 val owned = profile.titlesOwned.firstOrNull { it.code == code }
                 val on = code in selected
                 val single = code == "marathon" || code == "streak"
-                Column(
-                    Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(RoundedCornerShape(16.dp))
-                        .background(if (on) colors.textPrimary.copy(alpha = 0.07f) else colors.card)
-                        .border(1.dp, if (on) colors.textPrimary else colors.border, RoundedCornerShape(16.dp))
+                val shape = RoundedCornerShape(14.dp)
+                Row(
+                    Modifier.fillMaxWidth().padding(bottom = 6.dp).clip(shape)
+                        .background(if (on) colors.textPrimary.copy(alpha = 0.08f) else colors.card)
+                        .border(if (on) 1.5.dp else 1.dp, if (on) colors.textPrimary else colors.border, shape)
                         .clickable(enabled = owned != null) {
                             if (on) selected.remove(code)
                             else if (selected.size >= max) NexNotifier.warning(currentStrings().titleLimit)
                             else selected.add(code)
                         }
-                        .padding(14.dp)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.weight(1f)) {
-                            Column(Modifier.dimUnlessOwned(owned != null)) {
-                                TitleChip(owned ?: sampleOf(code), compact = false)
-                                Spacer(Modifier.height(6.dp))
-                                Text(titleName(code, S), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
-                            }
+                    Column(Modifier.weight(1f).dimUnlessOwned(owned != null)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TitleChip(owned ?: sampleOf(code), compact = true)
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                titleName(code, S), fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false)
+                            )
                         }
-                        if (owned != null) {
-                            Box(
-                                Modifier.size(24.dp).clip(CircleShape)
-                                    .background(if (on) colors.textPrimary else Color.Transparent)
-                                    .border(1.5.dp, if (on) colors.textPrimary else colors.border, CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) { if (on) Icon(NexIcons.Check, null, tint = colors.background, modifier = Modifier.size(15.dp)) }
-                        } else {
-                            Icon(NexIcons.Lock, null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
-                        }
-                    }
-                    Spacer(Modifier.height(6.dp))
-                    Text(titleHow(code, S), fontSize = 11.5.sp, color = colors.textMuted, lineHeight = 16.sp)
-                    if (single) {
                         Spacer(Modifier.height(4.dp))
-                        Text(S.titleOnlyOne, fontSize = 10.5.sp, color = colors.textSecondary, fontWeight = FontWeight.SemiBold)
-                    }
-                    if (owned == null) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(S.titleLocked, fontSize = 10.5.sp, color = colors.textMuted)
-                        if (code == "creator") {
-                            Spacer(Modifier.height(8.dp))
-                            TitleButton(S.creatorApplyCta, filled = false, modifier = Modifier.fillMaxWidth()) { onApplyCreator() }
+                        Text(titleHow(code, S), fontSize = 11.sp, color = colors.textMuted, lineHeight = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        val note = when {
+                            owned == null -> S.titleLocked
+                            single -> S.titleOnlyOne
+                            else -> null
                         }
+                        if (note != null) Text(note, fontSize = 10.sp, color = colors.textSecondary, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 3.dp))
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    if (owned != null) {
+                        Box(
+                            Modifier.size(22.dp).clip(CircleShape)
+                                .background(if (on) colors.textPrimary else Color.Transparent)
+                                .border(1.5.dp, if (on) colors.textPrimary else colors.border, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) { if (on) Icon(NexIcons.Check, null, tint = colors.background, modifier = Modifier.size(14.dp)) }
+                    } else if (code == "creator") {
+                        Box(
+                            Modifier.clip(RoundedCornerShape(10.dp)).border(1.dp, colors.border, RoundedCornerShape(10.dp))
+                                .clickable { onApplyCreator() }.padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) { Text(S.creatorApplyCta, fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary) }
+                    } else {
+                        Icon(NexIcons.Lock, null, tint = colors.textMuted, modifier = Modifier.size(16.dp))
                     }
                 }
             }
