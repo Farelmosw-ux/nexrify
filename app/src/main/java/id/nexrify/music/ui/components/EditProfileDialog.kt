@@ -71,6 +71,9 @@ fun EditProfileDialog(onDismiss: () -> Unit) {
     var error by remember { mutableStateOf<String?>(null) }
     var oldPw by remember { mutableStateOf("") }
     var newPw by remember { mutableStateOf("") }
+    val myProfile = rememberMyProfile()
+    var showTitles by remember { mutableStateOf(false) }
+    var showCreator by remember { mutableStateOf(false) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) scope.launch {
@@ -98,7 +101,24 @@ fun EditProfileDialog(onDismiss: () -> Unit) {
     }
 
     NexDialogCard(icon = NexIcons.AccountCircle, title = S.editProfile, onDismiss = onDismiss) {
-        Column(modifier = Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
+        Column(modifier = Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
+            // Background profil + title
+            Text(S.profileBackground, color = colors.textMuted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(6.dp))
+            ProfileBanner(myProfile.value, onProfile = { myProfile.value = it })
+            Spacer(Modifier.height(10.dp))
+            val titles = myProfile.value?.titles.orEmpty()
+            if (titles.isNotEmpty()) TitleRow(titles, compact = false) else Text(S.profileNoTitle, color = colors.textMuted, fontSize = 12.sp)
+            if (myProfile.value != null) {
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { showTitles = true }, modifier = Modifier.fillMaxWidth().height(42.dp), shape = RoundedCornerShape(14.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, colors.border)
+                ) { Text(S.profileEditTitles, color = colors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp) }
+            }
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider(color = colors.border)
+            Spacer(Modifier.height(12.dp))
             val preview = NexUser(
                 id = user?.id.orEmpty(), username = user?.username.orEmpty(), display = display.ifBlank { user?.username.orEmpty() },
                 avatar = newAvatar ?: user?.avatar.orEmpty(), createdAt = 0L
@@ -164,6 +184,12 @@ fun EditProfileDialog(onDismiss: () -> Unit) {
                 Text(S.accountError(it), color = Color(0xFFFCA5A5), style = Typography.bodySmall)
             }
         }
+        val mp = myProfile.value
+        if (showTitles && mp != null) TitlePickerSheet(
+            profile = mp, onDismiss = { showTitles = false }, onSaved = { myProfile.value = it },
+            onApplyCreator = { showTitles = false; showCreator = true }
+        )
+        if (showCreator && mp != null) CreatorApplySheet(profile = mp, onDismiss = { showCreator = false }, onDone = { myProfile.value = it })
         Spacer(Modifier.height(10.dp))
         OutlinedButton(
             onClick = onDismiss, modifier = Modifier.fillMaxWidth().height(46.dp), shape = RoundedCornerShape(16.dp),
