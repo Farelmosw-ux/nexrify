@@ -107,6 +107,7 @@ fun ProfileMenuSheet(
             // Kartu akun Nexrify: nama, foto, edit profil, keluar
             val nexUser by AccountManager.getInstance().user.collectAsState()
             var showEdit by remember { mutableStateOf(false) }
+            var showFullProfile by remember { mutableStateOf(false) }
             var showLogoutConfirm by remember { mutableStateOf(false) }
             val accountScope = rememberCoroutineScope()
 
@@ -118,41 +119,11 @@ fun ProfileMenuSheet(
                     .border(1.dp, colors.border, RoundedCornerShape(20.dp))
                     .padding(16.dp)
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().clickable { showEdit = true },
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    NexAvatar(
-                        nexUser,
-                        58.dp,
-                        modifier = Modifier.clip(CircleShape).clickable {
-                            if (!nexUser?.avatar.isNullOrBlank()) showAvatarViewer = true else showEdit = true
-                        }
-                    )
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = nexUser?.display ?: S.musicLover,
-                            style = Typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                            color = colors.textPrimary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "@" + (nexUser?.username ?: ""),
-                            style = Typography.bodyMedium,
-                            color = colors.textMuted,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (isGlintRole(nexUser?.role)) {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            RoleBadge(role = nexUser?.role.orEmpty())
-                        }
-                    }
-                    Text(S.editProfile, style = Typography.labelMedium, color = colors.textSecondary)
-                }
+                MyProfileCard(
+                    onEdit = { showEdit = true },
+                    onAvatarClick = { if (!nexUser?.avatar.isNullOrBlank()) showAvatarViewer = true else showEdit = true },
+                    onOpenFull = { showFullProfile = true }
+                )
 
                 Spacer(modifier = Modifier.height(14.dp))
                 HorizontalDivider(color = colors.border, thickness = 1.dp)
@@ -203,6 +174,12 @@ fun ProfileMenuSheet(
             }
 
             if (showEdit) EditProfileDialog(onDismiss = { showEdit = false })
+            if (showFullProfile && !nexUser?.username.isNullOrBlank()) {
+                ChatProfileSheet(
+                    username = nexUser?.username.orEmpty(), isMe = true, isMuted = false, onMention = {}, onToggleMute = {},
+                    onDismiss = { showFullProfile = false }, showActions = false
+                )
+            }
             if (showLogoutConfirm) {
                 NexConfirmDialog(
                     title = S.logoutTitle,
