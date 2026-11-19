@@ -19,7 +19,10 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 
-data class MubarMember(val uid: String, val username: String, val display: String, val av: String)
+data class MubarMember(val uid: String, val username: String, val display: String, val av: String, val role: String = "")
+
+/** Kejadian ruangan untuk pemberitahuan: joined, left, declined. */
+data class MubarEvent(val kind: String, val display: String)
 
 data class MubarTrack(val id: String, val title: String, val artist: String, val thumb: String, val url: String, val durationSec: Int)
 
@@ -78,6 +81,10 @@ class MubarManager private constructor() {
     private val _ended = MutableSharedFlow<String>(extraBufferCapacity = 4)
     /** Alasan ruangan berakhir: host_left, host_gone, timeout, closed. */
     val ended: SharedFlow<String> = _ended.asSharedFlow()
+
+    private val _events = MutableSharedFlow<MubarEvent>(extraBufferCapacity = 8)
+    val events: SharedFlow<MubarEvent> = _events.asSharedFlow()
+    private val seenDeclines = HashSet<String>()
 
     @Volatile private var offsetMs = 0L
     private var ev = 0L
@@ -143,6 +150,22 @@ class MubarManager private constructor() {
         o.optLong("serverNow").takeIf { it > 0 }?.let { offsetMs = it - System.currentTimeMillis() }
         // Ruangan lain (mis. pindah) membersihkan chat lama.
         if (_room.value?.code != room.code) { _messages.value = emptyList(); ev = 0 }
+        val prev = _room.value
+        if (prev != null && prev.code == room.code) {
+            val myUid = AccountManager.getInstance().user.value?.id.orEmpty()
+            room.members.filter { m -> m.uid != myUid && prev.members.none { it.uid == m.uid } }
+                .forEach { _events.tryEmit(MubarEvent("joined", it.display.ifBlank { it.username })) }
+            prev.members.filter { m -> m.uid != myUid && room.members.none { it.uid == m.uid } }
+                .forEach { _events.tryEmit(MubarEvent("left", it.display.ifBlank { it.username })) }
+        }
+        // Server boleh mengirim "declined": [{username, display, ts}] ke pembuat ruangan.
+        (o.optJSONArray("declined") ?: rj.optJSONArray("declined"))?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val d = arr.optJSONObject(i) ?: continue
+                val key = d.optString("username") + ":" + d.optLong("ts")
+                if (seenDeclines.add(key)) _events.tryEmit(MubarEvent("declined", d.optString("display").ifBlank { d.optString("username") }))
+            }
+        }
         _room.value = room
         _invites.value = emptyList()
         val incoming = parseMessages(o.optJSONArray("messages"))
@@ -160,7 +183,7 @@ class MubarManager private constructor() {
         val members = buildList {
             for (i in 0 until ms.length()) {
                 val m = ms.optJSONObject(i) ?: continue
-                add(MubarMember(m.optString("uid"), m.optString("username"), m.optString("display"), m.optString("av")))
+                add(MubarMember(m.optString("uid"), m.optString("username"), m.optString("display"), m.optString("av"), m.optString("role")))
             }
         }
         val tj = o.optJSONObject("track")
