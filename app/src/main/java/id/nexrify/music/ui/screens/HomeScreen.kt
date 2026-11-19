@@ -89,6 +89,7 @@ fun HomeScreen(
     viewModel: MusicViewModel,
     onOpenMailbox: () -> Unit = {},
     onOpenChat: () -> Unit = {},
+    onOpenNotifications: () -> Unit = {},
     onOpenDonate: () -> Unit = {},
     onOpenFeedback: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -172,10 +173,13 @@ fun HomeScreen(
             // V2: bar sendiri di atas untuk profil, chat, surat, dan pengaturan. Navigasi utama tetap di bawah.
             val unreadMailV2 by id.nexrify.music.data.mailbox.MailboxManager.getInstance().unreadCount.collectAsState()
             val chatUnreadV2 by id.nexrify.music.data.chat.ChatManager.getInstance().mentionUnread.collectAsState()
+            val notifUnreadV2 by id.nexrify.music.data.notif.NotifCenter.getInstance().unread.collectAsState()
             V2UtilityBar(
                 account = currentAccount,
                 chatUnread = chatUnreadV2,
                 mailUnread = unreadMailV2,
+                notifUnread = notifUnreadV2,
+                onNotifs = onOpenNotifications,
                 onProfile = { showProfileMenu = true },
                 onChat = onOpenChat,
                 onMail = onOpenMailbox,
@@ -213,6 +217,9 @@ fun HomeScreen(
             StreakChip(streak, onClick = { showStreak = true })
             Spacer(modifier = Modifier.width(10.dp))
             ChatTopButton(unread = chatUnread, onClick = onOpenChat)
+            Spacer(modifier = Modifier.width(10.dp))
+            val notifUnread by id.nexrify.music.data.notif.NotifCenter.getInstance().unread.collectAsState()
+            NotifTopButton(unread = notifUnread, onClick = onOpenNotifications)
             Spacer(modifier = Modifier.width(10.dp))
             MailboxTopButton(unread = unreadMail, onClick = onOpenMailbox)
             Spacer(modifier = Modifier.width(10.dp))
@@ -1005,6 +1012,23 @@ private fun ChatTopButton(unread: Int, onClick: () -> Unit) {
 }
 
 @Composable
+private fun NotifTopButton(unread: Int, onClick: () -> Unit) {
+    val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
+    Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier.size(40.dp).clip(CircleShape).background(colors.card).border(1.dp, colors.border, CircleShape).clickable(onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) { Icon(NexIcons.Bell, S.notifCenterTitle, tint = colors.textPrimary, modifier = Modifier.size(20.dp)) }
+        if (unread > 0) {
+            Box(
+                modifier = Modifier.align(Alignment.TopEnd).clip(CircleShape).background(colors.accent).border(2.dp, colors.background, CircleShape).padding(horizontal = 5.dp, vertical = 1.dp),
+                contentAlignment = Alignment.Center
+            ) { Text(text = if (unread > 9) "9+" else unread.toString(), fontSize = 9.sp, fontWeight = FontWeight.Bold, color = colors.background) }
+        }
+    }
+}
+
+@Composable
 private fun MailboxTopButton(unread: Int, onClick: () -> Unit) {
     val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
     Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
@@ -1071,6 +1095,8 @@ private fun V2UtilityBar(
     account: UserAccount?,
     chatUnread: Int,
     mailUnread: Int,
+    notifUnread: Int,
+    onNotifs: () -> Unit,
     onProfile: () -> Unit,
     onChat: () -> Unit,
     onMail: () -> Unit,
@@ -1092,11 +1118,12 @@ private fun V2UtilityBar(
     ) {
         AccountTopButton(account = account, onClick = onProfile)
         Spacer(modifier = Modifier.width(10.dp))
-        Text("Nexrify", style = Typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary)
-        Spacer(modifier = Modifier.weight(1f))
+        Text("Nexrify", style = Typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary, maxLines = 1, softWrap = false, modifier = Modifier.weight(1f))
         StreakChip(streak, onClick = onStreak)
         Spacer(modifier = Modifier.width(8.dp))
         ChatTopButton(unread = chatUnread, onClick = onChat)
+        Spacer(modifier = Modifier.width(8.dp))
+        NotifTopButton(unread = notifUnread, onClick = onNotifs)
         Spacer(modifier = Modifier.width(8.dp))
         MailboxTopButton(unread = mailUnread, onClick = onMail)
         Spacer(modifier = Modifier.width(8.dp))
