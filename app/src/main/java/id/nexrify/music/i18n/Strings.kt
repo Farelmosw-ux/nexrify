@@ -1149,7 +1149,7 @@ class Strings(val english: Boolean) {
     val socialBlocked get() = t("Tidak bisa mengikuti pengguna ini", "You can't follow this user")
     val socialFail get() = t("Gagal, coba lagi", "Something went wrong, try again")
     val coverEdit get() = t("Ubah background", "Change background")
-    val coverRemove get() = t("Hapus background", "Remove background")
+    val coverBgRemove get() = t("Hapus background", "Remove background")
     val coverSaved get() = t("Background diperbarui", "Background updated")
     val coverRemoved get() = t("Background dihapus", "Background removed")
     val coverInvalid get() = t("Gambar tidak bisa dipakai", "That image can't be used")
