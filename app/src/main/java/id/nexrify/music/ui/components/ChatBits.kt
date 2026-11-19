@@ -238,6 +238,7 @@ fun ChatBubble(
     onRetry: () -> Unit,
     onSwipeReply: () -> Unit = {},
     replyFullText: String? = null,
+    replyDeleted: Boolean = false,
     topRank: Int = 0,
     extras: BubbleExtras = BubbleExtras()
 ) {
@@ -367,9 +368,10 @@ fun ChatBubble(
                     )
                     .padding(horizontal = 13.dp, vertical = 9.dp)
             ) {
-                msg.reply?.let { r ->
+                (if (msg.deleted) null else msg.reply)?.let { r ->
                     // Kutipan memuat isi pesan asli (sampai 4 baris), bukan potongan pendek.
-                    val quoted = (replyFullText?.takeIf { it.length > r.text.length } ?: r.text).trim()
+                    val gone = r.deleted || replyDeleted
+                    val quoted = if (gone) "" else (replyFullText?.takeIf { it.length > r.text.length } ?: r.text).trim()
                     val accent = if (mine) colors.background.copy(alpha = 0.65f) else colors.textPrimary.copy(alpha = 0.75f)
                     Row(
                         modifier = Modifier
@@ -385,6 +387,7 @@ fun ChatBubble(
                             Spacer(Modifier.height(1.dp))
                             Text(
                                 quoted.ifEmpty { S.chatDeletedMsg },
+                                fontStyle = if (quoted.isEmpty()) FontStyle.Italic else FontStyle.Normal,
                                 fontSize = 12.5.sp,
                                 lineHeight = 16.sp,
                                 color = subColor,
