@@ -65,6 +65,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _searchResults = MutableStateFlow<List<Track>>(emptyList())
     val searchResults = _searchResults.asStateFlow()
+    /** Versi lain dari lagu yang sama (artis berbeda, cover, remix), dilipat di bawah hasil utama. */
+    private val _searchOthers = MutableStateFlow<List<Track>>(emptyList())
+    val searchOthers = _searchOthers.asStateFlow()
 
     private val _suggestions = MutableStateFlow<List<String>>(emptyList())
     val suggestions = _suggestions.asStateFlow()
@@ -946,6 +949,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         if (query.isBlank()) {
             _suggestions.value = emptyList()
             _searchResults.value = emptyList()
+            _searchOthers.value = emptyList()
             _isSearching.value = false
             return
         }
@@ -957,7 +961,9 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             delay(350)
             _isSearching.value = true
             try {
-                _searchResults.value = repository.searchTracks(query)
+                val ranked = repository.searchTracksRanked(query)
+                _searchResults.value = ranked.primary
+                _searchOthers.value = ranked.others
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -988,6 +994,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         _isSearching.value = false
         _suggestions.value = emptyList()
         _searchResults.value = emptyList()
+        _searchOthers.value = emptyList()
     }
 
     fun search(query: String, forceRefresh: Boolean = false) {
@@ -995,14 +1002,17 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         _suggestions.value = emptyList()
         if (query.isBlank()) {
             _searchResults.value = emptyList()
+            _searchOthers.value = emptyList()
             _isSearching.value = false
             return
         }
         searchJob = viewModelScope.launch {
             _isSearching.value = true
             try {
-                val results = repository.searchTracks(query, forceRefresh)
+                val ranked = repository.searchTracksRanked(query, forceRefresh)
+                val results = ranked.primary
                 _searchResults.value = results
+                _searchOthers.value = ranked.others
 
                 // Pre-warm audio URLs for top 2 search results in background
                 launch(Dispatchers.IO) {
@@ -1016,6 +1026,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 Log.e("NexrifyVM", "Pencarian gagal", e)
                 _searchResults.value = emptyList()
+                _searchOthers.value = emptyList()
             } finally {
                 // Kalau dibatalkan karena pencarian baru, biarkan pencarian baru yang mengatur indikator.
                 if (kotlinx.coroutines.currentCoroutineContext()[Job]?.isActive == true) _isSearching.value = false
@@ -1498,6 +1509,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         _currentLyrics.value = null
         _isLoadingLyrics.value = false
         _searchResults.value = emptyList()
+        _searchOthers.value = emptyList()
         _suggestions.value = emptyList()
         publishQueue()
         playbackStore.clear()
