@@ -158,6 +158,15 @@ class MubarManager private constructor() {
             prev.members.filter { m -> m.uid != myUid && room.members.none { it.uid == m.uid } }
                 .forEach { _events.tryEmit(MubarEvent("left", it.display.ifBlank { it.username })) }
         }
+        if (prev != null && prev.code == room.code && prev.turnUid != room.turnUid && prev.track != null && room.track != null && prev.track.id == room.track.id) {
+            val myUid = AccountManager.getInstance().user.value?.id.orEmpty()
+            val to = room.members.firstOrNull { it.uid == room.turnUid }
+            val from = prev.members.firstOrNull { it.uid == prev.turnUid }
+            if (to != null) {
+                if (to.uid == myUid) _events.tryEmit(MubarEvent("passed_me", from?.let { it.display.ifBlank { it.username } } ?: ""))
+                else _events.tryEmit(MubarEvent("passed", to.display.ifBlank { to.username }))
+            }
+        }
         // Server boleh mengirim "declined": [{username, display, ts}] ke pembuat ruangan.
         (o.optJSONArray("declined") ?: rj.optJSONArray("declined"))?.let { arr ->
             for (i in 0 until arr.length()) {
@@ -266,6 +275,27 @@ class MubarManager private constructor() {
         val tj = JSONObject().put("id", track.id).put("title", track.title).put("artist", track.artist)
             .put("thumb", track.thumbnailUrl).put("url", track.url).put("durationSec", track.durationSeconds)
         act(JSONObject().put("action", "mb_pick").put("code", code).put("track", tj))
+    }
+
+    /** Oper giliran ke anggota lain. Hanya pemegang giliran. Lagu tetap menyala, penerima mendapat jendela ganti lagu baru. */
+    suspend fun pass(toUid: String) {
+        val code = _room.value?.code ?: return
+        act(JSONObject().put("action", "mb_pass").put("code", code).put("to", toUid))
+        refreshAfterChange(0)
+    }
+
+    /** Hentikan lagu untuk semua orang. Hanya pemegang giliran (atau yang baru dioper). */
+    suspend fun stopSong() {
+        val code = _room.value?.code ?: return
+        act(JSONObject().put("action", "mb_stop").put("code", code))
+        refreshAfterChange(0)
+    }
+
+    /** Keluarkan tamu. Hanya pembuat ruangan. */
+    suspend fun kick(uid: String) {
+        val code = _room.value?.code ?: return
+        act(JSONObject().put("action", "mb_kick").put("code", code).put("uid", uid))
+        refreshAfterChange(0)
     }
 
     suspend fun send(text: String, replyTo: Long?) {
