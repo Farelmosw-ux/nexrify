@@ -149,6 +149,14 @@ class MainActivity : ComponentActivity() {
             id.nexrify.music.data.chat.ChatNav.request.value = intent.getLongExtra(id.nexrify.music.data.chat.ChatNotifier.EXTRA_SEQ, 0L)
             intent.removeExtra(id.nexrify.music.data.chat.ChatNotifier.EXTRA_OPEN_CHAT)
         }
+        intent?.getStringExtra(id.nexrify.music.data.chat.ChatNotifier.EXTRA_OPEN_PROFILE)?.takeIf { it.isNotBlank() }?.let {
+            id.nexrify.music.data.chat.ChatNav.profileRequest.value = it
+            intent?.removeExtra(id.nexrify.music.data.chat.ChatNotifier.EXTRA_OPEN_PROFILE)
+        }
+        if (intent?.getBooleanExtra(id.nexrify.music.data.chat.ChatNotifier.EXTRA_OPEN_NOTIFS, false) == true) {
+            id.nexrify.music.data.chat.ChatNav.notifCenterRequest.value = true
+            intent.removeExtra(id.nexrify.music.data.chat.ChatNotifier.EXTRA_OPEN_NOTIFS)
+        }
     }
 
     /** Tautan playlist (https://nexrify.biz.id/playlist/<username>/<id>) yang dibuka dari browser, chat, dll. */
@@ -312,6 +320,20 @@ fun MainAppScreen(viewModel: MusicViewModel) {
         val seq = chatRequest ?: return@LaunchedEffect
         id.nexrify.music.data.chat.ChatNav.request.value = null
         if (id.nexrify.music.data.account.AccountManager.getInstance().isLoggedIn()) navController.navigate("chat?seq=$seq") { launchSingleTop = true }
+    }
+
+    // Notifikasi pengikut baru: buka Global Chat lalu profil orangnya. Notifikasi gabungan: buka pusat notifikasi.
+    val profileRequest by id.nexrify.music.data.chat.ChatNav.profileRequest.collectAsState()
+    LaunchedEffect(profileRequest) {
+        if (profileRequest == null) return@LaunchedEffect
+        if (id.nexrify.music.data.account.AccountManager.getInstance().isLoggedIn()) navController.navigate("chat?seq=0") { launchSingleTop = true }
+        else id.nexrify.music.data.chat.ChatNav.profileRequest.value = null
+    }
+    val notifRequest by id.nexrify.music.data.chat.ChatNav.notifCenterRequest.collectAsState()
+    LaunchedEffect(notifRequest) {
+        if (!notifRequest) return@LaunchedEffect
+        id.nexrify.music.data.chat.ChatNav.notifCenterRequest.value = false
+        navController.navigate("notifications") { launchSingleTop = true }
     }
 
     val currentTrack by viewModel.currentTrack.collectAsState()
@@ -538,12 +560,20 @@ fun MainAppScreen(viewModel: MusicViewModel) {
                             viewModel = viewModel,
                             onOpenMailbox = { navController.navigate("mailbox") },
                             onOpenChat = { navController.navigate("chat?seq=0") },
+                            onOpenNotifications = { navController.navigate("notifications") },
                             onOpenDonate = { navController.navigate("donate") },
                             onOpenFeedback = { navController.navigate("feedback") }
                         )
                     }
                     composable("donate") {
                         DonateScreen(onBack = { navController.popBackStack() })
+                    }
+                    composable("notifications") {
+                        id.nexrify.music.ui.screens.NotificationScreen(
+                            onBack = { navController.popBackStack() },
+                            onOpenProfile = { name -> id.nexrify.music.data.chat.ChatNav.profileRequest.value = name },
+                            onOpenChat = { seq -> navController.navigate("chat?seq=$seq") }
+                        )
                     }
                     composable("mailbox") {
                         MailboxScreen(onBack = { navController.popBackStack() })
