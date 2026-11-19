@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -61,9 +62,11 @@ fun PlayerQuickActions(
     val downloads by viewModel.downloads.collectAsState()
     val sleepSec by viewModel.sleepRemainingSec.collectAsState()
     val speed by viewModel.playbackSpeed.collectAsState()
+    val voice by viewModel.voiceStyle.collectAsState()
 
     var showSleep by remember { mutableStateOf(false) }
     var showSpeed by remember { mutableStateOf(false) }
+    var showShare by remember { mutableStateOf(false) }
 
     val isDownloaded = offlineTracks.any { it.track.id == track.id }
     val dlState = downloads[track.id]?.state
@@ -117,8 +120,12 @@ fun PlayerQuickActions(
         )
         QuickActionTile(
             icon = NexIcons.Speed,
-            label = if (speed == 1f) S.actionSpeed else formatSpeed(speed),
-            active = speed != 1f,
+            label = when (voice) {
+                id.nexrify.music.viewmodel.VoiceStyle.SPEED_UP -> S.voiceSpeedUp
+                id.nexrify.music.viewmodel.VoiceStyle.SLOWED_REVERB -> S.voiceSlowed
+                else -> if (speed == 1f) S.actionSpeed else formatSpeed(speed)
+            },
+            active = speed != 1f || voice != id.nexrify.music.viewmodel.VoiceStyle.NORMAL,
             modifier = Modifier.weight(1f),
             onClick = { showSpeed = true }
         )
@@ -126,7 +133,19 @@ fun PlayerQuickActions(
             icon = NexIcons.Share,
             label = S.actionShare,
             modifier = Modifier.weight(1f),
-            onClick = {
+            onClick = { showShare = true }
+        )
+    }
+
+    if (showShare) {
+        ShareChoiceSheet(
+            onDismiss = { showShare = false },
+            onTogether = {
+                showShare = false
+                id.nexrify.music.data.mubar.MubarManager.getInstance().openSheet()
+            },
+            onShareLink = {
+                showShare = false
                 runCatching {
                     val st = currentStrings()
                     val send = Intent(Intent.ACTION_SEND).apply {
@@ -167,6 +186,20 @@ fun PlayerQuickActions(
     if (showSpeed) {
         SpeedSheet(
             current = speed,
+            voice = voice,
+            onVoice = { v ->
+                val st = currentStrings()
+                viewModel.setVoiceStyle(v)
+                NexNotifier.success(
+                    st.voiceStyleSet(when (v) {
+                        id.nexrify.music.viewmodel.VoiceStyle.NORMAL -> st.voiceNormal
+                        id.nexrify.music.viewmodel.VoiceStyle.SPEED_UP -> st.voiceSpeedUp
+                        id.nexrify.music.viewmodel.VoiceStyle.SLOWED_REVERB -> st.voiceSlowed
+                    }),
+                    st.voiceStyleTitle
+                )
+                showSpeed = false
+            },
             onPick = { x ->
                 viewModel.setPlaybackSpeed(x)
                 NexNotifier.success(currentStrings().speedSet(formatSpeed(x)), currentStrings().noteSpeedTitle)
@@ -263,24 +296,67 @@ private fun SleepTimerSheet(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SpeedSheet(current: Float, onPick: (Float) -> Unit, onDismiss: () -> Unit) {
+private fun SpeedSheet(
+    current: Float,
+    voice: id.nexrify.music.viewmodel.VoiceStyle,
+    onVoice: (id.nexrify.music.viewmodel.VoiceStyle) -> Unit,
+    onPick: (Float) -> Unit,
+    onDismiss: () -> Unit
+) {
     val colors = NexrifyAppTheme.colors
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         containerColor = colors.background,
         dragHandle = { SheetHandle() }
     ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 32.dp)) {
+        Column(
+            Modifier.fillMaxWidth().verticalScroll(androidx.compose.foundation.rememberScrollState())
+                .padding(horizontal = 20.dp).padding(bottom = 32.dp)
+        ) {
+            Text(S.voiceStyleTitle, style = Typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary)
+            Spacer(Modifier.height(2.dp))
+            Text(S.voiceStyleSub, style = Typography.bodySmall, color = colors.textMuted)
+            Spacer(Modifier.height(12.dp))
+            VoiceOption(S.voiceNormal, S.voiceNormalDesc, voice == id.nexrify.music.viewmodel.VoiceStyle.NORMAL && current == 1f) {
+                onVoice(id.nexrify.music.viewmodel.VoiceStyle.NORMAL)
+            }
+            VoiceOption(S.voiceSpeedUp, S.voiceSpeedUpDesc, voice == id.nexrify.music.viewmodel.VoiceStyle.SPEED_UP) {
+                onVoice(id.nexrify.music.viewmodel.VoiceStyle.SPEED_UP)
+            }
+            VoiceOption(S.voiceSlowed, S.voiceSlowedDesc, voice == id.nexrify.music.viewmodel.VoiceStyle.SLOWED_REVERB) {
+                onVoice(id.nexrify.music.viewmodel.VoiceStyle.SLOWED_REVERB)
+            }
+            Spacer(Modifier.height(18.dp))
             Text(S.speedTitle, style = Typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary)
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(10.dp))
             listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f).forEach { x ->
                 SheetOption(
                     text = if (x == 1f) "1x  ${S.speedNormal}" else formatSpeed(x),
-                    selected = current == x,
+                    selected = voice == id.nexrify.music.viewmodel.VoiceStyle.NORMAL && current == x,
                     onClick = { onPick(x) }
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun VoiceOption(title: String, desc: String, selected: Boolean, onClick: () -> Unit) {
+    val colors = NexrifyAppTheme.colors
+    val shape = RoundedCornerShape(14.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp)
+            .clip(shape)
+            .background(if (selected) colors.card else androidx.compose.ui.graphics.Color.Transparent)
+            .border(1.dp, if (selected) colors.textPrimary.copy(alpha = 0.5f) else colors.border.copy(alpha = 0.6f), shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+    ) {
+        Text(title, fontWeight = FontWeight.Bold, color = colors.textPrimary)
+        Spacer(Modifier.height(2.dp))
+        Text(desc, style = Typography.bodySmall, color = colors.textMuted)
     }
 }
 
