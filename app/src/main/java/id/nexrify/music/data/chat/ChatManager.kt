@@ -7,6 +7,7 @@ import id.nexrify.music.util.CrashReporter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.Channel
@@ -234,6 +235,21 @@ class ChatManager private constructor(private val context: Context) {
         } catch (e: Throwable) {
             markFailed(localId)
         }
+    }
+
+    /** Kirim pesan suara ke Global Chat. Melempar AccountError (mis. vn_forbidden kalau bukan Dev/Admin/Staf). */
+    suspend fun sendVoice(clip: id.nexrify.music.util.VoiceClip, replyTo: ChatMessage?): ChatMessage {
+        val t = token() ?: throw AccountError("auth", "not logged in")
+        val b64 = withContext(Dispatchers.IO) { android.util.Base64.encodeToString(clip.file.readBytes(), android.util.Base64.NO_WRAP) }
+        val body = JSONObject().put("action", "send_voice").put("audio", b64).put("durMs", clip.durMs).put("wave", clip.wave)
+        if (replyTo != null && replyTo.seq > 0) body.put("replyTo", replyTo.seq)
+        val r = ChatApi.post(t, body)
+        val m = ChatApi.parseMessage(r.getJSONObject("message"))
+        server.update { it + (m.seq to m) }
+        maxSeen = maxOf(maxSeen, m.seq)
+        kick()
+        runCatching { clip.file.delete() }
+        return m
     }
 
     private fun markFailed(localId: String) {
