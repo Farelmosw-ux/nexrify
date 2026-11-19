@@ -134,11 +134,13 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         AppVisibility.set(true)
         runCatching { id.nexrify.music.data.chat.ChatManager.getInstance().appForeground(true) }
+        runCatching { id.nexrify.music.data.mubar.MubarManager.getInstance().setForeground(true) }
     }
 
     override fun onStop() {
         AppVisibility.set(false)
         runCatching { id.nexrify.music.data.chat.ChatManager.getInstance().appForeground(false) }
+        runCatching { id.nexrify.music.data.mubar.MubarManager.getInstance().setForeground(false) }
         super.onStop()
     }
 
@@ -236,6 +238,8 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                         if (nexUser == null) AuthScreen() else MainAppScreen(viewModel = viewModel)
+                        // Musik Bareng: sinkron lagu, undangan masuk, dan lembar ruangan.
+                        if (nexUser != null) id.nexrify.music.ui.components.MubarHost(viewModel)
                         if (nexUser != null) availableUpdate?.let { release ->
                             UpdateDialog(
                                 release = release,
