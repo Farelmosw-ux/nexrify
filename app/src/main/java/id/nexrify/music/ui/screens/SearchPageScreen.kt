@@ -101,6 +101,8 @@ fun SearchPageScreen(
     }
     val suggestions by viewModel.suggestions.collectAsState()
     val results by viewModel.searchResults.collectAsState()
+    val otherVersions by viewModel.searchOthers.collectAsState()
+    var showOthers by remember(results) { mutableStateOf(false) }
     val isSearching by viewModel.isSearching.collectAsState()
     val isLoadingTrack by viewModel.isLoadingTrack.collectAsState()
     val currentTrack by viewModel.currentTrack.collectAsState()
@@ -228,6 +230,38 @@ fun SearchPageScreen(
                         onFavoriteClick = { viewModel.toggleFavorite(track) },
                         onMoreClick = { trackForPlaylist = track }
                     )
+                }
+                if (otherVersions.isNotEmpty()) {
+                    item(key = "others_toggle") {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(16.dp))
+                                .background(colors.card).border(1.dp, colors.border, RoundedCornerShape(16.dp))
+                                .clickable { showOthers = !showOthers }.padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                if (showOthers) S.searchHideOthers else S.searchShowOthers(otherVersions.size),
+                                color = colors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, modifier = Modifier.weight(1f)
+                            )
+                            Text(if (showOthers) "−" else "+", color = colors.textMuted, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    if (showOthers) {
+                        items(otherVersions, key = { "o_" + it.id }, contentType = { "track" }) { track ->
+                            TrackItem(
+                                track = track.copy(isFavorite = track.id in favoriteIds),
+                                isPlaying = currentTrack?.id == track.id,
+                                isLoading = isLoadingTrack && currentTrack?.id == track.id,
+                                onClick = {
+                                    viewModel.rememberSearch(query)
+                                    focusManager.clearFocus()
+                                    viewModel.playTrackFromSearch(track)
+                                },
+                                onFavoriteClick = { viewModel.toggleFavorite(track) },
+                                onMoreClick = { trackForPlaylist = track }
+                            )
+                        }
+                    }
                 }
                 item { Spacer(Modifier.height(110.dp)) }
             }
