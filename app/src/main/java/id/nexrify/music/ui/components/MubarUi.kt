@@ -602,6 +602,24 @@ fun MubarSheet(viewModel: MusicViewModel, onDismiss: () -> Unit) {
                     LazyColumn(Modifier.fillMaxSize(), state = listState) {
                         itemsIndexed(messages, key = { _, it -> it.seq }) { i, m ->
                             val prev = messages.getOrNull(i - 1)
+                            if (m.system.isNotEmpty()) {
+                                val st = currentStrings()
+                                val who = m.display.ifBlank { m.username }
+                                val line = when (m.system) {
+                                    "join" -> st.mubarSysJoin(who)
+                                    "left" -> st.mubarSysLeft(who)
+                                    "pass" -> st.mubarSysPass(who, m.target)
+                                    "stop" -> st.mubarSysStop(who)
+                                    "kick" -> st.mubarSysKick(who, m.target)
+                                    "pick" -> st.mubarSysPick(who, m.text)
+                                    else -> ""
+                                }
+                                if (line.isNotEmpty()) Text(
+                                    line, fontSize = 11.5.sp, color = colors.textMuted, textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp, horizontal = 24.dp)
+                                )
+                                return@itemsIndexed
+                            }
                             val showHeader = prev == null || prev.uid != m.uid || m.ts - prev.ts > 300_000L
                             ChatBubble(
                                 msg = m.toChat(badgesOf(m)), mine = m.uid == myUid, myId = myUid, myUsername = me?.username.orEmpty(),
@@ -885,7 +903,10 @@ private fun EmptySlot(modifier: Modifier, order: Int, canInvite: Boolean, onClic
 @Composable
 private fun MubarPickerSheet(viewModel: MusicViewModel, onDismiss: () -> Unit, onPick: (Track) -> Unit) {
     val colors = NexrifyAppTheme.colors
-    val results by viewModel.searchResults.collectAsState()
+    val primaryResults by viewModel.searchResults.collectAsState()
+    val otherResults by viewModel.searchOthers.collectAsState()
+    // Pemilih Mubar menampilkan semuanya, tapi sudah berurutan: versi terbaik dulu, versi lain di bawahnya.
+    val results = remember(primaryResults, otherResults) { primaryResults + otherResults }
     var query by remember { mutableStateOf("") }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
