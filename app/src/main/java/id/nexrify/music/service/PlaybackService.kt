@@ -158,6 +158,48 @@ class PlaybackService : MediaSessionService() {
         /** True selama layanan pemutar hidup di proses ini. Otomatis false lagi kalau proses dimatikan sistem. */
         @Volatile var alive: Boolean = false
             private set
+
+        @Volatile private var instance: PlaybackService? = null
+
+        /** Nyalakan / matikan gema lembut (dipakai gaya suara "Slowed + reverb"). Aman dipanggil kapan saja. */
+        fun setReverb(on: Boolean) {
+            val svc = instance ?: return
+            svc.mainHandler.post { svc.applyReverb(on) }
+        }
+    }
+
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var exo: ExoPlayer? = null
+    private var reverb: android.media.audiofx.EnvironmentalReverb? = null
+    private var reverbWanted = false
+
+    private fun releaseReverb() {
+        runCatching { reverb?.enabled = false }
+        runCatching { reverb?.release() }
+        reverb = null
+    }
+
+    /** Pasang gema pada sesi audio pemutar. Kalau perangkat tidak mendukung, diam-diam dilewati (suara tetap diputar). */
+    private fun applyReverb(on: Boolean = reverbWanted) {
+        reverbWanted = on
+        releaseReverb()
+        val sessionId = exo?.audioSessionId ?: return
+        if (!on || sessionId == C.AUDIO_SESSION_ID_UNSET) return
+        runCatching {
+            reverb = android.media.audiofx.EnvironmentalReverb(0, sessionId).apply {
+                roomLevel = -1500
+                roomHFLevel = -1000
+                decayTime = 2800
+                decayHFRatio = 700
+                reflectionsLevel = -1200
+                reflectionsDelay = 15
+                reverbLevel = -300
+                reverbDelay = 40
+                diffusion = 1000
+                density = 1000
+                enabled = true
+            }
+        }.onFailure { Log.w("NexrifyPlaybackService", "Reverb tidak tersedia: ${it.message}") }
     }
 
     @OptIn(UnstableApi::class)
@@ -206,7 +248,13 @@ class PlaybackService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true)
             .build()
 
+        exo = exoPlayer
+        instance = this
         exoPlayer.addListener(object : Player.Listener {
+            override fun onAudioSessionIdChanged(audioSessionId: Int) {
+                if (reverbWanted) applyReverb()
+            }
+
             override fun onPlayerError(error: PlaybackException) {
                 Log.e("NexrifyPlaybackService", "ExoPlayer Error: ${error.message}", error)
             }
@@ -395,6 +443,9 @@ class PlaybackService : MediaSessionService() {
             mediaSession = null
         }
         player = null
+        releaseReverb()
+        exo = null
+        instance = null
         artworkExecutor.shutdownNow()
         super.onDestroy()
     }
