@@ -678,7 +678,7 @@ fun PlaylistDetailView(
                     modifier = Modifier.fillMaxWidth().height(50.dp),
                     shape = RoundedCornerShape(16.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, colors.border)
-                ) { Text(S.coverRemove, color = colors.textSecondary, fontWeight = FontWeight.SemiBold) }
+                ) { Text(S.coverUseCollage, color = colors.textSecondary, fontWeight = FontWeight.SemiBold) }
             }
         }
     }
