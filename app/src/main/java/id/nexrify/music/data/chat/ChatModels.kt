@@ -2,7 +2,7 @@ package id.nexrify.music.data.chat
 
 enum class SendStatus { SENDING, SENT, FAILED }
 
-data class ChatReply(val seq: Long, val username: String, val text: String)
+data class ChatReply(val seq: Long, val username: String, val text: String, val deleted: Boolean = false)
 
 data class ChatMessage(
     val seq: Long,
@@ -62,8 +62,31 @@ data class ChatProfile(
     val titlesOwned: List<ProfileTitle> = emptyList(),
     val titlesMax: Int = 3,
     /** Status pengajuan Konten Kreator (hanya profil sendiri). */
-    val creatorApp: CreatorApp? = null
+    val creatorApp: CreatorApp? = null,
+    val followers: Int = 0,
+    val following: Int = 0,
+    /** Teman = saling ikuti. */
+    val friends: Int = 0,
+    val iFollow: Boolean = false,
+    val followsMe: Boolean = false,
+    val friend: Boolean = false,
+    val followHidden: Boolean = false,
+    val hasCover: Boolean = false,
+    val coverV: String = ""
 )
+
+/** Satu baris di daftar pengikut / mengikuti / teman. */
+data class FollowUser(
+    val uid: String,
+    val username: String,
+    val display: String,
+    val av: String,
+    val iFollow: Boolean,
+    val followsMe: Boolean,
+    val friend: Boolean
+)
+
+data class FollowPage(val items: List<FollowUser>, val next: Int, val total: Int, val hidden: Boolean)
 
 /** Title pengguna. code: donor, marathon, streak, creator, loved, active. platform: tiktok / youtube / both (kreator). */
 data class ProfileTitle(val code: String, val platform: String = "", val rank: Int = 0, val n: Int = 0)
