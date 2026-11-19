@@ -854,6 +854,7 @@ fun ChatSettingsSheet(
     val reply by st.notifReply.collectAsState()
     val reaction by st.notifReaction.collectAsState()
     val announce by st.notifAnnounce.collectAsState()
+    val follow by st.notifFollow.collectAsState()
     val muted by st.muted.collectAsState()
 
     ModalBottomSheet(
@@ -897,6 +898,8 @@ fun ChatSettingsSheet(
                 ToggleRow(NexIcons.Favorite, S.chatNotifReaction, S.chatNotifReactionSub, reaction && all, enabled = all) { st.setReaction(it) }
                 CardDivider()
                 ToggleRow(NexIcons.Mail, S.chatNotifAnnounce, S.chatNotifAnnounceSub, announce && all, enabled = all) { st.setAnnounce(it) }
+                CardDivider()
+                ToggleRow(NexIcons.Group, S.notifFollowSetting, S.notifFollowSettingSub, follow && all, enabled = all) { st.setFollow(it) }
             }
             Row(
                 Modifier.fillMaxWidth().padding(top = 10.dp).clip(RoundedCornerShape(14.dp)).background(colors.card.copy(alpha = 0.6f)).padding(12.dp),
