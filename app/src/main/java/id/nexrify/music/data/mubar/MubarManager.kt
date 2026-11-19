@@ -52,7 +52,10 @@ data class MubarMsg(
     val deleted: Boolean,
     val reply: MubarReply?,
     /** emoji → daftar uid yang bereaksi */
-    val reactions: Map<String, List<String>>
+    val reactions: Map<String, List<String>>,
+    /** Pesan sistem: join, left, pass, stop, kick, pick. Kosong = pesan biasa. */
+    val system: String = "",
+    val target: String = ""
 )
 
 data class MubarInvite(val code: String, val host: String, val display: String, val ts: Long)
@@ -224,7 +227,7 @@ class MubarManager private constructor() {
             seq = o.optLong("seq"), uid = o.optString("uid"), username = o.optString("username"), display = o.optString("display"),
             av = o.optString("av"), text = o.optString("text"), ts = o.optLong("ts"), deleted = o.optBoolean("deleted"),
             reply = rj?.let { MubarReply(it.optLong("seq"), it.optString("username"), it.optString("text"), it.optBoolean("deleted")) },
-            reactions = reactions
+            reactions = reactions, system = o.optString("system"), target = o.optString("target")
         )
     }
 
