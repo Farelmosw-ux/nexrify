@@ -21,6 +21,16 @@ data class ResolvedStream(
     val mimeType: String? = null
 )
 
+/** Hasil pencarian yang sudah diurutkan: [primary] satu versi terbaik per lagu, [others] versi lain dengan judul yang sama. */
+data class RankedSearch(val primary: List<Track>, val others: List<Track>) {
+    val all: List<Track> get() = primary + others
+}
+
+/** Satu hasil mentah YouTube Music beserta sinyal popularitasnya. */
+private data class YtmItem(val track: Track, val views: Long, val topic: Boolean, val top: Boolean = false)
+
+private class Cand(val track: Track, val src: Int, val pos: Int, val views: Long, val topic: Boolean) { var score = 0.0 }
+
 class MusicRepository {
 
     private val service = ServiceList.YouTube
@@ -157,8 +167,8 @@ class MusicRepository {
         // 1. YouTube Music: Lagu DAN Video dicari bersamaan. Dulu hanya filter Lagu, jadi lagu yang
         //    di YouTube Music cuma ada sebagai video (atau versi cover/remix/upload) tidak pernah muncul.
         val (songs, videos) = coroutineScope {
-            val s = async { searchYouTubeMusic(query, YTM_FILTER_SONGS) }
-            val v = async { searchYouTubeMusic(query, YTM_FILTER_VIDEOS) }
+            val s = async { searchYouTubeMusic(query, YTM_FILTER_SONGS).map { it.track } }
+            val v = async { searchYouTubeMusic(query, YTM_FILTER_VIDEOS).map { it.track } }
             s.await() to v.await()
         }
         val merged = mergeSearchResults(songs, videos)
@@ -174,6 +184,111 @@ class MusicRepository {
             synchronized(searchCache) { searchCache.put(q, Pair(combined, now)) }
         }
         combined
+    }
+
+    private val rankedCache = LruCache<String, Pair<RankedSearch, Long>>(30)
+
+    /**
+     * Pencarian untuk layar cari: hasil diurutkan menurut kemungkinan itulah lagu yang dimaksud, lalu versi lain dengan judul sama
+     * (artis berbeda, cover, remix) dipisah ke [RankedSearch.others] supaya daftar utama tidak menumpuk.
+     * Sinyal yang dipakai: hasil teratas YouTube Music, urutan hasil Lagu/Video, jumlah tayangan, kecocokan artis/judul dengan
+     * kata kunci, dan penalti untuk cover/remix/slowed/dll kalau kata kunci tidak memintanya.
+     */
+    suspend fun searchTracksRanked(query: String, forceRefresh: Boolean = false): RankedSearch = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext RankedSearch(emptyList(), emptyList())
+        val q = query.trim().lowercase()
+        val now = System.currentTimeMillis()
+        if (!forceRefresh) synchronized(rankedCache) {
+            rankedCache.get(q)?.let { (c, t) -> if (now - t < SEARCH_CACHE_TTL) return@withContext c }
+        }
+        val (songs, videos, top) = coroutineScope {
+            val s = async { searchYouTubeMusic(query, YTM_FILTER_SONGS) }
+            val v = async { searchYouTubeMusic(query, YTM_FILTER_VIDEOS) }
+            val t = async { searchYouTubeMusic(query, "").filter { it.top } }
+            Triple(s.await(), v.await(), t.await())
+        }
+        val cands = ArrayList<Cand>()
+        top.firstOrNull()?.let { cands.add(Cand(it.track, 0, 0, it.views, it.topic)) }
+        songs.forEachIndexed { i, it -> cands.add(Cand(it.track, 1, i, it.views, it.topic)) }
+        videos.forEachIndexed { i, it -> cands.add(Cand(it.track, 2, i, it.views, it.topic)) }
+        if (cands.size < MIN_YTM_RESULTS) searchWithNewPipe(query).forEach { cands.add(Cand(it, 3, 0, 0L, false)) }
+        val ranked = rankCandidates(query, cands)
+        if (ranked.primary.isNotEmpty()) synchronized(rankedCache) { rankedCache.put(q, Pair(ranked, now)) }
+        ranked
+    }
+
+    private fun norm(s: String): String =
+        s.lowercase().replace(Regex("[^\\p{L}\\p{N} ]"), " ").replace(Regex("\\s+"), " ").trim()
+
+    /** Judul tanpa (feat. ...), [..], dan akhiran " - ...", dipakai untuk menggabungkan versi lagu yang sama. */
+    private fun titleBase(title: String): String =
+        norm(title.replace(Regex("[\\(\\[].*?[\\)\\]]"), " ").replace(Regex("\\s[-–—]\\s.*$"), ""))
+
+    private val NOISE = listOf(
+        "cover", "remix", "slowed", "sped up", "speed up", "reverb", "nightcore", "karaoke", "instrumental", "lofi", "lo-fi", "8d",
+        "tribute", "mashup", "made famous", "originally performed", "bass boosted", "tiktok", "live", "acoustic", "piano version",
+        "remake", "re-edit", "reaction", "dj", "versi", "type beat", "backing track", "minus one", "ringtone", "mix"
+    ).map { it to Regex("\\b" + Regex.escape(it) + "\\b", RegexOption.IGNORE_CASE) }
+
+    private fun rankCandidates(query: String, cands: List<Cand>): RankedSearch {
+        val nq = norm(query)
+        val videoViews = cands.filter { it.src == 2 && it.views > 0 }
+        for (c in cands) {
+            val t = c.track
+            val nt = titleBase(t.title)
+            val na = norm(t.artist)
+            var sc = when (c.src) {
+                0 -> 400.0
+                1 -> maxOf(20.0, 100.0 - c.pos * 6.0)
+                2 -> maxOf(10.0, 70.0 - c.pos * 5.0)
+                else -> 5.0
+            }
+            // Tayangan: milik sendiri, atau milik video dengan judul dan artis yang sama (lagu YTM tidak menampilkan tayangan).
+            var views = c.views
+            if (views == 0L) videoViews.forEach { v ->
+                val vt = titleBase(v.track.title); val va = norm(v.track.artist)
+                if (vt == nt && (va == na || va.contains(na) || na.contains(va))) views = maxOf(views, v.views)
+            }
+            if (views > 0) sc += Math.log10(views + 1.0) * 14.0
+            if (c.src <= 1) sc += 12.0
+            if (c.topic) sc += 10.0
+            if (na.length >= 3 && nq.contains(na)) sc += 90.0
+            if (nt.isNotEmpty()) {
+                if (nq == nt) sc += 30.0 else if (nq.contains(nt)) sc += 25.0
+            }
+            val hay = (t.title + " " + t.artist)
+            if (NOISE.any { (w, re) -> re.containsMatchIn(hay) && !nq.contains(w) }) sc -= 140.0
+            c.score = sc
+        }
+        // Buang duplikat id dan judul+artis, simpan skor tertinggi.
+        val byId = LinkedHashMap<String, Cand>()
+        for (c in cands) { if (c.track.id.isBlank()) continue; val o = byId[c.track.id]; if (o == null || c.score > o.score) byId[c.track.id] = c }
+        val byKey = LinkedHashMap<String, Cand>()
+        for (c in byId.values) { val k = trackKey(c.track); val o = byKey[k]; if (o == null || c.score > o.score) byKey[k] = c }
+        val groups = byKey.values.groupBy { titleBase(it.track.title).ifBlank { it.track.id } }
+            .values.map { g -> g.sortedByDescending { it.score } }
+            .sortedByDescending { it.first().score }
+        val primary = groups.map { it.first().track }
+        val others = groups.flatMap { it.drop(1) }.map { it.track }
+        return RankedSearch(primary, others)
+    }
+
+    /** "1,2 jt x ditonton" / "54M views" jadi angka. "M" = miliar di bahasa Indonesia, juta di Inggris. */
+    private fun parseViews(text: String): Long {
+        val m = Regex("([\\d.,]+)\\s*(rb|jt|k|m|b)?\\s*(x\\s*ditonton|tayangan|views?|kali)", RegexOption.IGNORE_CASE).find(text) ?: return 0L
+        val id = text.contains("ditonton", true) || text.contains("tayangan", true)
+        val raw = m.groupValues[1].let { n ->
+            // Format Indonesia memakai koma desimal ("1,2 jt"), Inggris titik ("1.2M").
+            if (id) n.replace(".", "").replace(",", ".") else n.replace(",", "")
+        }.toDoubleOrNull() ?: return 0L
+        val mult = when (m.groupValues[2].lowercase()) {
+            "k", "rb" -> 1_000.0
+            "jt" -> 1_000_000.0
+            "m" -> if (id) 1_000_000_000.0 else 1_000_000.0
+            "b" -> 1_000_000_000.0
+            else -> 1.0
+        }
+        return (raw * mult).toLong()
     }
 
     private fun trackKey(t: Track): String =
@@ -225,7 +340,7 @@ class MusicRepository {
         }
     }
 
-    private fun searchYouTubeMusic(query: String, params: String): List<Track> {
+    private fun searchYouTubeMusic(query: String, params: String): List<YtmItem> {
         return try {
             val auth = id.nexrify.music.data.auth.AuthManager.getInstance()
             val origin = "https://music.youtube.com"
@@ -242,7 +357,7 @@ class MusicRepository {
                     })
                 })
                 put("query", query)
-                put("params", params)
+                if (params.isNotEmpty()) put("params", params)
             }
 
             val client = HttpClientProvider.client
@@ -290,8 +405,31 @@ class MusicRepository {
         return "Unknown Artist"
     }
 
-    private fun parseYtmSearchTracks(root: org.json.JSONObject): List<Track> {
-        val list = mutableListOf<Track>()
+    /** Kartu "Hasil teratas" YouTube Music (hanya kalau berupa lagu/video yang bisa diputar). */
+    private fun parseTopCard(card: org.json.JSONObject): YtmItem? {
+        val t0 = card.optJSONObject("title")?.optJSONArray("runs")?.optJSONObject(0) ?: return null
+        val videoId = t0.optJSONObject("navigationEndpoint")?.optJSONObject("watchEndpoint")?.optString("videoId", "").orEmpty()
+        if (videoId.isBlank()) return null
+        val runs = card.optJSONObject("subtitle")?.optJSONArray("runs")
+        val rawArtist = pickArtist(runs)
+        var dur = 0L
+        var views = 0L
+        if (runs != null) for (i in 0 until runs.length()) {
+            val tx = runs.optJSONObject(i)?.optString("text", "").orEmpty()
+            if (i == runs.length() - 1) dur = parseDurationToSeconds(tx)
+            views = maxOf(views, parseViews(tx))
+        }
+        val thumbs = card.optJSONObject("thumbnail")?.optJSONObject("musicThumbnailRenderer")?.optJSONObject("thumbnail")?.optJSONArray("thumbnails")
+        val thumb = if (thumbs != null && thumbs.length() > 0) thumbs.optJSONObject(thumbs.length() - 1)?.optString("url", "").orEmpty() else ""
+        return YtmItem(
+            Track(id = videoId, url = "https://www.youtube.com/watch?v=$videoId", title = cleanTrackTitle(t0.optString("text", "")),
+                artist = rawArtist.replace(" - Topic", ""), thumbnailUrl = upgradeThumbnailUrl(thumb), durationSeconds = dur),
+            views, rawArtist.endsWith(" - Topic"), top = true
+        )
+    }
+
+    private fun parseYtmSearchTracks(root: org.json.JSONObject): List<YtmItem> {
+        val list = mutableListOf<YtmItem>()
         try {
             val tabs = root.optJSONObject("contents")
                 ?.optJSONObject("tabbedSearchResultsRenderer")
@@ -303,6 +441,8 @@ class MusicRepository {
                 ?.optJSONArray("contents") ?: return emptyList()
 
             for (s in 0 until sections.length()) {
+                val card = sections.optJSONObject(s)?.optJSONObject("musicCardShelfRenderer")
+                if (card != null) { parseTopCard(card)?.let { list.add(it) }; continue }
                 val shelf = sections.optJSONObject(s)?.optJSONObject("musicShelfRenderer") ?: continue
                 val items = shelf.optJSONArray("contents") ?: continue
                 for (i in 0 until items.length()) {
@@ -326,6 +466,8 @@ class MusicRepository {
                         ?.optJSONObject("musicResponsiveListItemFlexColumnRenderer")
                         ?.optJSONObject("text")?.optJSONArray("runs")
                     val artist = pickArtist(col1Runs)
+                    var views = 0L
+                    if (col1Runs != null) for (k in 0 until col1Runs.length()) views = maxOf(views, parseViews(col1Runs.optJSONObject(k)?.optString("text", "").orEmpty()))
 
                     var durationSec = 0L
                     if (col1Runs != null && col1Runs.length() > 0) {
@@ -342,13 +484,16 @@ class MusicRepository {
                     }
 
                     list.add(
-                        Track(
-                            id = videoId,
-                            url = "https://www.youtube.com/watch?v=$videoId",
-                            title = cleanTrackTitle(title),
-                            artist = artist.replace(" - Topic", ""),
-                            thumbnailUrl = upgradeThumbnailUrl(thumbUrl),
-                            durationSeconds = durationSec
+                        YtmItem(
+                            Track(
+                                id = videoId,
+                                url = "https://www.youtube.com/watch?v=$videoId",
+                                title = cleanTrackTitle(title),
+                                artist = artist.replace(" - Topic", ""),
+                                thumbnailUrl = upgradeThumbnailUrl(thumbUrl),
+                                durationSeconds = durationSec
+                            ),
+                            views, artist.endsWith(" - Topic")
                         )
                     )
                 }
