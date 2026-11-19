@@ -450,6 +450,30 @@ class ChatManager private constructor(private val context: Context) {
         return p
     }
 
+    /* ================= sosial: ikuti, teman, background profil ================= */
+
+    private suspend fun socialPost(body: JSONObject): ChatProfile {
+        val t = needToken()
+        val r = ChatApi.post(t, body)
+        val p = ChatApi.parseProfile(r.getJSONObject("profile"))
+        if (p.uid == _me.value?.uid) _me.value = p
+        return p
+    }
+
+    /** Ikuti pengguna. Melempar AccountError (code: blocked, rate_limited, not_found, self). Mengembalikan profil target terbaru. */
+    suspend fun follow(username: String): ChatProfile = socialPost(JSONObject().put("action", "follow").put("username", username))
+
+    suspend fun unfollow(username: String): ChatProfile = socialPost(JSONObject().put("action", "unfollow").put("username", username))
+
+    suspend fun setCover(dataUrl: String): ChatProfile = socialPost(JSONObject().put("action", "cover_set").put("image", dataUrl))
+
+    suspend fun clearCover(): ChatProfile = socialPost(JSONObject().put("action", "cover_clear"))
+
+    suspend fun followPage(username: String, kind: String, cursor: Int): FollowPage? {
+        val t = token() ?: return null
+        return try { ChatApi.follows(t, username, kind, cursor) } catch (e: CancellationException) { throw e } catch (e: Throwable) { null }
+    }
+
     /** Dipakai untuk menyarankan @mention: pengguna yang baru bicara di chat, terbaru dulu. */
     fun recentParticipants(limit: Int = 30): List<ChatUserHit> =
         server.value.values.sortedByDescending { it.seq }
