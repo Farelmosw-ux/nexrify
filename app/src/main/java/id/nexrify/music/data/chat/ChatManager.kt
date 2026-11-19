@@ -33,6 +33,10 @@ object ChatNav {
     val request = MutableStateFlow<Long?>(null)
     /** Buka DM dari notifikasi: username lawan bicara, atau string kosong untuk daftar pesan. */
     val dmRequest = MutableStateFlow<String?>(null)
+    /** Buka profil seseorang di Global Chat (dari notifikasi pengikut baru). */
+    val profileRequest = MutableStateFlow<String?>(null)
+    /** Buka pusat notifikasi (dari notifikasi gabungan). */
+    val notifCenterRequest = MutableStateFlow(false)
 }
 
 /**
@@ -629,6 +633,8 @@ class ChatManager private constructor(private val context: Context) {
         val openDm = dms.openUsername()
         val relevant = items.filter { (it.from.lowercase() !in muted && it.from.lowercase() !in settings.blocked.value && !it.from.equals(me, true)) || it.kind == "a" || it.kind == "w" }
         _mentionUnread.update { it + relevant.count { n -> n.kind == "m" || n.kind == "r" } }
+        // Riwayat untuk pusat notifikasi (DM belum punya layar, jadi tidak dicatat).
+        runCatching { id.nexrify.music.data.notif.NotifCenter.getInstance().add(relevant.filter { it.kind != "d" }) }
         dms.refreshInbox()
         if (!settings.notifAll.value) return
         val allowed = relevant.filter {
@@ -638,6 +644,7 @@ class ChatManager private constructor(private val context: Context) {
                 "x" -> settings.notifReaction.value && !isActive
                 "a" -> settings.notifAnnounce.value && !isActive
                 "d" -> settings.notifDm.value && !it.from.equals(openDm, true)
+                "f", "F" -> settings.notifFollow.value
                 "w" -> true
                 else -> false
             }
