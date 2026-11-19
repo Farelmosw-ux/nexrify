@@ -161,6 +161,8 @@ fun ChatAvatar(uid: String, av: String, name: String, size: androidx.compose.ui.
 
 @Composable
 fun BadgeChip(code: String) {
+    // Lencana OG ("early") sudah dihapus dari seluruh tampilan.
+    if (code == "early") return
     if (isGlintRole(code)) {
         RoleBadge(code, compact = true)
         return
@@ -401,6 +403,8 @@ fun ChatBubble(
                     Text(S.chatDeletedMsg, fontSize = 13.sp, fontStyle = FontStyle.Italic, color = colors.textMuted)
                 } else if (msg.poll != null) {
                     PollCard(msg, extras.myVote, extras.onVote, mine)
+                } else if (msg.voice != null) {
+                    VoiceBubble(msg.voice, mine)
                 } else {
                     Text(
                         text = chatAnnotated(msg.text, myUsername, if (mine) textColor else colors.textPrimary, colors.textPrimary.copy(alpha = 0.18f)),
