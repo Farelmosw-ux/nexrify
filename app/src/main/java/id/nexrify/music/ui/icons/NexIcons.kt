@@ -47,6 +47,11 @@ object NexIcons {
     private const val HEART =
         "M12 20 C5 15.5 3 12 3 8.8 C3 6.2 5 4.5 7.3 4.5 C9.3 4.5 11 5.6 12 7.2 C13 5.6 14.7 4.5 16.7 4.5 C19 4.5 21 6.2 21 8.8 C21 12 19 15.5 12 20 Z"
 
+    val Mic by lazy {
+        icon("Mic", "M12 3 A3 3 0 0 1 15 6 V12 A3 3 0 0 1 9 12 V6 A3 3 0 0 1 12 3 Z", "M5.5 11 C5.5 14.6 8.4 17.5 12 17.5 C15.6 17.5 18.5 14.6 18.5 11", "M12 17.5 V21")
+    }
+    val Pause by lazy { icon("Pause", "M8.5 5.5 V18.5", "M15.5 5.5 V18.5", strokeWidth = 2.6f) }
+
     val Home by lazy {
         icon(
             "Home",
