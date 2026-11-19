@@ -156,6 +156,7 @@ fun MubarHost(viewModel: MusicViewModel) {
                 when (why) {
                     "host_left", "host_gone" -> st.mubarEndedHost
                     "timeout" -> st.mubarEndedTimeout
+                    "kicked" -> st.mubarEndedKicked
                     else -> st.mubarEndedGeneric
                 },
                 st.mubarTitle
@@ -171,6 +172,14 @@ fun MubarHost(viewModel: MusicViewModel) {
         val t = r.track ?: return@LaunchedEffect
         val elapsed = (mgr.serverNowMs() - r.startedAt).coerceAtLeast(0L)
         if (elapsed < t.durationSec * 1000L) viewModel.playTrack(t.toTrack(), startPositionMs = elapsed)
+    }
+
+    // Pemegang giliran menghentikan lagu: semua anggota ikut berhenti (kontrol tetap terkunci selama di ruangan).
+    var hadTrack by remember { mutableStateOf(false) }
+    LaunchedEffect(trackId, room != null) {
+        if (trackId != null) hadTrack = true
+        else if (hadTrack && room != null) { hadTrack = false; viewModel.mubarPause() }
+        if (room == null) hadTrack = false
     }
 
     // Koreksi selisih posisi tiap beberapa detik (jaringan lambat, buffering, jeda sendiri lalu lanjut).
@@ -198,6 +207,8 @@ fun MubarHost(viewModel: MusicViewModel) {
                 "joined" -> NexNotifier.success(st.mubarMemberJoined(e.display), st.mubarTitle)
                 "declined" -> NexNotifier.warning(st.mubarMemberDeclined(e.display), st.mubarTitle)
                 "left" -> NexNotifier.info(st.mubarMemberLeft(e.display), st.mubarTitle)
+                "passed" -> NexNotifier.info(st.mubarPassed(e.display), st.mubarTitle)
+                "passed_me" -> NexNotifier.success(st.mubarPassedToYou(""), st.mubarTitle)
             }
         }
     }
@@ -430,6 +441,9 @@ fun MubarSheet(viewModel: MusicViewModel, onDismiss: () -> Unit) {
     var showInvite by remember { mutableStateOf(false) }
     var confirmLeave by remember { mutableStateOf(false) }
     var profileUser by remember { mutableStateOf<String?>(null) }
+    var memberMenu by remember { mutableStateOf<MubarMember?>(null) }
+    var showPass by remember { mutableStateOf(false) }
+    var kickTarget by remember { mutableStateOf<MubarMember?>(null) }
     var input by remember { mutableStateOf("") }
     var replyTo by remember { mutableStateOf<MubarMsg?>(null) }
     var menuMsg by remember { mutableStateOf<MubarMsg?>(null) }
@@ -476,15 +490,24 @@ fun MubarSheet(viewModel: MusicViewModel, onDismiss: () -> Unit) {
         val nextMember = r.members.getOrNull((r.members.indexOfFirst { it.uid == r.turnUid } + 1) % r.members.size.coerceAtLeast(1))
         val track = r.track
         val elapsed = if (track != null) (nowMs - r.startedAt).coerceAtLeast(0L) else 0L
-        val canChange = myTurn && (track == null || elapsed < r.lockMs)
-        val secLeft = if (track != null) ((r.lockMs - elapsed) / 1000L).toInt().coerceAtLeast(0) else 0
+        // Jendela ganti lagu dihitung dari yang terbaru: lagu mulai atau giliran dioper.
+        val sinceTurn = if (track != null) (nowMs - maxOf(r.startedAt, r.turnAt)).coerceAtLeast(0L) else 0L
+        val canChange = myTurn && (track == null || sinceTurn < r.lockMs)
+        val secLeft = if (track != null) ((r.lockMs - sinceTurn) / 1000L).toInt().coerceAtLeast(0) else 0
+        val others = r.members.filter { it.uid != myUid }
+        val roomClipboard = clipboard
 
         Column(Modifier.fillMaxWidth().fillMaxHeight(0.95f).imePadding().padding(horizontal = 16.dp)) {
             // Kepala
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(S.mubarTitle, style = Typography.titleLarge.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary)
-                    Text("${S.mubarRoomCode} ${r.code}", fontSize = 11.sp, color = colors.textMuted)
+                    Text(
+                        "${S.mubarRoomCode} ${r.code}  ·  ${S.mubarCopyCode}", fontSize = 11.sp, color = colors.textMuted,
+                        modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable {
+                            roomClipboard.setText(AnnotatedString(r.code)); NexNotifier.success(currentStrings().mubarCodeCopied, currentStrings().mubarTitle)
+                        }
+                    )
                 }
                 Text(
                     if (isHost) S.mubarDisband else S.mubarLeave,
@@ -498,7 +521,7 @@ fun MubarSheet(viewModel: MusicViewModel, onDismiss: () -> Unit) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 for (i in 0 until r.maxMembers) {
                     val m = r.members.getOrNull(i)
-                    if (m != null) MemberSlot(Modifier.weight(1f), i + 1, m, profiles[m.username], isTurn = m.uid == r.turnUid, isHost = m.uid == r.hostUid, isMe = m.uid == myUid) { profileUser = m.username }
+                    if (m != null) MemberSlot(Modifier.weight(1f), i + 1, m, profiles[m.username], isTurn = m.uid == r.turnUid, isHost = m.uid == r.hostUid, isMe = m.uid == myUid) { memberMenu = m }
                     else EmptySlot(Modifier.weight(1f), i + 1, canInvite = isHost) { if (isHost) showInvite = true }
                 }
             }
@@ -534,7 +557,7 @@ fun MubarSheet(viewModel: MusicViewModel, onDismiss: () -> Unit) {
                                 myTurn && track == null -> S.mubarYourTurn
                                 myTurn && canChange -> S.mubarLockedIn(secLeft)
                                 myTurn -> S.mubarLocked
-                                track != null && elapsed >= r.lockMs -> S.mubarLocked
+                                track != null && sinceTurn >= r.lockMs -> S.mubarLocked
                                 else -> S.mubarTurnOf(turnMember?.username.orEmpty())
                             },
                             fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, color = colors.textSecondary
@@ -549,6 +572,20 @@ fun MubarSheet(viewModel: MusicViewModel, onDismiss: () -> Unit) {
                             contentAlignment = Alignment.Center
                         ) {
                             Text(if (track == null) S.mubarPickSong else S.mubarChangeSong(secLeft), color = colors.background, fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
+                        }
+                    }
+                }
+            }
+            if (myTurn && (others.isNotEmpty() || track != null)) {
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    if (others.isNotEmpty()) TurnAction(Modifier.weight(1f), S.mubarPass, danger = false) { showPass = true }
+                    if (track != null) TurnAction(Modifier.weight(1f), S.mubarStopSong, danger = true) {
+                        scope.launch {
+                            try { mgr.stopSong(); NexNotifier.info(currentStrings().mubarStopped, currentStrings().mubarTitle) }
+                            catch (e: CancellationException) { throw e }
+                            catch (e: AccountError) { val st = currentStrings(); NexNotifier.warning(if (e.code == "not_your_turn") st.mubarNotYourTurn else st.mubarStopFail, st.mubarTitle) }
+                            catch (_: Throwable) { NexNotifier.error(currentStrings().mubarStopFail, currentStrings().mubarTitle) }
                         }
                     }
                 }
@@ -600,6 +637,14 @@ fun MubarSheet(viewModel: MusicViewModel, onDismiss: () -> Unit) {
                     Icon(NexIcons.Close, null, tint = colors.textMuted, modifier = Modifier.size(18.dp).clickable { replyTo = null })
                 }
             }
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("🔥", "😂", "❤️", "👏", "🎵", "😭").forEach { e ->
+                    Box(
+                        Modifier.clip(CircleShape).background(colors.card).border(1.dp, colors.border, CircleShape)
+                            .clickable { scope.launch { runCatching { mgr.send(e, null) } } }.padding(horizontal = 12.dp, vertical = 5.dp)
+                    ) { Text(e, fontSize = 15.sp) }
+                }
+            }
             Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Row(
                     Modifier.weight(1f).clip(RoundedCornerShape(22.dp)).background(colors.card).border(1.dp, colors.border, RoundedCornerShape(22.dp)).padding(horizontal = 16.dp, vertical = 11.dp),
@@ -649,6 +694,38 @@ fun MubarSheet(viewModel: MusicViewModel, onDismiss: () -> Unit) {
                 }
             }
         )
+        memberMenu?.let { mm ->
+            val name = mm.display.ifBlank { mm.username }
+            MubarMenuDialog(
+                title = name, subtitle = "@${mm.username}",
+                items = buildList {
+                    add(MenuItem(S.mubarViewProfile, false) { memberMenu = null; profileUser = mm.username })
+                    if (myTurn && mm.uid != myUid) add(MenuItem(S.mubarPass, false) { memberMenu = null; doPass(scope, mgr, mm) })
+                    if (isHost && mm.uid != myUid) add(MenuItem(S.mubarKick, true) { memberMenu = null; kickTarget = mm })
+                },
+                onDismiss = { memberMenu = null }
+            )
+        }
+        if (showPass) MubarMenuDialog(
+            title = S.mubarPassTitle, subtitle = S.mubarPassSub,
+            items = others.map { m -> MenuItem(m.display.ifBlank { m.username } + "  @" + m.username, false) { showPass = false; doPass(scope, mgr, m) } },
+            onDismiss = { showPass = false }
+        )
+        kickTarget?.let { kt ->
+            val kn = kt.display.ifBlank { kt.username }
+            MubarMenuDialog(
+                title = S.mubarKickConfirm(kn), subtitle = null,
+                items = listOf(MenuItem(S.mubarKick, true) {
+                    kickTarget = null
+                    scope.launch {
+                        try { mgr.kick(kt.uid); NexNotifier.info(currentStrings().mubarKicked(kn), currentStrings().mubarTitle) }
+                        catch (e: CancellationException) { throw e }
+                        catch (_: Throwable) { NexNotifier.error(currentStrings().mubarKickFail, currentStrings().mubarTitle) }
+                    }
+                }),
+                onDismiss = { kickTarget = null }
+            )
+        }
         if (showInvite) MubarInviteSheet(memberNames = r.members.map { it.username }.toSet(), onDismiss = { showInvite = false })
         menuMsg?.let { mm ->
             ChatMessageMenu(
@@ -681,6 +758,54 @@ fun MubarSheet(viewModel: MusicViewModel, onDismiss: () -> Unit) {
                 onConfirm = { confirmLeave = false; scope.launch { runCatching { mgr.leave() } } },
                 onDismiss = { confirmLeave = false }
             )
+        }
+    }
+}
+
+private class MenuItem(val label: String, val danger: Boolean, val onClick: () -> Unit)
+
+private fun doPass(scope: kotlinx.coroutines.CoroutineScope, mgr: MubarManager, m: MubarMember) {
+    scope.launch {
+        val st = currentStrings()
+        try { mgr.pass(m.uid); NexNotifier.success(st.mubarPassed(m.display.ifBlank { m.username }), st.mubarTitle) }
+        catch (e: CancellationException) { throw e }
+        catch (e: AccountError) { NexNotifier.warning(if (e.code == "not_your_turn") st.mubarNotYourTurn else st.mubarPassFail, st.mubarTitle) }
+        catch (_: Throwable) { NexNotifier.error(st.mubarPassFail, st.mubarTitle) }
+    }
+}
+
+@Composable
+private fun TurnAction(modifier: Modifier, label: String, danger: Boolean, onClick: () -> Unit) {
+    val colors = NexrifyAppTheme.colors
+    val shape = RoundedCornerShape(14.dp)
+    Box(
+        modifier.height(40.dp).clip(shape).background(if (danger) DANGER.copy(alpha = 0.12f) else colors.card)
+            .border(1.dp, if (danger) DANGER.copy(alpha = 0.45f) else colors.border, shape).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) { Text(label, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = if (danger) DANGER else colors.textPrimary) }
+}
+
+@Composable
+private fun MubarMenuDialog(title: String, subtitle: String?, items: List<MenuItem>, onDismiss: () -> Unit) {
+    val colors = NexrifyAppTheme.colors
+    val shape = RoundedCornerShape(24.dp)
+    Dialog(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().clip(shape).background(colors.surface).border(1.dp, colors.border, shape).padding(18.dp)) {
+            Text(title, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = colors.textPrimary)
+            if (subtitle != null) Text(subtitle, fontSize = 12.sp, color = colors.textMuted, modifier = Modifier.padding(top = 2.dp))
+            Spacer(Modifier.height(12.dp))
+            items.forEach { it ->
+                Box(
+                    Modifier.fillMaxWidth().padding(bottom = 6.dp).height(46.dp).clip(RoundedCornerShape(14.dp))
+                        .background(if (it.danger) DANGER.copy(alpha = 0.12f) else colors.card)
+                        .clickable(onClick = it.onClick).padding(horizontal = 14.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) { Text(it.label, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = if (it.danger) DANGER else colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            }
+            Box(
+                Modifier.fillMaxWidth().height(42.dp).clip(RoundedCornerShape(14.dp)).clickable(onClick = onDismiss),
+                contentAlignment = Alignment.Center
+            ) { Text(S.mubarCancel, fontSize = 13.sp, color = colors.textSecondary, fontWeight = FontWeight.SemiBold) }
         }
     }
 }
