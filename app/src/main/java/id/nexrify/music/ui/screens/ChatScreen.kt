@@ -443,6 +443,7 @@ fun ChatScreen(viewModel: MusicViewModel, highlightSeq: Long, onBack: () -> Unit
                                     onReactionClick = { manager.react(m.seq, it) },
                                     onRetry = { m.localId?.let { id -> manager.retry(id) } },
                                     replyFullText = m.reply?.let { rr -> msgBySeq[rr.seq]?.takeIf { x -> !x.deleted }?.text },
+                                        replyDeleted = m.reply?.let { rr -> msgBySeq[rr.seq]?.deleted == true } == true,
                                     onSwipeReply = {
                                         if (editing != null) input = TextFieldValue("")
                                         editing = null
