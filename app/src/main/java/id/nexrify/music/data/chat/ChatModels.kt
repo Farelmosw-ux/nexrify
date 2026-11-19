@@ -24,8 +24,13 @@ data class ChatMessage(
     /** Hanya untuk pesan yang belum terkirim (seq negatif). */
     val localId: String? = null,
     val pinned: Boolean = false,
-    val poll: ChatPoll? = null
+    val poll: ChatPoll? = null,
+    /** Pesan suara (hanya Dev, Admin, Staf yang bisa mengirim). */
+    val voice: ChatVoice? = null
 )
+
+/** wave = deretan digit 0-9, tinggi tiap batang gelombang. */
+data class ChatVoice(val id: String, val durMs: Long, val wave: String)
 
 data class ChatPollOption(val text: String, val votes: Int)
 
