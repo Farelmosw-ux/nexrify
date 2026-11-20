@@ -51,6 +51,7 @@ import java.text.DateFormat
 import java.util.Date
 
 private fun ago(ts: Long): String {
+    val S = id.nexrify.music.i18n.currentStrings()
     val d = (System.currentTimeMillis() - ts) / 1000L
     val en = S.english
     return when {
@@ -62,7 +63,7 @@ private fun ago(ts: Long): String {
     }
 }
 
-private fun titleOf(n: NotifItem): String = when (n.kind) {
+private fun titleOf(n: NotifItem): String = id.nexrify.music.i18n.currentStrings().let { S -> when (n.kind) {
     "f" -> S.notifFollowTitle(n.display)
     "F" -> S.notifFriendTitle(n.display)
     "m" -> S.notifItemMention(n.from)
@@ -71,7 +72,7 @@ private fun titleOf(n: NotifItem): String = when (n.kind) {
     "d" -> S.notifItemDm(n.from)
     "w" -> S.notifItemWarn
     else -> S.notifItemAnnounce
-}
+} }
 
 /** Pusat notifikasi: pengikut baru, teman, mention, balasan, reaksi, pengumuman, dan peringatan. */
 @Composable
