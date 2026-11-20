@@ -273,21 +273,21 @@ fun TitlePickerSheet(profile: ChatProfile, onDismiss: () -> Unit, onSaved: (Chat
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         dragHandle = { TitleSheetHandle() }
     ) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
-            Text(S.titleSelect, style = Typography.titleLarge.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary)
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp).padding(bottom = 20.dp)) {
+            Text(S.titleSelect, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
+            Spacer(Modifier.height(2.dp))
+            Text(S.titlePickerSub, fontSize = 11.5.sp, color = colors.textMuted, lineHeight = 15.sp)
             Spacer(Modifier.height(4.dp))
-            Text(S.titlePickerSub, style = Typography.bodySmall, color = colors.textMuted)
-            Spacer(Modifier.height(6.dp))
-            Text(S.titleSelectedCount(selected.size, max), fontSize = 12.sp, color = colors.textSecondary, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(12.dp))
+            Text(S.titleSelectedCount(selected.size, max), fontSize = 11.5.sp, color = colors.textSecondary, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(8.dp))
 
             CATALOG.forEach { code ->
                 val owned = profile.titlesOwned.firstOrNull { it.code == code }
                 val on = code in selected
                 val single = code == "marathon" || code == "streak"
-                val shape = RoundedCornerShape(14.dp)
+                val shape = RoundedCornerShape(12.dp)
                 Row(
-                    Modifier.fillMaxWidth().padding(bottom = 6.dp).clip(shape)
+                    Modifier.fillMaxWidth().padding(bottom = 5.dp).clip(shape)
                         .background(if (on) colors.textPrimary.copy(alpha = 0.08f) else colors.card)
                         .border(if (on) 1.5.dp else 1.dp, if (on) colors.textPrimary else colors.border, shape)
                         .clickable(enabled = owned != null) {
@@ -295,7 +295,7 @@ fun TitlePickerSheet(profile: ChatProfile, onDismiss: () -> Unit, onSaved: (Chat
                             else if (selected.size >= max) NexNotifier.warning(currentStrings().titleLimit)
                             else selected.add(code)
                         }
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(Modifier.weight(1f).dimUnlessOwned(owned != null)) {
@@ -303,27 +303,27 @@ fun TitlePickerSheet(profile: ChatProfile, onDismiss: () -> Unit, onSaved: (Chat
                             TitleChip(owned ?: sampleOf(code), compact = true)
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                titleName(code, S), fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary,
+                                titleName(code, S), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false)
                             )
                         }
-                        Spacer(Modifier.height(4.dp))
-                        Text(titleHow(code, S), fontSize = 11.sp, color = colors.textMuted, lineHeight = 15.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Spacer(Modifier.height(2.dp))
+                        Text(titleHow(code, S), fontSize = 10.sp, color = colors.textMuted, lineHeight = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         val note = when {
                             owned == null -> S.titleLocked
                             single -> S.titleOnlyOne
                             else -> null
                         }
-                        if (note != null) Text(note, fontSize = 10.sp, color = colors.textSecondary, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 3.dp))
+                        if (note != null) Text(note, fontSize = 9.5.sp, color = colors.textSecondary, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 2.dp))
                     }
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(8.dp))
                     if (owned != null) {
                         Box(
-                            Modifier.size(22.dp).clip(CircleShape)
+                            Modifier.size(20.dp).clip(CircleShape)
                                 .background(if (on) colors.textPrimary else Color.Transparent)
                                 .border(1.5.dp, if (on) colors.textPrimary else colors.border, CircleShape),
                             contentAlignment = Alignment.Center
-                        ) { if (on) Icon(NexIcons.Check, null, tint = colors.background, modifier = Modifier.size(14.dp)) }
+                        ) { if (on) Icon(NexIcons.Check, null, tint = colors.background, modifier = Modifier.size(12.dp)) }
                     } else if (code == "creator") {
                         Box(
                             Modifier.clip(RoundedCornerShape(10.dp)).border(1.dp, colors.border, RoundedCornerShape(10.dp))
@@ -335,7 +335,7 @@ fun TitlePickerSheet(profile: ChatProfile, onDismiss: () -> Unit, onSaved: (Chat
                 }
             }
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
             TitleButton(S.titleSave, filled = true, busy = busy, modifier = Modifier.fillMaxWidth()) {
                 scope.launch {
                     busy = true
