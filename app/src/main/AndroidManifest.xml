@@ -98,6 +98,21 @@
             android:taskAffinity=""
             android:theme="@style/Theme.Nexrify.Transparent" />
 
+        <!-- Notifikasi push Firebase Cloud Messaging -->
+        <service
+            android:name=".push.NexrifyMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="nexrify_mail_v2" />
+
         <service
             android:name=".service.OfflineDownloadService"
             android:exported="false"
