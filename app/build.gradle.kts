@@ -3,6 +3,7 @@ import java.util.Properties
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -13,7 +14,7 @@ android {
         applicationId = "id.nexrify.music"
         minSdk = 26
         targetSdk = 34
-        versionCode = 41
+        versionCode = 42
         versionName = "4.0.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -118,6 +119,10 @@ dependencies {
 
     // Potong latar foto untuk Poster lagu (model ikut di APK, jalan offline)
     implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta6")
+
+    // Firebase Cloud Messaging: notifikasi push yang muncul di layar kunci walau aplikasi ditutup
+    implementation(platform("com.google.firebase:firebase-bom:33.5.1"))
+    implementation("com.google.firebase:firebase-messaging")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
