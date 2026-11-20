@@ -51,6 +51,26 @@ object ChatNotifier {
         Kind("F", "chat_follow", 4108, "nexrify_social")
     )
 
+    /**
+     * Buat semua saluran notifikasi sejak aplikasi dibuka. Pesan push yang ditampilkan sistem saat aplikasi tertutup
+     * hanya bisa memakai saluran yang sudah ada, jadi saluran tidak boleh baru dibuat saat notifikasi pertama datang.
+     * Saluran surat memakai id baru (v2) dengan prioritas tinggi karena tingkat penting saluran lama tidak bisa diubah.
+     */
+    fun ensureChannels(context: Context) {
+        val s = currentStrings()
+        val system = context.getSystemService(NotificationManager::class.java)
+        fun ch(id: String, name: String, importance: Int) = system.createNotificationChannel(NotificationChannel(id, name, importance))
+        ch("chat_mention", s.chatNotifChannelMention, NotificationManager.IMPORTANCE_HIGH)
+        ch("chat_reply", s.chatNotifChannelReply, NotificationManager.IMPORTANCE_HIGH)
+        ch("chat_reaction", s.chatNotifChannelReaction, NotificationManager.IMPORTANCE_LOW)
+        ch("chat_announce", s.chatNotifChannelAnnounce, NotificationManager.IMPORTANCE_HIGH)
+        ch("chat_dm", s.chatNotifChannelDm, NotificationManager.IMPORTANCE_HIGH)
+        ch("chat_warn", s.chatNotifChannelWarn, NotificationManager.IMPORTANCE_HIGH)
+        ch("chat_follow", s.notifChannelFollow, NotificationManager.IMPORTANCE_HIGH)
+        ch(id.nexrify.music.push.PushNotifier.CH_MAIL, s.mailChannel, NotificationManager.IMPORTANCE_HIGH)
+        ch(id.nexrify.music.push.PushNotifier.CH_MUBAR, s.mubarNotifChannel, NotificationManager.IMPORTANCE_HIGH)
+    }
+
     suspend fun show(context: Context, items: List<ChatNotif>) {
         if (items.isEmpty()) return
         val manager = NotificationManagerCompat.from(context)
