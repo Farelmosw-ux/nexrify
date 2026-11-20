@@ -85,15 +85,18 @@ class MailboxManager private constructor(context: Context) {
             prefs.edit().putStringSet(KEY_NOTIFIED, unread.map { it.id }.toSet()).apply()
             return
         }
-        val fresh = unread.filter { it.id !in notified }
+        val seen = unread.filter { it.id !in notified }
+        if (seen.isEmpty()) return
+        prefs.edit().putStringSet(KEY_NOTIFIED, (notified + seen.map { it.id }).toList().takeLast(500).toSet()).apply()
+        // Surat yang sudah dikirim server sebagai push tidak diberi notifikasi kedua (kalau push aktif di perangkat ini).
+        val fresh = if (id.nexrify.music.push.PushManager.isActive()) seen.filter { !it.pushed } else seen
         if (fresh.isEmpty()) return
-        prefs.edit().putStringSet(KEY_NOTIFIED, (notified + fresh.map { it.id }).toList().takeLast(500).toSet()).apply()
         val strings = id.nexrify.music.i18n.currentStrings()
         val english = strings.english
         val first = fresh.first()
         val manager = androidx.core.app.NotificationManagerCompat.from(context)
         if (!manager.areNotificationsEnabled()) return
-        val channel = android.app.NotificationChannel(CHANNEL_ID, strings.mailChannel, android.app.NotificationManager.IMPORTANCE_DEFAULT)
+        val channel = android.app.NotificationChannel(CHANNEL_ID, strings.mailChannel, android.app.NotificationManager.IMPORTANCE_HIGH)
         context.getSystemService(android.app.NotificationManager::class.java).createNotificationChannel(channel)
         val open = android.app.PendingIntent.getActivity(
             context, 0,
@@ -108,7 +111,7 @@ class MailboxManager private constructor(context: Context) {
             .setStyle(androidx.core.app.NotificationCompat.BigTextStyle().bigText(text))
             .setAutoCancel(true)
             .setContentIntent(open)
-            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
             .build()
         try {
             manager.notify(NOTIFICATION_ID, notification)
@@ -168,7 +171,7 @@ class MailboxManager private constructor(context: Context) {
                 put("id", m.id); put("type", m.type)
                 put("titleId", m.titleId); put("titleEn", m.titleEn)
                 put("bodyId", m.bodyId); put("bodyEn", m.bodyEn)
-                put("link", m.link); put("pinned", m.pinned); put("createdAt", m.createdAt)
+                put("link", m.link); put("pinned", m.pinned); put("createdAt", m.createdAt); put("pushed", m.pushed)
             })
         }
         return arr.toString()
@@ -185,7 +188,8 @@ class MailboxManager private constructor(context: Context) {
                     titleId = o.optString("titleId"), titleEn = o.optString("titleEn"),
                     bodyId = o.optString("bodyId"), bodyEn = o.optString("bodyEn"),
                     link = o.optString("link"), pinned = o.optBoolean("pinned", false),
-                    createdAt = o.optLong("createdAt", 0L)
+                    createdAt = o.optLong("createdAt", 0L),
+                    pushed = o.optBoolean("pushed", false)
                 )
             }
         } catch (_: Exception) {
@@ -198,7 +202,7 @@ class MailboxManager private constructor(context: Context) {
         private const val KEY_READ = "read"
         private const val KEY_HIDDEN = "hidden"
         private const val KEY_NOTIFIED = "notified"
-        private const val CHANNEL_ID = "nexrify_mailbox"
+        private const val CHANNEL_ID = "nexrify_mail_v2"
         private const val NOTIFICATION_ID = 4208
 
         @Volatile
