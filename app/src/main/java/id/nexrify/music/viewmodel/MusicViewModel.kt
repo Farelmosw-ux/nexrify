@@ -878,9 +878,10 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 // Hitung lama mendengarkan nyata (hanya saat lagu benar-benar jalan) untuk streak.
-                val tick = System.currentTimeMillis()
+                // Pakai jam monotonik; batas 10 detik supaya loop yang tertunda di background tidak menghilangkan waktu.
+                val tick = android.os.SystemClock.elapsedRealtime()
                 if (_isPlaying.value && lastStreakTick > 0L) {
-                    streakManager.addListening((tick - lastStreakTick).coerceIn(0L, 1_000L))
+                    streakManager.addListening((tick - lastStreakTick).coerceIn(0L, 10_000L))
                 }
                 lastStreakTick = tick
                 delay(250)
@@ -890,6 +891,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun stopProgressTracking() {
         progressJob?.cancel()
+        lastStreakTick = 0L
     }
 
     fun loadTrending(forceRefresh: Boolean = false) {
@@ -1358,13 +1360,15 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     fun startSleepTimer(minutes: Int) {
         sleepJob?.cancel()
         sleepEndOfTrackId = null
-        var left = minutes * 60
-        _sleepRemainingSec.value = left
+        val endAt = android.os.SystemClock.elapsedRealtime() + minutes * 60_000L
+        _sleepRemainingSec.value = minutes * 60
         sleepJob = viewModelScope.launch {
-            while (left > 0) {
-                kotlinx.coroutines.delay(1000L)
-                left -= 1
-                _sleepRemainingSec.value = left
+            // Hitung dari jam nyata (bukan menjumlah delay) supaya tidak melenceng saat layar mati / Doze.
+            while (true) {
+                val leftMs = endAt - android.os.SystemClock.elapsedRealtime()
+                if (leftMs <= 0L) break
+                _sleepRemainingSec.value = ((leftMs + 999L) / 1000L).toInt()
+                kotlinx.coroutines.delay(minOf(1000L, leftMs))
             }
             finishSleepTimer()
         }
