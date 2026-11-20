@@ -43,7 +43,9 @@ data class MailMessage(
     val bodyEn: String,
     val link: String,
     val pinned: Boolean,
-    val createdAt: Long
+    val createdAt: Long,
+    /** Server sudah mengirim surat ini sebagai notifikasi push, jadi aplikasi tidak perlu membuat notifikasi sendiri. */
+    val pushed: Boolean = false
 ) {
     fun title(english: Boolean) = (if (english) titleEn.ifBlank { titleId } else titleId.ifBlank { titleEn })
     fun body(english: Boolean) = (if (english) bodyEn.ifBlank { bodyId } else bodyId.ifBlank { bodyEn })
@@ -101,7 +103,8 @@ object NexrifyApi {
                         bodyEn = o.optString("bodyEn"),
                         link = o.optString("link"),
                         pinned = o.optBoolean("pinned", false),
-                        createdAt = o.optLong("createdAt", 0L)
+                        createdAt = o.optLong("createdAt", 0L),
+                        pushed = o.optBoolean("pushed", false)
                     )
                 )
             }
