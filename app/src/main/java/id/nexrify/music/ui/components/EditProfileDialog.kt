@@ -100,7 +100,9 @@ fun EditProfileDialog(onDismiss: () -> Unit) {
         }
     }
 
-    NexDialogCard(icon = NexIcons.AccountCircle, title = S.editProfile, onDismiss = onDismiss) {
+    // Dialog disembunyikan selama sheet title / kreator terbuka: dua window bertumpuk membuat sheet tampil di belakang dialog.
+    // State (nama, foto, dll.) tetap aman karena komposabel ini tidak dilepas.
+    if (!showTitles && !showCreator) NexDialogCard(icon = NexIcons.AccountCircle, title = S.editProfile, onDismiss = onDismiss) {
         Column(modifier = Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState())) {
             // Background profil + title
             Text(S.profileBackground, color = colors.textMuted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
