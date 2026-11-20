@@ -71,6 +71,8 @@ class NexrifyApplication : Application(), ImageLoaderFactory, androidx.lifecycle
         NewPipe.init(downloader)
         // Segarkan nama dan foto akun Google/YouTube tiap aplikasi dibuka
         AuthManager.getInstance().refreshProfile()
+        // Push FCM: buat semua saluran notifikasi, daftarkan token perangkat ke akun yang masuk
+        id.nexrify.music.push.PushManager.init(this)
     }
 
     override fun newImageLoader(): ImageLoader {
