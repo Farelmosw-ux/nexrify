@@ -11,6 +11,8 @@ import id.nexrify.music.data.account.AccountSync
 import id.nexrify.music.data.account.AccountManager
 
 import id.nexrify.music.ui.screens.MailboxScreen
+import id.nexrify.music.ui.screens.NotificationScreen
+import id.nexrify.music.data.chat.ChatNav
 
 import id.nexrify.music.ui.components.UpdateDialog
 
@@ -569,9 +571,9 @@ fun MainAppScreen(viewModel: MusicViewModel) {
                         DonateScreen(onBack = { navController.popBackStack() })
                     }
                     composable("notifications") {
-                        id.nexrify.music.ui.screens.NotificationScreen(
+                        NotificationScreen(
                             onBack = { navController.popBackStack() },
-                            onOpenProfile = { name -> id.nexrify.music.data.chat.ChatNav.profileRequest.value = name },
+                            onOpenProfile = { name -> ChatNav.profileRequest.value = name },
                             onOpenChat = { seq -> navController.navigate("chat?seq=$seq") }
                         )
                     }
