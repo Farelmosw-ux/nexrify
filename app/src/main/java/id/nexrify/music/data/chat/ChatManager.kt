@@ -445,6 +445,14 @@ class ChatManager private constructor(private val context: Context) {
         }
     }
 
+    /** Lapor waktu mendengarkan lagu ke server. step: start | tick | stop. Server menghitung selisih waktunya sendiri. */
+    fun listenReport(step: String) {
+        scope.launch {
+            val t = token() ?: return@launch
+            runCatching { ChatApi.post(t, JSONObject().put("action", "listen").put("step", step)) }
+        }
+    }
+
     /** Simpan title yang dipasang (maks 3). Mengembalikan profil terbaru, atau melempar AccountError dari server. */
     suspend fun setTitles(codes: List<String>): ChatProfile {
         val t = needToken()
@@ -649,7 +657,31 @@ class ChatManager private constructor(private val context: Context) {
                 else -> false
             }
         }
+        // Kalau push FCM aktif, notifikasi HP datang dari push (sistem atau layanan pesan). Pengecekan ini cukup mengisi pusat notifikasi.
+        if (id.nexrify.music.push.PushManager.isActive()) return
         ChatNotifier.show(context, allowed)
+    }
+
+    /**
+     * Pesan push FCM diterima saat proses aplikasi hidup. Aturannya sama dengan pengecekan berkala (pengaturan notifikasi,
+     * mute, blokir, chat sedang dibuka). Pusat notifikasi dan lencana diisi pengecekan berkala yang dijalankan sesudahnya.
+     */
+    suspend fun onPush(n: ChatNotif) {
+        if (!settings.notifAll.value) return
+        val from = n.from.lowercase()
+        if (n.kind != "a" && n.kind != "w" && (from in settings.muted.value || from in settings.blocked.value || n.from.equals(myName(), true))) return
+        val allowed = when (n.kind) {
+            "m" -> settings.notifMention.value && !isActive
+            "r" -> settings.notifReply.value && !isActive
+            "x" -> settings.notifReaction.value && !isActive
+            "a" -> settings.notifAnnounce.value && !isActive
+            "d" -> settings.notifDm.value && !n.from.equals(DmManager.getInstance().openUsername(), true)
+            "f", "F" -> settings.notifFollow.value
+            "w" -> true
+            else -> false
+        }
+        if (allowed) ChatNotifier.show(context, listOf(n))
+        scope.launch { runCatching { checkNotifications() } }
     }
 
     companion object {
