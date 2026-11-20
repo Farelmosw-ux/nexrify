@@ -210,6 +210,11 @@ class Strings(val english: Boolean) {
     val actionPlayNext get() = t("Putar next", "Play next")
     val sleepTitle get() = t("Timer tidur", "Sleep timer")
     val sleepSub get() = t("Musik berhenti otomatis setelah waktu yang dipilih", "Music stops automatically after the chosen time")
+    val sleepCustomHint get() = t("Waktu custom (1-720)", "Custom time (1-720)")
+    val sleepMinuteUnit get() = t("menit", "min")
+    val sleepStart get() = t("Mulai", "Start")
+    val mubarBackToRoom get() = t("Kembali ke Musik Bareng", "Back to Listen Together")
+    fun mubarBackSub(n: Int) = t("Kamu masih di ruangan · $n anggota", "You're still in a room · $n members")
     fun sleepMinutes(m: Int) = t("$m menit", "$m minutes")
     val sleepEndOfTrack get() = t("Sampai lagu ini selesai", "Until this song ends")
     val sleepOff get() = t("Matikan timer", "Turn off timer")
@@ -519,6 +524,7 @@ class Strings(val english: Boolean) {
     val youtubeDisconnect get() = t("Putuskan", "Disconnect")
     fun mailboxFailedDetail(detail: String) = t("Detail: $detail", "Details: $detail")
     val mailChannel get() = t("Kotak surat", "Mailbox")
+    val mubarNotifChannel get() = t("Undangan Musik Bareng", "Listen Together invites")
     fun mailNotifMore(n: Int) = t("dan $n surat lainnya", "and $n more messages")
     val confirmYes get() = t("Ya", "Yes")
 
@@ -1141,8 +1147,8 @@ class Strings(val english: Boolean) {
     val titleDonor get() = t("Top Donatur", "Top Donor")
     val titleHowDonor get() = t("Jadi 3 donatur terbesar di Nexrify.", "Be one of the top 3 donors on Nexrify.")
     val titleHowMarathon get() = t(
-        "Hanya 1 orang. Diberikan ke pengguna yang paling lama bertahan di Nexrify tanpa keluar dari aplikasi (minimal 30 menit). Keluar dari aplikasi mengulang hitungan ke 0, dan title pindah kalau ada yang menyalip.",
-        "Only 1 person. Given to whoever has stayed in Nexrify the longest without leaving the app (30 minutes minimum). Leaving the app resets the count to 0, and the title moves if someone overtakes you."
+        "Hanya 1 orang. Diberikan ke pengguna dengan total waktu mendengarkan lagu paling lama minggu ini (minimal 1 jam). Reset tiap Senin 00.00 WIB, dan title pindah kalau ada yang menyalip.",
+        "Only 1 person. Given to whoever has listened to music the longest this week (1 hour minimum). Resets every Monday 00:00 (WIB), and the title moves if someone overtakes you."
     )
     val titleHowStreak get() = t(
         "Hanya 1 orang. Diberikan ke pemilik streak mendengarkan terpanjang (minimal 3 hari). Title pindah kalau streakmu disalip.",
@@ -1225,6 +1231,8 @@ class Strings(val english: Boolean) {
     val mubarInviteSent get() = t("Undangan terkirim", "Invite sent")
     val mubarInvited get() = t("Diundang", "Invited")
     val mubarInRoom get() = t("Di ruangan", "In room")
+    val mubarInviteSearch get() = t("Cari teman…", "Search friends…")
+    val mubarInviteNoMatch get() = t("Tidak ada teman yang cocok.", "No matching friends.")
     val mubarNoFriends get() = t("Belum ada teman. Teman muncul kalau kalian saling mengikuti.", "No friends yet. Friends appear when you follow each other.")
     val mubarInviteFail get() = t("Gagal mengundang", "Couldn't invite")
     val mubarInviteFull get() = t("Ruangan sudah penuh (maksimal 4 orang)", "The room is full (up to 4 people)")
