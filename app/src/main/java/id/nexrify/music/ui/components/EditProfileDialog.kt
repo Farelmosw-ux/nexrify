@@ -184,18 +184,19 @@ fun EditProfileDialog(onDismiss: () -> Unit) {
                 Text(S.accountError(it), color = Color(0xFFFCA5A5), style = Typography.bodySmall)
             }
         }
-        val mp = myProfile.value
-        if (showTitles && mp != null) TitlePickerSheet(
-            profile = mp, onDismiss = { showTitles = false }, onSaved = { myProfile.value = it },
-            onApplyCreator = { showTitles = false; showCreator = true }
-        )
-        if (showCreator && mp != null) CreatorApplySheet(profile = mp, onDismiss = { showCreator = false }, onDone = { myProfile.value = it })
         Spacer(Modifier.height(10.dp))
         OutlinedButton(
             onClick = onDismiss, modifier = Modifier.fillMaxWidth().height(46.dp), shape = RoundedCornerShape(16.dp),
             border = androidx.compose.foundation.BorderStroke(1.dp, colors.border)
         ) { Text(S.close, color = colors.textSecondary, fontWeight = FontWeight.SemiBold) }
     }
+    // Sheet dipasang di luar kartu dialog supaya lebarnya penuh layar (bukan ikut lebar dialog).
+    val mp = myProfile.value
+    if (showTitles && mp != null) TitlePickerSheet(
+        profile = mp, onDismiss = { showTitles = false }, onSaved = { myProfile.value = it },
+        onApplyCreator = { showTitles = false; showCreator = true }
+    )
+    if (showCreator && mp != null) CreatorApplySheet(profile = mp, onDismiss = { showCreator = false }, onDone = { myProfile.value = it })
 }
 
 /** Sisi foto profil (px). 1080 px supaya tetap tajam saat dibuka layar penuh. */
