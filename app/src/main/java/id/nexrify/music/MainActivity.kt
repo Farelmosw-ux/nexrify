@@ -147,6 +147,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleChatIntent(intent: android.content.Intent?) {
+        // Notifikasi push yang ditampilkan sistem saat aplikasi tertutup membawa datanya sebagai extra
+        id.nexrify.music.push.PushHandler.route(intent)
         if (intent?.getBooleanExtra(id.nexrify.music.data.chat.ChatNotifier.EXTRA_OPEN_CHAT, false) == true) {
             id.nexrify.music.data.chat.ChatNav.request.value = intent.getLongExtra(id.nexrify.music.data.chat.ChatNotifier.EXTRA_SEQ, 0L)
             intent.removeExtra(id.nexrify.music.data.chat.ChatNotifier.EXTRA_OPEN_CHAT)
@@ -661,6 +663,15 @@ fun MainAppScreen(viewModel: MusicViewModel) {
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .padding(bottom = 8.dp)
+                    )
+                }
+
+                // Pengingat Musik Bareng: tampil di atas mini player selama masih di ruangan.
+                if (currentRoute?.startsWith("chat") != true && !isExpanded) {
+                    id.nexrify.music.ui.components.MubarReturnPill(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = if (currentTrack != null && currentTrack!!.id != dismissedTrackId) 164.dp else 96.dp)
                     )
                 }
             }
