@@ -286,6 +286,55 @@ private fun SleepTimerSheet(
                 SheetOption(S.sleepMinutes(m), selected = false, onClick = { onPick(m) })
             }
             SheetOption(S.sleepEndOfTrack, selected = activeSec == -1, onClick = onEndOfTrack)
+            // Waktu custom: ketik menit sendiri (1 sampai 720 menit).
+            var custom by remember { mutableStateOf("") }
+            val customMin = custom.toIntOrNull()?.takeIf { it in 1..720 }
+            Spacer(Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.foundation.text.BasicTextField(
+                    value = custom,
+                    onValueChange = { v -> custom = v.filter { it.isDigit() }.take(3) },
+                    singleLine = true,
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
+                        imeAction = androidx.compose.ui.text.input.ImeAction.Done
+                    ),
+                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(
+                        onDone = { customMin?.let(onPick) }
+                    ),
+                    textStyle = Typography.bodyMedium.copy(color = colors.textPrimary),
+                    cursorBrush = androidx.compose.ui.graphics.SolidColor(colors.textPrimary),
+                    modifier = Modifier.weight(1f),
+                    decorationBox = { inner ->
+                        Row(
+                            Modifier.fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .border(1.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(Modifier.weight(1f)) {
+                                if (custom.isEmpty()) Text(S.sleepCustomHint, style = Typography.bodyMedium, color = colors.textMuted)
+                                inner()
+                            }
+                            Text(S.sleepMinuteUnit, style = Typography.bodySmall, color = colors.textMuted)
+                        }
+                    }
+                )
+                Spacer(Modifier.width(10.dp))
+                Box(
+                    Modifier.clip(RoundedCornerShape(14.dp))
+                        .background(if (customMin != null) colors.textPrimary else colors.card)
+                        .clickable(enabled = customMin != null) { customMin?.let(onPick) }
+                        .padding(horizontal = 20.dp, vertical = 14.dp)
+                ) {
+                    Text(
+                        S.sleepStart,
+                        style = Typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                        color = if (customMin != null) colors.background else colors.textMuted
+                    )
+                }
+            }
             if (activeSec != null) {
                 Spacer(Modifier.height(6.dp))
                 SheetOption(S.sleepOff, selected = false, danger = true, onClick = onOff)
