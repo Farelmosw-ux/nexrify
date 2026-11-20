@@ -102,10 +102,13 @@ class AccountManager private constructor(context: Context) {
     }
 
     fun clearLocal() {
+        val oldSession = token
         token = null
         pending = null
         prefs.edit().clear().apply()
         _user.value = null
+        // Lepaskan token push perangkat ini dari akun lama
+        runCatching { id.nexrify.music.push.PushManager.onLoggedOut(oldSession) }
     }
 
     private fun loadUser(): NexUser? = try {
