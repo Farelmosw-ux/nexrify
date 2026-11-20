@@ -952,14 +952,16 @@ private fun MubarInviteSheet(memberNames: Set<String>, onDismiss: () -> Unit) {
     val myName = chat.me.collectAsState().value?.username.orEmpty()
     val friends = remember { mutableStateListOf<FollowUser>() }
     var loading by remember { mutableStateOf(true) }
-    val invited = remember { mutableStateListOf<String>() }
-    var busyName by remember { mutableStateOf("") }
+    // Status per orang (kunci = uid), supaya mengundang satu orang tidak mengubah baris orang lain.
+    val invitedUids = remember { mutableStateListOf<String>() }
+    val busyUids = remember { mutableStateListOf<String>() }
+    var query by remember { mutableStateOf("") }
 
     LaunchedEffect(myName) {
         if (myName.isEmpty()) { loading = false; return@LaunchedEffect }
         var cursor = 0
         var guard = 0
-        while (guard++ < 4) {
+        while (guard++ < 12) {
             val page = chat.followPage(myName, "friends", cursor) ?: break
             friends.addAll(page.items.filter { f -> friends.none { it.uid == f.uid } })
             if (page.next == 0) break
@@ -967,6 +969,10 @@ private fun MubarInviteSheet(memberNames: Set<String>, onDismiss: () -> Unit) {
         }
         loading = false
     }
+
+    val q = query.trim().removePrefix("@").lowercase()
+    val shown = if (q.isEmpty()) friends.toList()
+    else friends.filter { it.display.lowercase().contains(q) || it.username.lowercase().contains(q) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss, containerColor = colors.background,
@@ -976,6 +982,35 @@ private fun MubarInviteSheet(memberNames: Set<String>, onDismiss: () -> Unit) {
             Text(S.mubarInviteTitle, style = Typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary)
             Text(S.mubarInviteSub, fontSize = 12.sp, color = colors.textMuted)
             Spacer(Modifier.height(10.dp))
+            // Kolom pencarian
+            Row(
+                Modifier.fillMaxWidth().height(42.dp).clip(RoundedCornerShape(21.dp))
+                    .background(colors.card).border(1.dp, colors.border, RoundedCornerShape(21.dp)).padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(NexIcons.Search, null, tint = colors.textMuted, modifier = Modifier.size(17.dp))
+                Spacer(Modifier.width(8.dp))
+                BasicTextField(
+                    value = query, onValueChange = { query = it.take(40) }, singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(color = colors.textPrimary, fontSize = 14.sp),
+                    cursorBrush = SolidColor(colors.textPrimary),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    modifier = Modifier.weight(1f),
+                    decorationBox = { inner ->
+                        Box(contentAlignment = Alignment.CenterStart) {
+                            if (query.isEmpty()) Text(S.mubarInviteSearch, color = colors.textMuted, fontSize = 14.sp)
+                            inner()
+                        }
+                    }
+                )
+                if (query.isNotEmpty()) {
+                    Icon(
+                        NexIcons.Close, null, tint = colors.textMuted,
+                        modifier = Modifier.size(18.dp).clip(CircleShape).clickable { query = "" }
+                    )
+                }
+            }
+            Spacer(Modifier.height(6.dp))
             when {
                 loading -> Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = colors.textPrimary, strokeWidth = 2.dp, modifier = Modifier.size(26.dp))
@@ -983,10 +1018,14 @@ private fun MubarInviteSheet(memberNames: Set<String>, onDismiss: () -> Unit) {
                 friends.isEmpty() -> Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
                     Text(S.mubarNoFriends, color = colors.textMuted, fontSize = 13.sp)
                 }
+                shown.isEmpty() -> Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                    Text(S.mubarInviteNoMatch, color = colors.textMuted, fontSize = 13.sp)
+                }
                 else -> LazyColumn(Modifier.fillMaxSize()) {
-                    items(friends, key = { it.uid }) { f ->
+                    items(shown, key = { it.uid }) { f ->
                         val inRoom = f.username in memberNames
-                        val sent = f.username in invited
+                        val sent = f.uid in invitedUids
+                        val busy = f.uid in busyUids
                         Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                             ChatAvatar(f.uid, f.av, f.display, 44.dp)
                             Spacer(Modifier.width(12.dp))
@@ -994,17 +1033,19 @@ private fun MubarInviteSheet(memberNames: Set<String>, onDismiss: () -> Unit) {
                                 Text(f.display, fontWeight = FontWeight.Bold, color = colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text("@${f.username}", fontSize = 12.sp, color = colors.textMuted, maxLines = 1)
                             }
-                            val enabled = !inRoom && !sent && busyName.isEmpty()
+                            val enabled = !inRoom && !sent && !busy
                             Box(
                                 Modifier.height(34.dp).clip(RoundedCornerShape(17.dp))
                                     .background(if (enabled) colors.textPrimary else Color.Transparent)
                                     .border(1.dp, if (enabled) colors.textPrimary else colors.border, RoundedCornerShape(17.dp))
                                     .clickable(enabled = enabled) {
+                                        val targetUid = f.uid
+                                        val targetName = f.username
+                                        busyUids.add(targetUid)
                                         scope.launch {
-                                            busyName = f.username
                                             try {
-                                                mgr.invite(f.username)
-                                                invited.add(f.username)
+                                                mgr.invite(targetName)
+                                                invitedUids.add(targetUid)
                                                 NexNotifier.success(currentStrings().mubarInviteSent, currentStrings().mubarTitle)
                                             } catch (e: CancellationException) { throw e } catch (e: AccountError) {
                                                 val st = currentStrings()
@@ -1013,13 +1054,14 @@ private fun MubarInviteSheet(memberNames: Set<String>, onDismiss: () -> Unit) {
                                                     st.mubarTitle
                                                 )
                                             } catch (_: Throwable) { NexNotifier.error(currentStrings().mubarInviteFail, currentStrings().mubarTitle) }
-                                            busyName = ""
+                                            finally { busyUids.remove(targetUid) }
                                         }
                                     }
                                     .padding(horizontal = 14.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(
+                                if (busy) CircularProgressIndicator(color = colors.textMuted, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                                else Text(
                                     when { inRoom -> S.mubarInRoom; sent -> S.mubarInvited; else -> S.mubarInviteSlot },
                                     fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (enabled) colors.background else colors.textMuted
                                 )
@@ -1028,6 +1070,41 @@ private fun MubarInviteSheet(memberNames: Set<String>, onDismiss: () -> Unit) {
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Pil mengambang "Kembali ke Musik Bareng": muncul otomatis selama kita masih berada di ruangan
+ * (dan lembarnya sedang tertutup) supaya tidak lupa sedang di mubar. Sekali ketuk membuka ruangan.
+ */
+@Composable
+fun MubarReturnPill(modifier: Modifier = Modifier) {
+    val mgr = remember { MubarManager.getInstance() }
+    val room by mgr.room.collectAsState()
+    val open by mgr.sheetOpen.collectAsState()
+    val r = room
+    if (r == null || open) return
+    val colors = NexrifyAppTheme.colors
+    val shape = RoundedCornerShape(24.dp)
+    Row(
+        modifier = modifier
+            .clip(shape)
+            .background(colors.card)
+            .border(1.dp, colors.accent.copy(alpha = 0.7f), shape)
+            .clickable { mgr.openSheet() }
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(Modifier.size(8.dp).clip(CircleShape).background(colors.accent))
+        Spacer(Modifier.width(10.dp))
+        Column {
+            Text(
+                S.mubarBackToRoom,
+                style = Typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                color = colors.textPrimary
+            )
+            Text(S.mubarBackSub(r.members.size), style = Typography.labelSmall, color = colors.textMuted)
         }
     }
 }
