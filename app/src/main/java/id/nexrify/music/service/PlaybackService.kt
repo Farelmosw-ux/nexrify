@@ -38,6 +38,23 @@ class PlaybackService : MediaSessionService() {
     private val serviceScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main + id.nexrify.music.util.CrashReporter.handler)
     private var favoriteJob: kotlinx.coroutines.Job? = null
     private var widgetLikeJob: kotlinx.coroutines.Job? = null
+    private var listenJob: kotlinx.coroutines.Job? = null
+
+    /** Lapor waktu mendengarkan ke server (title Pendengar Terlama): start saat lagu diputar, tick tiap 30 detik, stop saat berhenti. */
+    private fun reportListening(playing: Boolean) {
+        listenJob?.cancel()
+        listenJob = null
+        val chat = runCatching { id.nexrify.music.data.chat.ChatManager.getInstance() }.getOrNull() ?: return
+        if (playing) {
+            chat.listenReport("start")
+            listenJob = serviceScope.launch {
+                while (true) {
+                    kotlinx.coroutines.delay(30_000L)
+                    chat.listenReport("tick")
+                }
+            }
+        } else chat.listenReport("stop")
+    }
 
     /** Tombol di notifikasi dan kontrol media: suka dan tampilkan/sembunyikan kapsul. */
     @OptIn(UnstableApi::class)
@@ -269,6 +286,7 @@ class PlaybackService : MediaSessionService() {
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 updateHomeWidget(exoPlayer)
+                reportListening(isPlaying)
             }
         })
 
@@ -436,6 +454,8 @@ class PlaybackService : MediaSessionService() {
         capsule = null
         favoriteJob?.cancel()
         widgetLikeJob?.cancel()
+        listenJob?.cancel()
+        runCatching { id.nexrify.music.data.chat.ChatManager.getInstance().listenReport("stop") }
         serviceScope.cancel()
         mediaSession?.run {
             player.release()
