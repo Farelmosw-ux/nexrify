@@ -100,7 +100,7 @@ class MailboxManager private constructor(context: Context) {
         context.getSystemService(android.app.NotificationManager::class.java).createNotificationChannel(channel)
         val open = android.app.PendingIntent.getActivity(
             context, 0,
-            android.content.Intent(context, id.nexrify.music.MainActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            android.content.Intent(context, id.nexrify.music.MainActivity::class.java).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra("nexrify.open_mailbox", true),
             android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
         )
         val text = first.body(english) + if (fresh.size > 1) "\n" + strings.mailNotifMore(fresh.size - 1) else ""
