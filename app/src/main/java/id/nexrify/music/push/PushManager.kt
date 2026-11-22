@@ -86,7 +86,7 @@ object PushManager {
     /** Daftar jenis notifikasi yang dimatikan pengguna, supaya server tidak mengirimnya sama sekali. */
     private fun offKinds(): List<String> {
         val s = ChatSettings.getInstance()
-        if (!s.notifAll.value) return listOf("m", "r", "x", "a", "d", "w", "f", "F")
+        if (!s.notifAll.value) return listOf("m", "r", "x", "a", "d", "w", "f", "F", "R")
         return buildList {
             if (!s.notifMention.value) add("m")
             if (!s.notifReply.value) add("r")
