@@ -48,7 +48,8 @@ object ChatNotifier {
         Kind("d", "chat_dm", 4105, "nexrify_chat"),
         Kind("w", "chat_warn", 4106, "nexrify_news"),
         Kind("f", "chat_follow", 4107, "nexrify_social"),
-        Kind("F", "chat_follow", 4108, "nexrify_social")
+        Kind("F", "chat_follow", 4108, "nexrify_social"),
+        Kind("R", "chat_role", 4109, "nexrify_news")
     )
 
     /**
@@ -67,6 +68,7 @@ object ChatNotifier {
         ch("chat_dm", s.chatNotifChannelDm, NotificationManager.IMPORTANCE_HIGH)
         ch("chat_warn", s.chatNotifChannelWarn, NotificationManager.IMPORTANCE_HIGH)
         ch("chat_follow", s.notifChannelFollow, NotificationManager.IMPORTANCE_HIGH)
+        ch("chat_role", s.notifChannelRole, NotificationManager.IMPORTANCE_HIGH)
         ch(id.nexrify.music.push.PushNotifier.CH_MAIL, s.mailChannel, NotificationManager.IMPORTANCE_HIGH)
         ch(id.nexrify.music.push.PushNotifier.CH_MUBAR, s.mubarNotifChannel, NotificationManager.IMPORTANCE_HIGH)
     }
@@ -89,6 +91,7 @@ object ChatNotifier {
                 "w" -> s.chatNotifChannelWarn
                 "x" -> s.chatNotifChannelReaction
                 "f", "F" -> s.notifChannelFollow
+                "R" -> s.notifChannelRole
                 else -> s.chatNotifChannelAnnounce
             }
             val importance = if (kind.code == "x") NotificationManager.IMPORTANCE_LOW else NotificationManager.IMPORTANCE_HIGH
@@ -105,12 +108,14 @@ object ChatNotifier {
                 "d" -> if (group.map { it.from }.distinct().size > 1) s.dmNotifTitleMany else s.dmNotifTitle(last.from)
                 "f" -> if (many) s.notifFollowManyTitle(people.size) else s.notifFollowTitle(people.first().second)
                 "F" -> if (many) s.notifFollowManyTitle(people.size) else s.notifFriendTitle(people.first().second)
+                "R" -> s.notifRoleTitle(last.text)
                 else -> s.chatNotifAnnounceTitle
             }
             val body = when (kind.code) {
                 "x" -> s.chatNotifReactionBody(last.text)
                 "f" -> if (many) people.joinToString(", ") { it.second } else s.notifFollowBody
                 "F" -> if (many) people.joinToString(", ") { it.second } else s.notifFriendBody
+                "R" -> s.notifRoleBody(last.text)
                 else -> last.text
             }
             val more = if (!follow && group.size > 1) "\n" + s.chatNotifMore(group.size - 1) else ""
@@ -123,6 +128,7 @@ object ChatNotifier {
                 }
                 follow && many -> intent.putExtra(EXTRA_OPEN_NOTIFS, true)
                 follow -> intent.putExtra(EXTRA_OPEN_PROFILE, people.first().first)
+                kind.code == "R" -> intent.putExtra(EXTRA_OPEN_PROFILE, id.nexrify.music.data.account.AccountManager.getInstance().user.value?.username.orEmpty())
                 else -> intent.putExtra(EXTRA_OPEN_CHAT, true).putExtra(EXTRA_SEQ, last.seq)
             }
             val open = PendingIntent.getActivity(context, kind.id, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
