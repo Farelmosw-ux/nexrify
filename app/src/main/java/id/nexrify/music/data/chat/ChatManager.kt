@@ -37,6 +37,10 @@ object ChatNav {
     val profileRequest = MutableStateFlow<String?>(null)
     /** Buka pusat notifikasi (dari notifikasi gabungan). */
     val notifCenterRequest = MutableStateFlow(false)
+    /** Buka kotak surat (dari notifikasi surat dari pengembang). */
+    val mailboxRequest = MutableStateFlow(false)
+    /** Buka Musik Bareng dari notifikasi undangan: kode ruangan ("-" kalau tidak diketahui). */
+    val mubarRequest = MutableStateFlow<String?>(null)
 }
 
 /**
@@ -634,16 +638,18 @@ class ChatManager private constructor(private val context: Context) {
         val (now, items) = ChatApi.notifs(t, since)
         settings.lastNotifTs = now
         if (since == 0L) return // pertama kali: jangan banjiri dengan riwayat lama
-        if (items.isEmpty()) return
+        if (items.isEmpty() && pendingFallback.isEmpty()) return
         val me = myName()
         val muted = settings.muted.value
         val dms = DmManager.getInstance()
         val openDm = dms.openUsername()
-        val relevant = items.filter { (it.from.lowercase() !in muted && it.from.lowercase() !in settings.blocked.value && !it.from.equals(me, true)) || it.kind == "a" || it.kind == "w" }
+        val relevant = items.filter { (it.from.lowercase() !in muted && it.from.lowercase() !in settings.blocked.value && !it.from.equals(me, true)) || it.kind == "a" || it.kind == "w" || it.kind == "R" }
         _mentionUnread.update { it + relevant.count { n -> n.kind == "m" || n.kind == "r" } }
         // Riwayat untuk pusat notifikasi (DM belum punya layar, jadi tidak dicatat).
         runCatching { id.nexrify.music.data.notif.NotifCenter.getInstance().add(relevant.filter { it.kind != "d" }) }
         dms.refreshInbox()
+        // Peran berubah (diangkat/dicopot jadi admin, staf, developer): segarkan profil supaya fitur moderasi dan badge langsung menyesuaikan.
+        if (items.any { it.kind == "R" }) runCatching { join() }
         if (!settings.notifAll.value) return
         val allowed = relevant.filter {
             when (it.kind) {
@@ -653,23 +659,63 @@ class ChatManager private constructor(private val context: Context) {
                 "a" -> settings.notifAnnounce.value && !isActive
                 "d" -> settings.notifDm.value && !it.from.equals(openDm, true)
                 "f", "F" -> settings.notifFollow.value
-                "w" -> true
+                "w", "R" -> true
                 else -> false
             }
         }
-        // Kalau push FCM aktif, notifikasi HP datang dari push (sistem atau layanan pesan). Pengecekan ini cukup mengisi pusat notifikasi.
-        if (id.nexrify.music.push.PushManager.isActive()) return
+        // Push FCM aktif bukan jaminan notifikasi sampai (izin/baterai HP, FCM telat, server gagal kirim). Jadi pengecekan ini
+        // tetap jadi cadangan: item ditampilkan lokal kecuali push-nya jelas sudah tampil di bar notifikasi.
+        if (id.nexrify.music.push.PushManager.isActive()) {
+            val shown = shownPushTags()
+            val candidates = pendingFallback + allowed
+            pendingFallback = emptyList()
+            val fallback = candidates.filter { n ->
+                // Beri push waktu 20 detik untuk tiba sebelum dianggap gagal (jam server dipakai di kedua sisi).
+                // Yang masih terlalu baru ditunda ke putaran berikutnya, bukan dibuang.
+                if (now - n.ts < 20_000L) { pendingFallback = pendingFallback + n; return@filter false }
+                val tag = when (n.kind) {
+                    "f", "F" -> n.kind + "_" + n.text.substringBefore('|')
+                    "m", "r", "x", "a" -> n.kind + "_" + n.seq
+                    else -> n.kind
+                }
+                tag !in shown && (n.kind != "d" || shown.none { it.startsWith("d_") })
+            }
+            if (fallback.isNotEmpty()) ChatNotifier.show(context, fallback)
+            return
+        }
         ChatNotifier.show(context, allowed)
     }
+
+    @Volatile private var pendingFallback: List<ChatNotif> = emptyList()
+
+    private val kick = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
+
+    /** Cek notifikasi sekarang juga (dipanggil saat aplikasi dibuka kembali atau push masuk). */
+    fun pollNow() { kick.trySend(Unit) }
+
+    /**
+     * Tunggu putaran berikutnya: 10 detik saat aplikasi terlihat (hampir realtime), 2 menit saat di latar belakang
+     * (di sana push FCM yang membawa notifikasi seketika). Bisa dibangunkan lebih awal lewat [pollNow].
+     */
+    suspend fun awaitNextNotifCheck() {
+        val ms = if (id.nexrify.music.capsule.AppVisibility.inForeground) 10_000L else 120_000L
+        kotlinx.coroutines.withTimeoutOrNull(ms) { kick.receive() }
+    }
+
+    /** Tag notifikasi push FCM yang sedang tampil di bar notifikasi (server memberi tag m, r, x, a, w, d_<uid>, f_<uid>, F_<uid>). */
+    private fun shownPushTags(): Set<String> = try {
+        context.getSystemService(android.app.NotificationManager::class.java).activeNotifications.mapNotNull { it.tag }.toSet()
+    } catch (_: Throwable) { emptySet() }
 
     /**
      * Pesan push FCM diterima saat proses aplikasi hidup. Aturannya sama dengan pengecekan berkala (pengaturan notifikasi,
      * mute, blokir, chat sedang dibuka). Pusat notifikasi dan lencana diisi pengecekan berkala yang dijalankan sesudahnya.
      */
     suspend fun onPush(n: ChatNotif) {
+        if (n.kind == "R") runCatching { join() }
         if (!settings.notifAll.value) return
         val from = n.from.lowercase()
-        if (n.kind != "a" && n.kind != "w" && (from in settings.muted.value || from in settings.blocked.value || n.from.equals(myName(), true))) return
+        if (n.kind != "a" && n.kind != "w" && n.kind != "R" && (from in settings.muted.value || from in settings.blocked.value || n.from.equals(myName(), true))) return
         val allowed = when (n.kind) {
             "m" -> settings.notifMention.value && !isActive
             "r" -> settings.notifReply.value && !isActive
@@ -677,7 +723,7 @@ class ChatManager private constructor(private val context: Context) {
             "a" -> settings.notifAnnounce.value && !isActive
             "d" -> settings.notifDm.value && !n.from.equals(DmManager.getInstance().openUsername(), true)
             "f", "F" -> settings.notifFollow.value
-            "w" -> true
+            "w", "R" -> true
             else -> false
         }
         if (allowed) ChatNotifier.show(context, listOf(n))
