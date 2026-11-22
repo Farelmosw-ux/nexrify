@@ -45,6 +45,8 @@ import id.nexrify.music.ui.components.ChatAvatar
 import id.nexrify.music.ui.icons.NexIcons
 import id.nexrify.music.ui.theme.NexrifyAppTheme
 import id.nexrify.music.ui.theme.Typography
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.DateFormat
@@ -71,6 +73,7 @@ private fun titleOf(n: NotifItem): String = id.nexrify.music.i18n.currentStrings
     "x" -> S.notifItemReaction(n.from)
     "d" -> S.notifItemDm(n.from)
     "w" -> S.notifItemWarn
+    "R" -> S.notifRoleTitle(n.text)
     else -> S.notifItemAnnounce
 } }
 
@@ -83,9 +86,38 @@ fun NotificationScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit, onOp
     val scope = rememberCoroutineScope()
     // Yang belum dibaca saat layar dibuka tetap ditandai "Baru" walau sudah otomatis dianggap dibaca.
     val newIds = remember { items.filter { !it.read }.map { it.id }.toSet() }
-    var followed by remember { mutableStateOf(setOf<String>()) }
+    // Status ikuti diambil dari server per username (huruf kecil), bukan diingat per notifikasi,
+    // jadi tetap benar setelah layar dibuka ulang dan berlaku untuk semua notifikasi dari orang yang sama.
+    var iFollow by remember { mutableStateOf(mapOf<String, Boolean>()) }
     var busy by remember { mutableStateOf(setOf<String>()) }
     LaunchedEffect(Unit) { delay(1200); center.markAllRead() }
+    val followUsers = items.filter { it.kind == "f" }.map { it.from.lowercase() }.distinct()
+    LaunchedEffect(followUsers) {
+        val missing = followUsers.filter { it !in iFollow }
+        if (missing.isEmpty()) return@LaunchedEffect
+        val chat = ChatManager.getInstance()
+        val got = missing.map { u -> async { u to chat.profile(u)?.iFollow } }.awaitAll()
+        iFollow = iFollow + got.mapNotNull { (u, v) -> if (v == null) null else u to v }
+    }
+    val doFollow: (String) -> Unit = { username ->
+        val key = username.lowercase()
+        if (key !in busy) scope.launch {
+            busy = busy + key
+            try {
+                ChatManager.getInstance().follow(username)
+                iFollow = iFollow + (key to true)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                // Server bilang sudah mengikuti / gagal: cek status asli lalu beri tahu kalau memang gagal.
+                val real = runCatching { ChatManager.getInstance().profile(username)?.iFollow }.getOrNull()
+                if (real == true) iFollow = iFollow + (key to true)
+                else id.nexrify.music.ui.components.NexNotifier.error(e.message?.takeIf { it.isNotBlank() } ?: S.notifFollowFailed)
+            } finally {
+                busy = busy - key
+            }
+        }
+    }
 
     Column(Modifier.fillMaxSize().background(colors.background).padding(top = 8.dp)) {
         Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -108,21 +140,9 @@ fun NotificationScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit, onOp
                 val fresh = items.filter { it.id in newIds }
                 val older = items.filter { it.id !in newIds }
                 if (fresh.isNotEmpty()) item("h_new") { Header(S.notifNew) }
-                items(fresh, key = { it.id }) { n -> NotifRow(n, true, n.id in followed, n.id in busy, onOpenProfile, onOpenChat, center) {
-                    scope.launch {
-                        busy = busy + n.id
-                        runCatching { ChatManager.getInstance().follow(n.from) }.onSuccess { followed = followed + n.id }
-                        busy = busy - n.id
-                    }
-                } }
+                items(fresh, key = { it.id }) { n -> NotifRow(n, true, iFollow[n.from.lowercase()] == true, n.from.lowercase() in busy, onOpenProfile, onOpenChat, center) { doFollow(n.from) } }
                 if (older.isNotEmpty()) item("h_old") { Header(S.notifEarlier) }
-                items(older, key = { it.id }) { n -> NotifRow(n, false, n.id in followed, n.id in busy, onOpenProfile, onOpenChat, center) {
-                    scope.launch {
-                        busy = busy + n.id
-                        runCatching { ChatManager.getInstance().follow(n.from) }.onSuccess { followed = followed + n.id }
-                        busy = busy - n.id
-                    }
-                } }
+                items(older, key = { it.id }) { n -> NotifRow(n, false, iFollow[n.from.lowercase()] == true, n.from.lowercase() in busy, onOpenProfile, onOpenChat, center) { doFollow(n.from) } }
             }
         }
     }
@@ -148,7 +168,12 @@ private fun NotifRow(
             .border(1.dp, if (fresh) colors.textPrimary.copy(alpha = 0.25f) else colors.border, shape)
             .clickable {
                 center.markRead(n.id)
-                if (follow) onOpenProfile(n.from) else onOpenChat(if (n.kind == "w") 0L else n.seq)
+                when {
+                    follow -> onOpenProfile(n.from)
+                    // Notifikasi peran: buka profil sendiri, tempat badge peran baru terlihat.
+                    n.kind == "R" -> id.nexrify.music.data.account.AccountManager.getInstance().user.value?.username?.takeIf { it.isNotBlank() }?.let(onOpenProfile) ?: onOpenChat(0L)
+                    else -> onOpenChat(if (n.kind == "w") 0L else n.seq)
+                }
             }
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -157,7 +182,7 @@ private fun NotifRow(
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(titleOf(n), fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            val sub = when (n.kind) { "f" -> "@${n.from}"; "F" -> S.notifFriendBody; else -> n.text }
+            val sub = when (n.kind) { "f" -> "@${n.from}"; "F" -> S.notifFriendBody; "R" -> S.notifRoleBody(n.text); else -> n.text }
             if (sub.isNotBlank()) Text(sub, fontSize = 12.5.sp, color = colors.textMuted, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
             if (n.kind == "f") {
                 Spacer(Modifier.height(8.dp))
