@@ -136,6 +136,7 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         AppVisibility.set(true)
         runCatching { id.nexrify.music.data.chat.ChatManager.getInstance().appForeground(true) }
+        runCatching { id.nexrify.music.data.chat.ChatManager.getInstance().pollNow() }
         runCatching { id.nexrify.music.data.mubar.MubarManager.getInstance().setForeground(true) }
     }
 
@@ -156,6 +157,10 @@ class MainActivity : ComponentActivity() {
         intent?.getStringExtra(id.nexrify.music.data.chat.ChatNotifier.EXTRA_OPEN_PROFILE)?.takeIf { it.isNotBlank() }?.let {
             id.nexrify.music.data.chat.ChatNav.profileRequest.value = it
             intent?.removeExtra(id.nexrify.music.data.chat.ChatNotifier.EXTRA_OPEN_PROFILE)
+        }
+        if (intent?.getBooleanExtra("nexrify.open_mailbox", false) == true) {
+            id.nexrify.music.data.chat.ChatNav.mailboxRequest.value = true
+            intent.removeExtra("nexrify.open_mailbox")
         }
         if (intent?.getBooleanExtra(id.nexrify.music.data.chat.ChatNotifier.EXTRA_OPEN_NOTIFS, false) == true) {
             id.nexrify.music.data.chat.ChatNav.notifCenterRequest.value = true
@@ -338,6 +343,30 @@ fun MainAppScreen(viewModel: MusicViewModel) {
         if (!notifRequest) return@LaunchedEffect
         id.nexrify.music.data.chat.ChatNav.notifCenterRequest.value = false
         navController.navigate("notifications") { launchSingleTop = true }
+    }
+
+    val mailRequest by id.nexrify.music.data.chat.ChatNav.mailboxRequest.collectAsState()
+    LaunchedEffect(mailRequest) {
+        if (!mailRequest) return@LaunchedEffect
+        id.nexrify.music.data.chat.ChatNav.mailboxRequest.value = false
+        navController.navigate("mailbox") { launchSingleTop = true }
+    }
+
+    // Ketuk notifikasi undangan Musik Bareng: segarkan undangan, langsung gabung kalau undangannya masih berlaku, kalau tidak buka panelnya.
+    val mubarRequest by id.nexrify.music.data.chat.ChatNav.mubarRequest.collectAsState()
+    LaunchedEffect(mubarRequest) {
+        val code = mubarRequest ?: return@LaunchedEffect
+        id.nexrify.music.data.chat.ChatNav.mubarRequest.value = null
+        if (!id.nexrify.music.data.account.AccountManager.getInstance().isLoggedIn()) return@LaunchedEffect
+        val mb = id.nexrify.music.data.mubar.MubarManager.getInstance()
+        runCatching { mb.refresh() }
+        val inv = mb.invites.value.firstOrNull { it.code == code } ?: mb.invites.value.firstOrNull()
+        if (inv != null && mb.room.value == null) {
+            try { mb.accept(inv) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Throwable) {
+                id.nexrify.music.ui.components.NexNotifier.error(id.nexrify.music.i18n.currentStrings().mubarJoinFail, id.nexrify.music.i18n.currentStrings().mubarTitle)
+                runCatching { mb.refresh() }
+            }
+        } else mb.openSheet()
     }
 
     val currentTrack by viewModel.currentTrack.collectAsState()
