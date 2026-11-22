@@ -742,6 +742,11 @@ class Strings(val english: Boolean) {
     val notifItemAnnounce get() = t("Pengumuman Nexrify", "Nexrify announcement")
     val notifItemWarn get() = t("Peringatan dari moderator", "Warning from a moderator")
     val notifFollowBack get() = t("Ikuti balik", "Follow back")
+    val notifChannelRole get() = t("Perubahan peran", "Role changes")
+    private fun roleLabel(role: String) = when (role) { "developer" -> "Developer"; "admin" -> "Admin"; "staff" -> t("Staf", "Staff"); else -> "" }
+    fun notifRoleTitle(role: String) = if (roleLabel(role).isBlank()) t("Perananmu diubah", "Your role changed") else t("Selamat, kamu sekarang ${roleLabel(role)}!", "Congrats, you are now ${roleLabel(role)}!")
+    fun notifRoleBody(role: String) = if (roleLabel(role).isBlank()) t("Peran khususmu di Nexrify telah dicabut", "Your special role in Nexrify was removed") else t("Kamu diangkat menjadi ${roleLabel(role)} Nexrify. Ketuk untuk melihat profilmu", "You were promoted to Nexrify ${roleLabel(role)}. Tap to view your profile")
+    val notifFollowFailed get() = t("Gagal mengikuti, coba lagi", "Could not follow, try again")
     val chatNotifReaction get() = t("Reaksi", "Reactions")
     val chatNotifReactionSub get() = t("Saat pesanmu diberi reaksi emoji", "When your message gets an emoji reaction")
     val chatNotifAnnounce get() = t("Pengumuman resmi", "Official announcements")
