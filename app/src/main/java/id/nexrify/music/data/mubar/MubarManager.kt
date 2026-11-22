@@ -111,7 +111,7 @@ class MubarManager private constructor() {
             pollJob = scope.launch {
                 while (true) {
                     if (token() != null) runCatching { refresh() }
-                    delay(if (_room.value != null) 3_000L else 12_000L)
+                    delay(if (_room.value != null) 2_000L else 12_000L)
                 }
             }
         } else {
@@ -184,6 +184,11 @@ class MubarManager private constructor() {
         if (incoming.isNotEmpty()) {
             val map = LinkedHashMap<Long, MubarMsg>()
             _messages.value.forEach { map[it.seq] = it }
+            // Pesan asli milik sendiri sudah tiba lewat polling: buang pesan sementaranya supaya tidak dobel.
+            incoming.filter { it.system.isEmpty() && it.seq < Long.MAX_VALUE / 2 }.forEach { real ->
+                val dup = map.values.firstOrNull { it.seq > Long.MAX_VALUE / 2 && it.uid == real.uid && it.text == real.text }
+                if (dup != null) map.remove(dup.seq)
+            }
             incoming.forEach { map[it.seq] = it }
             _messages.value = map.values.sortedBy { it.seq }.takeLast(300)
         }
@@ -301,15 +306,39 @@ class MubarManager private constructor() {
         refreshAfterChange(0)
     }
 
+    private var tempCounter = 0L
+
+    private fun putMessages(add: List<MubarMsg>, removeSeq: Long? = null) {
+        val map = LinkedHashMap<Long, MubarMsg>()
+        _messages.value.forEach { if (it.seq != removeSeq) map[it.seq] = it }
+        add.forEach { map[it.seq] = it }
+        _messages.value = map.values.sortedBy { it.seq }.takeLast(300)
+    }
+
+    /**
+     * Kirim pesan. Pesan langsung muncul di layar pengirim (sementara, dengan nomor semu) tanpa menunggu server,
+     * lalu diganti pesan asli saat server menjawab. Kalau gagal, pesan sementara dibuang dan error dilempar.
+     */
     suspend fun send(text: String, replyTo: Long?) {
-        val code = _room.value?.code ?: return
-        val o = ChatApi.post(token() ?: return, JSONObject().put("action", "mb_send").put("code", code).put("text", text).apply { if (replyTo != null) put("replyTo", replyTo) })
-        o.optJSONObject("message")?.let { m ->
-            val msg = parseMsg(m)
-            val map = LinkedHashMap<Long, MubarMsg>()
-            _messages.value.forEach { map[it.seq] = it }
-            map[msg.seq] = msg
-            _messages.value = map.values.sortedBy { it.seq }.takeLast(300)
+        val room = _room.value ?: return
+        val code = room.code
+        val me = AccountManager.getInstance().user.value
+        val temp = if (me != null) {
+            val rep = replyTo?.let { rs -> _messages.value.firstOrNull { it.seq == rs } }
+            MubarMsg(
+                seq = Long.MAX_VALUE - (tempCounter++), uid = me.id, username = me.username, display = me.display.ifBlank { me.username },
+                av = room.members.firstOrNull { it.uid == me.id }?.av.orEmpty(), text = text, ts = serverNowMs(), deleted = false,
+                reply = rep?.let { MubarReply(it.seq, it.username, it.text, it.deleted) }, reactions = emptyMap()
+            )
+        } else null
+        if (temp != null) putMessages(listOf(temp))
+        try {
+            val o = ChatApi.post(token() ?: throw IllegalStateException("not logged in"), JSONObject().put("action", "mb_send").put("code", code).put("text", text).apply { if (replyTo != null) put("replyTo", replyTo) })
+            val real = o.optJSONObject("message")?.let { parseMsg(it) }
+            if (temp != null) putMessages(listOfNotNull(real), removeSeq = temp.seq) else if (real != null) putMessages(listOf(real))
+        } catch (e: Throwable) {
+            if (temp != null) putMessages(emptyList(), removeSeq = temp.seq)
+            throw e
         }
     }
 
