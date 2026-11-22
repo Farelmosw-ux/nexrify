@@ -19,21 +19,25 @@ object PushHandler {
         val title = d["nx_title"].orEmpty()
         val body = d["nx_body"].orEmpty()
         when (kind) {
-            "m", "r", "x", "a", "d", "w", "f", "F" -> {
+            "m", "r", "x", "a", "d", "w", "f", "F", "R" -> {
                 val from = if (kind == "a") "Nexrify" else d["nx_user"].orEmpty()
                 val text = when (kind) {
                     "x" -> d["nx_emoji"].orEmpty()
                     "f", "F" -> d["nx_uid"].orEmpty() + "|" + d["nx_name"].orEmpty()
+                    "R" -> d["nx_role"].orEmpty()
                     else -> body
                 }
                 val seq = d["nx_seq"]?.toLongOrNull() ?: 0L
                 ChatManager.getInstance().onPush(ChatNotif(kind, seq, from, text, System.currentTimeMillis()))
             }
             "mail" -> {
-                PushNotifier.show(context, PushNotifier.CH_MAIL, "mail_" + d["nx_id"].orEmpty(), 4208, title, body)
+                PushNotifier.show(context, PushNotifier.CH_MAIL, "mail_" + d["nx_id"].orEmpty(), 4208, title, body, extras = mapOf("nx_kind" to "mail"))
                 runCatching { MailboxManager.getInstance().refresh() }
             }
-            "mb" -> PushNotifier.show(context, PushNotifier.CH_MUBAR, "mb_" + d["nx_code"].orEmpty(), 4209, title, body, timeoutMs = 10 * 60_000L)
+            "mb" -> {
+                PushNotifier.show(context, PushNotifier.CH_MUBAR, "mb_" + d["nx_code"].orEmpty(), 4209, title, body, timeoutMs = 10 * 60_000L, extras = mapOf("nx_kind" to "mb", "nx_code" to d["nx_code"].orEmpty()))
+                runCatching { id.nexrify.music.data.mubar.MubarManager.getInstance().refresh() }
+            }
         }
     }
 
@@ -50,9 +54,11 @@ object PushHandler {
             "m", "r", "x", "a" -> ChatNav.request.value = seq
             "w" -> ChatNav.request.value = 0L
             "d" -> ChatNav.dmRequest.value = user
-            "f", "F" -> if (user.isNotBlank()) ChatNav.profileRequest.value = user
+            "f", "F", "R" -> if (user.isNotBlank()) ChatNav.profileRequest.value = user
+            "mail" -> ChatNav.mailboxRequest.value = true
+            "mb" -> ChatNav.mubarRequest.value = intent.getStringExtra("nx_code").orEmpty().ifBlank { "-" }
         }
-        listOf("nx_kind", "nx_user", "nx_seq", "nx_title", "nx_body", "nx_uid", "nx_name", "nx_emoji", "nx_id", "nx_link", "nx_code")
+        listOf("nx_kind", "nx_user", "nx_seq", "nx_title", "nx_body", "nx_uid", "nx_name", "nx_emoji", "nx_id", "nx_link", "nx_code", "nx_role")
             .forEach { intent.removeExtra(it) }
     }
 }
