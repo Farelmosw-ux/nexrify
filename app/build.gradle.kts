@@ -18,8 +18,11 @@ android {
         versionName = "4.0.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        // Hanya ABI HP (ARM). x86/x86_64 untuk emulator dibuang supaya APK lebih kecil.
-        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+        // Hanya arm64-v8a: library native ML Kit/TFLite cukup dipaket 1x (bukan 2x), ini penghemat terbesar.
+        // Kalau mau dukung HP 32-bit lama, tambahkan lagi "armeabi-v7a" (APK jadi lebih besar).
+        ndk { abiFilters += listOf("arm64-v8a") }
+        // Buang string bahasa library (Firebase, Material, dll) yang tidak dipakai; app punya i18n sendiri.
+        resourceConfigurations += listOf("en", "in")
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -73,12 +76,19 @@ android {
         kotlinCompilerExtensionVersion = "1.5.14"
     }
     packaging {
+        // Kompres library native di dalam APK (default AGP menyimpannya mentah => APK sangat besar).
+        jniLibs { useLegacyPackaging = true }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "META-INF/INDEX.LIST"
             excludes += "META-INF/DEPENDENCIES"
             excludes += "META-INF/LICENSE*"
             excludes += "META-INF/NOTICE*"
+            excludes += "META-INF/*.version"
+            excludes += "META-INF/com/android/build/gradle/**"
+            excludes += "DebugProbesKt.bin"
+            excludes += "kotlin-tooling-metadata.json"
+            excludes += "okhttp3/internal/publicsuffix/NOTICE"
         }
     }
 }
