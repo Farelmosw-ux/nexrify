@@ -47,7 +47,7 @@ class NexrifyApplication : Application(), ImageLoaderFactory, androidx.lifecycle
                 } catch (e: Throwable) {
                     id.nexrify.music.util.CrashReporter.logNonFatal(e)
                 }
-                kotlinx.coroutines.delay(10 * 60_000L)
+                kotlinx.coroutines.delay(if (id.nexrify.music.capsule.AppVisibility.inForeground) 60_000L else 10 * 60_000L)
             }
         }
 
@@ -63,7 +63,7 @@ class NexrifyApplication : Application(), ImageLoaderFactory, androidx.lifecycle
                 } catch (e: Throwable) {
                     id.nexrify.music.util.CrashReporter.logNonFatal(e)
                 }
-                kotlinx.coroutines.delay(2 * 60_000L)
+                id.nexrify.music.data.chat.ChatManager.getInstance().awaitNextNotifCheck()
             }
         }
         id.nexrify.music.data.settings.SettingsManager.init(this)
