@@ -13,12 +13,12 @@ object PushNotifier {
     const val CH_MAIL = "nexrify_mail_v2"
     const val CH_MUBAR = "nexrify_mubar"
 
-    fun show(context: Context, channel: String, tag: String, id: Int, title: String, body: String, timeoutMs: Long = 0L) {
+    fun show(context: Context, channel: String, tag: String, id: Int, title: String, body: String, timeoutMs: Long = 0L, extras: Map<String, String> = emptyMap()) {
         val manager = NotificationManagerCompat.from(context)
         if (!manager.areNotificationsEnabled()) return
         val open = PendingIntent.getActivity(
             context, id,
-            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP).also { i -> extras.forEach { (k, v) -> i.putExtra(k, v) } },
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val b = NotificationCompat.Builder(context, channel)
