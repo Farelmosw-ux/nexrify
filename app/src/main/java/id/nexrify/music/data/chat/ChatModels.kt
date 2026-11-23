@@ -66,6 +66,8 @@ data class ChatProfile(
     /** Semua title yang dimiliki (hanya terisi untuk profil sendiri). */
     val titlesOwned: List<ProfileTitle> = emptyList(),
     val titlesMax: Int = 3,
+    /** Kemajuan misi tiap title, kunci = kode title (hanya profil sendiri). */
+    val titlesInfo: Map<String, TitleProgress> = emptyMap(),
     /** Status pengajuan Konten Kreator (hanya profil sendiri). */
     val creatorApp: CreatorApp? = null,
     val followers: Int = 0,
@@ -93,7 +95,18 @@ data class FollowUser(
 
 data class FollowPage(val items: List<FollowUser>, val next: Int, val total: Int, val hidden: Boolean)
 
-/** Title pengguna. code: donor, marathon, streak, creator, loved, active. platform: tiktok / youtube / both (kreator). */
+/**
+ * Kemajuan misi satu title (profil sendiri).
+ * Title balapan (marathon: milidetik, streak: hari): [mine] punyamu, [need] angka minimal untuk merebut, [holderValue] milik pemegang sekarang.
+ * Title pencapaian (mubar, hours, circle): [cur] dari [goal].
+ */
+data class TitleProgress(
+    val mine: Long = 0L, val need: Long = 0L, val min: Long = 0L, val resetAt: Long = 0L,
+    val hasHolder: Boolean = false, val holderName: String = "", val holderValue: Long = 0L, val holderMe: Boolean = false,
+    val cur: Long = 0L, val goal: Long = 0L
+)
+
+/** Title pengguna. code: donor, marathon, streak, creator, mubar, hours, circle. platform: tiktok / youtube / both (kreator). */
 data class ProfileTitle(val code: String, val platform: String = "", val rank: Int = 0, val n: Int = 0)
 
 /** Status pengajuan Konten Kreator: pending, approved, rejected, revoked. */
