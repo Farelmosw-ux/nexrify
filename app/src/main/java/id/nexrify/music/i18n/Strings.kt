@@ -1147,8 +1147,9 @@ class Strings(val english: Boolean) {
     val titleMarathon get() = t("Pendengar Terlama", "Longest Listener")
     val titleMarathonShort get() = t("Terlama", "Longest")
     val titleStreak get() = t("Top Streak", "Top Streak")
-    val titleLoved get() = t("Disukai", "Loved")
-    val titleActive get() = t("Aktif", "Active")
+    val titleMubar get() = t("Host Mubar", "Mubar Host")
+    val titleHours get() = t("Maniak Musik", "Music Addict")
+    val titleCircle get() = t("Lingkar Teman", "Friend Circle")
     val titleDonor get() = t("Top Donatur", "Top Donor")
     val titleHowDonor get() = t("Jadi 3 donatur terbesar di Nexrify.", "Be one of the top 3 donors on Nexrify.")
     val titleHowMarathon get() = t(
@@ -1160,8 +1161,35 @@ class Strings(val english: Boolean) {
         "Only 1 person. Given to whoever has the longest listening streak (3 days minimum). The title moves if your streak is overtaken."
     )
     val titleHowCreator get() = t("Ajukan verifikasi dengan mengisi formulir. Dicek oleh owner lewat Telegram.", "Apply for verification with the form. The owner checks it on Telegram.")
-    val titleHowLoved get() = t("Dapatkan 25 reaksi di Global Chat.", "Get 25 reactions in Global Chat.")
-    val titleHowActive get() = t("Kirim 100 pesan di Global Chat.", "Send 100 messages in Global Chat.")
+    val titleHowMubar get() = t(
+        "Ajak 3 teman berbeda masuk ke Musik Bareng buatanmu (mereka harus menerima undanganmu). Bukan balapan: siapa saja bisa dapat, dan title ini permanen.",
+        "Get 3 different friends to join a Music Together room you host (they must accept your invite). Not a race: anyone can earn it, and it is permanent."
+    )
+    val titleHowHours get() = t(
+        "Dengarkan musik total 100 jam di Nexrify. Bukan balapan: siapa saja bisa dapat, dan title ini permanen.",
+        "Listen to 100 hours of music in total on Nexrify. Not a race: anyone can earn it, and it is permanent."
+    )
+    val titleHowCircle get() = t(
+        "Punya 10 teman (saling ikuti). Bukan balapan: siapa saja bisa dapat, dan title ini permanen.",
+        "Have 10 friends (mutual follows). Not a race: anyone can earn it, and it is permanent."
+    )
+    /** Durasi lengkap, misalnya "37 jam 2 menit 1 detik". */
+    fun titleDuration(ms: Long): String {
+        val total = (ms.coerceAtLeast(0L)) / 1000L
+        val h = total / 3600L; val m = (total % 3600L) / 60L; val sec = total % 60L
+        return t("$h jam $m menit $sec detik", "${h}h ${m}m ${sec}s")
+    }
+    fun titleDays(n: Long) = t("$n hari", "$n days")
+    fun titleHolderNow(name: String, value: String) = t("Pemegang sekarang: @$name · $value", "Current holder: @$name · $value")
+    fun titleHolderYou(value: String) = t("Kamu pemegangnya · $value", "You hold it · $value")
+    fun titleYourValue(value: String) = t("Kamu: $value", "You: $value")
+    fun titleNeedToTake(value: String) = t("Untuk merebut butuh $value atau lebih", "To take it you need $value or more")
+    fun titleNeedFirst(value: String) = t("Belum ada pemegang. Capai $value untuk jadi yang pertama", "No holder yet. Reach $value to be the first")
+    fun titleNeedToKeep(value: String) = t("Penyalip butuh lebih dari $value", "A challenger needs more than $value")
+    fun titleOfFriends(cur: Long, goal: Long) = t("$cur dari $goal teman", "$cur of $goal friends")
+    fun titleOfRooms(cur: Long, goal: Long) = t("$cur dari $goal teman bergabung", "$cur of $goal friends joined")
+    fun titleOfTime(cur: String, goal: String) = t("$cur dari $goal", "$cur of $goal")
+    val titleDone get() = t("Tercapai", "Unlocked")
     val titleOnlyOne get() = t("Hanya 1 pemegang", "Single holder")
     val titleLocked get() = t("Belum dimiliki", "Not owned yet")
     fun titleStreakLabel(n: Int) = t("Top Streak · $n hari", "Top Streak · $n days")
