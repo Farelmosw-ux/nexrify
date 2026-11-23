@@ -9,6 +9,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -86,6 +89,7 @@ fun ChatGroupSheet(onOpenProfile: (String) -> Unit, onDismiss: () -> Unit) {
         while (true) {
             manager.refreshGroup()
             manager.refreshMembers()
+            manager.refreshTitleDir()
             loadedMembers = true
             delay(20_000)
         }
@@ -257,9 +261,13 @@ private fun SectionLabel(text: String, count: Int) {
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MemberRow(m: ChatMember, topRank: Int, onClick: () -> Unit) {
     val colors = NexrifyAppTheme.colors
+    // Title yang dipasang (sama seperti di Global Chat): kreator, pendengar terlama, top streak, dan title pencapaian.
+    val titleDir by remember { ChatManager.getInstance().titleDir }.collectAsState()
+    val titles = titleDir[m.username.lowercase()].orEmpty()
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(vertical = 8.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -267,17 +275,21 @@ private fun MemberRow(m: ChatMember, topRank: Int, onClick: () -> Unit) {
         ChatAvatar(m.uid, "1", m.display, 44.dp)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
                 Text(
                     m.display,
                     color = colors.textPrimary,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
+                    modifier = Modifier.widthIn(max = 160.dp)
                 )
-                if (topRank in 1..3) { Spacer(Modifier.width(6.dp)); TopTag(topRank) }
-                if (m.role.isNotEmpty()) { Spacer(Modifier.width(6.dp)); BadgeChip(m.role) }
+                if (topRank in 1..3) TopTag(topRank)
+                if (m.role.isNotEmpty()) BadgeChip(m.role)
+                titles.forEach { TitleChip(it) }
             }
             Text("@${m.username}", color = colors.textMuted, fontSize = 12.sp, maxLines = 1)
         }
