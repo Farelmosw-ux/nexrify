@@ -14,7 +14,7 @@ android {
         applicationId = "id.nexrify.music"
         minSdk = 26
         targetSdk = 34
-        versionCode = 42
+        versionCode = 43
         versionName = "4.0.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
