@@ -162,7 +162,7 @@ fun ChatAvatar(uid: String, av: String, name: String, size: androidx.compose.ui.
 @Composable
 fun BadgeChip(code: String) {
     // Lencana OG ("early") sudah dihapus dari seluruh tampilan.
-    if (code == "early") return
+    if (code == "early" || code == "active" || code == "loved") return
     if (isGlintRole(code)) {
         RoleBadge(code, compact = true)
         return
