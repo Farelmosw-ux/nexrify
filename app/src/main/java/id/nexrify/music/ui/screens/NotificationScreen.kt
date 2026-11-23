@@ -112,7 +112,7 @@ fun NotificationScreen(onBack: () -> Unit, onOpenProfile: (String) -> Unit, onOp
                 // Server bilang sudah mengikuti / gagal: cek status asli lalu beri tahu kalau memang gagal.
                 val real = runCatching { ChatManager.getInstance().profile(username)?.iFollow }.getOrNull()
                 if (real == true) iFollow = iFollow + (key to true)
-                else id.nexrify.music.ui.components.NexNotifier.error(e.message?.takeIf { it.isNotBlank() } ?: S.notifFollowFailed)
+                else id.nexrify.music.ui.components.NexNotifier.error(e.message?.takeIf { it.isNotBlank() } ?: id.nexrify.music.i18n.currentStrings().notifFollowFailed)
             } finally {
                 busy = busy - key
             }
