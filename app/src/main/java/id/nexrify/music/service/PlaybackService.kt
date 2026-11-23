@@ -418,7 +418,42 @@ class PlaybackService : MediaSessionService() {
     /** Saat musik diputar, notifikasi selalu dipasang sebagai foreground (ongoing) supaya tidak bisa dihapus. */
     @OptIn(UnstableApi::class)
     override fun onUpdateNotification(session: MediaSession, startInForegroundRequired: Boolean) {
-        super.onUpdateNotification(session, startInForegroundRequired || session.player.playWhenReady)
+        // Paksa foreground hanya kalau memang ada lagu yang diputar/dimuat. Kalau antrean kosong atau player idle,
+        // Media3 tidak memasang notifikasi, dan startForegroundService tanpa startForeground = crash di Android 8-11.
+        val p = session.player
+        val active = p.playWhenReady && p.mediaItemCount > 0 &&
+            (p.playbackState == Player.STATE_READY || p.playbackState == Player.STATE_BUFFERING)
+        super.onUpdateNotification(session, startInForegroundRequired || active)
+    }
+
+    /**
+     * Android mewajibkan startForeground() maksimal 5 detik setelah startForegroundService(). Kalau Media3 belum
+     * sempat (atau memutuskan tidak memasang notifikasi), aplikasi crash. Jadi begitu service dimulai, langsung pasang
+     * notifikasi sementara dengan ID yang sama (nanti diganti notifikasi media), dan lepas lagi kalau tidak ada yang diputar.
+     */
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        runCatching {
+            createNotificationChannel()
+            val n = androidx.core.app.NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle(getString(R.string.app_name))
+                .setOngoing(true)
+                .setSilent(true)
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_LOW)
+                .setCategory(androidx.core.app.NotificationCompat.CATEGORY_TRANSPORT)
+                .build()
+            startForeground(NOTIFICATION_ID, n)
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                val pl = player
+                val idle = pl == null || pl.mediaItemCount == 0 ||
+                    pl.playbackState == Player.STATE_IDLE || pl.playbackState == Player.STATE_ENDED
+                if (alive && idle) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                }
+            }, 4_000)
+        }.onFailure { Log.w("NexrifyPlaybackService", "startForeground gagal: ${it.message}") }
+        return super.onStartCommand(intent, flags, startId)
     }
 
     /** Keep the media session alive when the user swipes the app task away during playback. */
