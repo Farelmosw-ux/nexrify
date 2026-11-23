@@ -155,6 +155,7 @@ object ChatApi {
             titles = parseTitles(o.optJSONArray("titles")),
             titlesOwned = parseTitles(o.optJSONArray("titlesOwned")),
             titlesMax = o.optInt("titlesMax", 3),
+            titlesInfo = parseTitlesInfo(o.optJSONObject("titlesInfo")),
             followers = o.optInt("followers"), following = o.optInt("following"), friends = o.optInt("friends"),
             iFollow = o.optBoolean("iFollow"), followsMe = o.optBoolean("followsMe"), friend = o.optBoolean("friend"),
             followHidden = o.optBoolean("followHidden"), hasCover = o.optBoolean("hasCover"), coverV = o.optString("coverV"),
@@ -189,7 +190,24 @@ object ChatApi {
         }
     }
 
-    /** Title khusus (kreator, pendengar terlama, top streak) per username huruf kecil. */
+    fun parseTitlesInfo(o: JSONObject?): Map<String, TitleProgress> {
+        if (o == null) return emptyMap()
+        return buildMap {
+            o.keys().forEach { code ->
+                val i = o.optJSONObject(code) ?: return@forEach
+                val h = i.optJSONObject("holder")
+                put(code, TitleProgress(
+                    mine = i.optLong("mine"), need = i.optLong("need"), min = i.optLong("min"), resetAt = i.optLong("resetAt"),
+                    hasHolder = h != null, holderName = h?.optString("username").orEmpty(),
+                    holderValue = if (h == null) 0L else if (h.has("ms")) h.optLong("ms") else h.optLong("n"),
+                    holderMe = h?.optBoolean("me") ?: false,
+                    cur = i.optLong("cur"), goal = i.optLong("goal")
+                ))
+            }
+        }
+    }
+
+    /** Title khusus (kreator, pendengar terlama, top streak, pencapaian) per username huruf kecil. */
     suspend fun titleDirectory(token: String): Map<String, List<ProfileTitle>> {
         val o = get(token, mapOf("titles" to "1")).optJSONObject("titles") ?: return emptyMap()
         return buildMap { o.keys().forEach { k -> put(k.lowercase(), parseTitles(o.optJSONArray(k))) } }
