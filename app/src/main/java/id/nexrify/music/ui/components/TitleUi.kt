@@ -53,6 +53,7 @@ import id.nexrify.music.data.chat.ChatManager
 import id.nexrify.music.data.chat.ChatProfile
 import id.nexrify.music.data.chat.CreatorForm
 import id.nexrify.music.data.chat.ProfileTitle
+import id.nexrify.music.data.chat.TitleProgress
 import id.nexrify.music.i18n.S
 import id.nexrify.music.i18n.currentStrings
 import id.nexrify.music.ui.icons.NexIcons
@@ -68,7 +69,7 @@ private val TikPink = Color(0xFFFE2C55)
 private val YtRed = Color(0xFFFF2D3D)
 
 /** Urutan katalog title di pemilih. */
-private val CATALOG = listOf("donor", "marathon", "streak", "creator", "loved", "active")
+private val CATALOG = listOf("donor", "marathon", "streak", "creator", "mubar", "hours", "circle")
 
 @Composable
 private fun GradientChip(
@@ -100,7 +101,6 @@ private fun GradientChip(
 fun TitleChip(t: ProfileTitle, compact: Boolean = true, modifier: Modifier = Modifier) {
     when (t.code) {
         "donor" -> if (t.rank in 1..3) TopTag(t.rank, modifier)
-        "loved", "active" -> BadgeChip(t.code)
         "creator" -> {
             val tt = t.platform == "tiktok"
             val yt = t.platform == "youtube"
@@ -124,6 +124,18 @@ fun TitleChip(t: ProfileTitle, compact: Boolean = true, modifier: Modifier = Mod
         "marathon" -> GradientChip(
             listOf(NexIcons.Headphones), if (compact) S.titleMarathonShort else S.titleMarathon,
             Brush.linearGradient(listOf(Color(0xFF7C5CFF), Color(0xFF3FA9FF))), Color.White, compact, modifier
+        )
+        "mubar" -> GradientChip(
+            listOf(NexIcons.Group), S.titleMubar,
+            Brush.linearGradient(listOf(Color(0xFF14C8A0), Color(0xFF0B7F8C))), Color.White, compact, modifier
+        )
+        "hours" -> GradientChip(
+            listOf(NexIcons.GraphicEq), S.titleHours,
+            Brush.linearGradient(listOf(Color(0xFFFF5FA2), Color(0xFF9B3DFF))), Color.White, compact, modifier
+        )
+        "circle" -> GradientChip(
+            listOf(NexIcons.Favorite), S.titleCircle,
+            Brush.linearGradient(listOf(Color(0xFFFFD34D), Color(0xFFFF8A2B))), Color(0xFF2A1400), compact, modifier
         )
         "streak" -> GradientChip(
             listOf(NexIcons.Flame), if (compact || t.n <= 0) S.titleStreak else S.titleStreakLabel(t.n),
@@ -238,8 +250,9 @@ private fun titleName(code: String, s: id.nexrify.music.i18n.Strings) = when (co
     "marathon" -> s.titleMarathon
     "streak" -> s.titleStreak
     "creator" -> s.titleCreatorFull
-    "loved" -> s.titleLoved
-    else -> s.titleActive
+    "mubar" -> s.titleMubar
+    "hours" -> s.titleHours
+    else -> s.titleCircle
 }
 
 private fun titleHow(code: String, s: id.nexrify.music.i18n.Strings) = when (code) {
@@ -247,8 +260,71 @@ private fun titleHow(code: String, s: id.nexrify.music.i18n.Strings) = when (cod
     "marathon" -> s.titleHowMarathon
     "streak" -> s.titleHowStreak
     "creator" -> s.titleHowCreator
-    "loved" -> s.titleHowLoved
-    else -> s.titleHowActive
+    "mubar" -> s.titleHowMubar
+    "hours" -> s.titleHowHours
+    else -> s.titleHowCircle
+}
+
+/** Baris kemajuan misi: angka lawan/pemegang, angka kamu, kebutuhan, dan persen. Null kalau tidak ada datanya. */
+private data class ProgressLines(val lines: List<String>, val pct: Int, val done: Boolean)
+
+private fun progressOf(code: String, p: TitleProgress?, owned: Boolean, s: id.nexrify.music.i18n.Strings): ProgressLines? {
+    if (p == null) return null
+    fun pct(a: Long, b: Long) = if (b <= 0L) 0 else ((a.coerceAtLeast(0L) * 100L) / b).toInt().coerceIn(0, 100)
+    return when (code) {
+        "marathon" -> {
+            val l = buildList {
+                if (p.hasHolder && p.holderMe) {
+                    add(s.titleHolderYou(s.titleDuration(p.holderValue)))
+                    add(s.titleNeedToKeep(s.titleDuration(p.holderValue)))
+                } else if (p.hasHolder) {
+                    add(s.titleHolderNow(p.holderName, s.titleDuration(p.holderValue)))
+                    add(s.titleYourValue(s.titleDuration(p.mine)))
+                    add(s.titleNeedToTake(s.titleDuration(p.need)))
+                } else {
+                    add(s.titleYourValue(s.titleDuration(p.mine)))
+                    add(s.titleNeedFirst(s.titleDuration(p.need)))
+                }
+            }
+            ProgressLines(l, if (p.hasHolder && p.holderMe) 100 else pct(p.mine, p.need), owned)
+        }
+        "streak" -> {
+            val l = buildList {
+                if (p.hasHolder && p.holderMe) {
+                    add(s.titleHolderYou(s.titleDays(p.holderValue)))
+                    add(s.titleNeedToKeep(s.titleDays(p.holderValue)))
+                } else if (p.hasHolder) {
+                    add(s.titleHolderNow(p.holderName, s.titleDays(p.holderValue)))
+                    add(s.titleYourValue(s.titleDays(p.mine)))
+                    add(s.titleNeedToTake(s.titleDays(p.need)))
+                } else {
+                    add(s.titleYourValue(s.titleDays(p.mine)))
+                    add(s.titleNeedFirst(s.titleDays(p.need)))
+                }
+            }
+            ProgressLines(l, if (p.hasHolder && p.holderMe) 100 else pct(p.mine, p.need), owned)
+        }
+        "mubar" -> ProgressLines(listOf(s.titleOfRooms(p.cur, p.goal)), if (owned) 100 else pct(p.cur, p.goal), owned)
+        "hours" -> ProgressLines(listOf(s.titleOfTime(s.titleDuration(p.cur), s.titleDuration(p.goal))), if (owned) 100 else pct(p.cur, p.goal), owned)
+        "circle" -> ProgressLines(listOf(s.titleOfFriends(p.cur, p.goal)), if (owned) 100 else pct(p.cur, p.goal), owned)
+        else -> null
+    }
+}
+
+@Composable
+private fun ProgressBlock(pl: ProgressLines) {
+    val colors = NexrifyAppTheme.colors
+    Column(Modifier.padding(top = 4.dp)) {
+        pl.lines.forEach { Text(it, fontSize = 10.5.sp, color = colors.textSecondary, fontWeight = FontWeight.SemiBold, lineHeight = 14.sp) }
+        Spacer(Modifier.height(4.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f).height(5.dp).clip(CircleShape).background(colors.border)) {
+                Box(Modifier.fillMaxWidth(pl.pct / 100f).height(5.dp).clip(CircleShape).background(colors.textPrimary))
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(if (pl.done && pl.pct >= 100) S.titleDone else "${pl.pct}%", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = colors.textPrimary)
+        }
+    }
 }
 
 /** Contoh tampilan untuk title yang belum dimiliki. */
@@ -298,8 +374,8 @@ fun TitlePickerSheet(profile: ChatProfile, onDismiss: () -> Unit, onSaved: (Chat
                         .padding(horizontal = 10.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(Modifier.weight(1f).dimUnlessOwned(owned != null)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Row(Modifier.dimUnlessOwned(owned != null), verticalAlignment = Alignment.CenterVertically) {
                             TitleChip(owned ?: sampleOf(code), compact = true)
                             Spacer(Modifier.width(8.dp))
                             Text(
@@ -308,13 +384,14 @@ fun TitlePickerSheet(profile: ChatProfile, onDismiss: () -> Unit, onSaved: (Chat
                             )
                         }
                         Spacer(Modifier.height(2.dp))
-                        Text(titleHow(code, S), fontSize = 10.sp, color = colors.textMuted, lineHeight = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(titleHow(code, S), fontSize = 10.sp, color = colors.textMuted, lineHeight = 13.sp, maxLines = 5, overflow = TextOverflow.Ellipsis, modifier = Modifier.dimUnlessOwned(owned != null))
                         val note = when {
                             owned == null -> S.titleLocked
                             single -> S.titleOnlyOne
                             else -> null
                         }
                         if (note != null) Text(note, fontSize = 9.5.sp, color = colors.textSecondary, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 2.dp))
+                        progressOf(code, profile.titlesInfo[code], owned != null, S)?.let { ProgressBlock(it) }
                     }
                     Spacer(Modifier.width(8.dp))
                     if (owned != null) {
