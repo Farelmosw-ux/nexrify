@@ -1,0 +1,741 @@
+package id.nexrify.music.data.chat
+
+import android.content.Context
+import id.nexrify.music.data.account.AccountError
+import id.nexrify.music.data.account.AccountManager
+import id.nexrify.music.util.CrashReporter
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONArray
+import org.json.JSONObject
+
+enum class ChatConnection { CONNECTING, ONLINE, OFFLINE }
+
+/** Permintaan membuka Global Chat dari luar (notifikasi HP). seq > 0 berarti sorot pesan itu. */
+object ChatNav {
+    val request = MutableStateFlow<Long?>(null)
+    /** Buka DM dari notifikasi: username lawan bicara, atau string kosong untuk daftar pesan. */
+    val dmRequest = MutableStateFlow<String?>(null)
+    /** Buka profil seseorang di Global Chat (dari notifikasi pengikut baru). */
+    val profileRequest = MutableStateFlow<String?>(null)
+    /** Buka pusat notifikasi (dari notifikasi gabungan). */
+    val notifCenterRequest = MutableStateFlow(false)
+    /** Buka kotak surat (dari notifikasi surat dari pengembang). */
+    val mailboxRequest = MutableStateFlow(false)
+    /** Buka Musik Bareng dari notifikasi undangan: kode ruangan ("-" kalau tidak diketahui). */
+    val mubarRequest = MutableStateFlow<String?>(null)
+}
+
+/**
+ * Mesin Global Chat. Real-time lewat polling pendek ke /api/chat (hemat kuota Upstash gratis):
+ * 3 detik saat ramai, melambat otomatis saat sepi, berhenti total ketika layar chat ditutup.
+ */
+class ChatManager private constructor(private val context: Context) {
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + CrashReporter.handler)
+    val settings = ChatSettings.getInstance()
+
+    private val server = MutableStateFlow<Map<Long, ChatMessage>>(emptyMap())
+    private val pending = MutableStateFlow<List<ChatMessage>>(emptyList())
+    private val pendingData = HashMap<String, Pair<String, Long>>() // localId → (teks asli, seq balasan)
+    private var localCounter = 0L
+
+    /** Daftar pesan siap tampil: urut lama ke baru, pesan dari pengguna yang di-mute disembunyikan. */
+    val messages: StateFlow<List<ChatMessage>> = combine(server, pending, settings.muted, settings.blocked) { s, p, muted, blocked ->
+        s.values.filter { it.announce || (it.username.lowercase() !in muted && it.username.lowercase() !in blocked) }.sortedBy { it.seq } + p
+    }.stateIn(scope, SharingStarted.Eagerly, emptyList())
+
+    private val _typing = MutableStateFlow<List<String>>(emptyList())
+    val typing: StateFlow<List<String>> = _typing.asStateFlow()
+    private val _connection = MutableStateFlow(ChatConnection.CONNECTING)
+    val connection: StateFlow<ChatConnection> = _connection.asStateFlow()
+    private val _loaded = MutableStateFlow(false)
+    /** Sudah pernah berhasil memuat riwayat (membedakan "kosong" dari "belum dimuat"). */
+    val loaded: StateFlow<Boolean> = _loaded.asStateFlow()
+    private val _me = MutableStateFlow<ChatProfile?>(null)
+    val me: StateFlow<ChatProfile?> = _me.asStateFlow()
+    private val _group = MutableStateFlow<ChatGroup?>(null)
+    /** Info grup: nama, foto, jumlah anggota dan yang online. */
+    val group: StateFlow<ChatGroup?> = _group.asStateFlow()
+    private val _members = MutableStateFlow<List<ChatMember>>(emptyList())
+    val members: StateFlow<List<ChatMember>> = _members.asStateFlow()
+    private val _mentionUnread = MutableStateFlow(0)
+    /** Jumlah mention/balasan yang belum dilihat (badge di tombol chat). */
+    val mentionUnread: StateFlow<Int> = _mentionUnread.asStateFlow()
+    private val _events = MutableSharedFlow<ChatEvent>(extraBufferCapacity = 16)
+    val events: SharedFlow<ChatEvent> = _events.asSharedFlow()
+    private val _errors = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    /** Kode kesalahan dari server untuk ditampilkan UI (banned, rate_limited, duplicate, ...). */
+    val errors: SharedFlow<String> = _errors.asSharedFlow()
+
+    @Volatile private var ev = 0L
+    @Volatile private var maxSeen = 0L
+    @Volatile private var firstLoad = true
+    @Volatile var isActive = false
+        private set
+    private var pollJob: Job? = null
+    private val wake = Channel<Unit>(Channel.CONFLATED)
+    private var lastTypingSent = 0L
+    @Volatile private var joinedOnce = false
+
+    private fun token(): String? = AccountManager.getInstance().token()
+    private fun myName(): String = AccountManager.getInstance().user.value?.username.orEmpty()
+    private fun myId(): String = AccountManager.getInstance().user.value?.id.orEmpty()
+
+    /* ---------------- polling ---------------- */
+
+    fun setActive(active: Boolean) {
+        if (active == isActive) return
+        isActive = active
+        if (active) {
+            _mentionUnread.value = 0
+            scope.launch { runCatching { join() }; refreshGroup(); runCatching { refreshMy() }; runCatching { loadMyVotes() }; refreshTitleDir() }
+            pollJob?.cancel()
+            pollJob = scope.launch { pollLoop() }
+        } else {
+            pollJob?.cancel()
+            pollJob = null
+            _typing.value = emptyList()
+        }
+    }
+
+    private fun kick() { wake.trySend(Unit) }
+
+    private suspend fun pollLoop() {
+        var idle = 0
+        var failures = 0
+        var pollCount = 0
+        while (isActive) {
+            val t = token() ?: break
+            var changed = false
+            try {
+                val feed = ChatApi.feed(t, if (firstLoad) 0L else ev)
+                changed = apply(feed)
+                _connection.value = ChatConnection.ONLINE
+                _loaded.value = true
+                failures = 0
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: AccountError) {
+                failures++
+                _connection.value = ChatConnection.OFFLINE
+                if (e.code == "auth") break
+            } catch (e: Throwable) {
+                failures++
+                _connection.value = ChatConnection.OFFLINE
+                CrashReporter.logNonFatal(e)
+            }
+            idle = if (changed) 0 else idle + 1
+            if (++pollCount % 10 == 0) refreshGroup()
+            if (pollCount % 20 == 0) refreshTitleDir()
+            val wait = when {
+                failures > 0 -> minOf(30_000L, 3_000L * failures)
+                idle < 8 -> 3_000L
+                idle < 20 -> 6_000L
+                else -> 10_000L
+            }
+            if (withTimeoutOrNull(wait) { wake.receive() } != null) idle = 0
+        }
+    }
+
+    /** Terapkan hasil polling. Mengembalikan true kalau ada pesan atau pengetik yang berubah. */
+    private fun apply(feed: ChatFeed): Boolean {
+        var changed = feed.messages.isNotEmpty() || feed.typing != _typing.value
+        val me = myName()
+        val newOnes = ArrayList<ChatMessage>()
+        server.update { old ->
+            val map = if (feed.reset) LinkedHashMap<Long, ChatMessage>() else LinkedHashMap(old)
+            for (m in feed.messages) {
+                if (m.seq > maxSeen && !firstLoad) newOnes.add(m)
+                map[m.seq] = m
+            }
+            map
+        }
+        if (feed.messages.isNotEmpty()) maxSeen = maxOf(maxSeen, feed.messages.maxOf { it.seq })
+        ev = feed.ev
+        _seen.value = feed.seen
+        firstLoad = false
+        _typing.value = feed.typing.filter { it.lowercase() !in settings.muted.value && it.lowercase() !in settings.blocked.value }
+        for (m in newOnes) {
+            if (m.username == me || m.deleted || m.username.lowercase() in settings.muted.value || m.username.lowercase() in settings.blocked.value) continue
+            val kind = when {
+                m.announce -> "announce"
+                me.isNotEmpty() && m.mentions.any { it.equals(me, true) } -> "mention"
+                m.reply?.username.equals(me, true) -> "reply"
+                else -> null
+            }
+            if (kind != null) _events.tryEmit(ChatEvent(kind, m))
+        }
+        if (newOnes.isNotEmpty()) changed = true
+        return changed
+    }
+
+    /* ---------------- kirim, edit, hapus, reaksi ---------------- */
+
+    fun send(text: String, replyTo: ChatMessage?) {
+        val clean = text.trim()
+        if (clean.isEmpty()) return
+        val user = AccountManager.getInstance().user.value ?: return
+        localCounter++
+        val localId = "L$localCounter"
+        val shown = ChatFilter.censor(clean.take(CHAT_MAX_LENGTH))
+        val msg = ChatMessage(
+            seq = -localCounter, uid = user.id, username = user.username, display = user.display, badges = _me.value?.badges.orEmpty(),
+            av = _me.value?.av.orEmpty(), text = shown, ts = System.currentTimeMillis(), edited = 0, deleted = false, announce = false,
+            mentions = emptyList(), reply = replyTo?.let { ChatReply(it.seq, it.username, it.text.take(100)) }, reactions = emptyMap(),
+            status = SendStatus.SENDING, localId = localId
+        )
+        pendingData[localId] = clean to (replyTo?.seq ?: 0L)
+        pending.update { it + msg }
+        scope.launch { deliver(localId) }
+    }
+
+    fun retry(localId: String) {
+        pending.update { list -> list.map { if (it.localId == localId) it.copy(status = SendStatus.SENDING) else it } }
+        scope.launch { deliver(localId) }
+    }
+
+    fun discardPending(localId: String) {
+        pendingData.remove(localId)
+        pending.update { list -> list.filterNot { it.localId == localId } }
+    }
+
+    private suspend fun deliver(localId: String) {
+        val (text, replySeq) = pendingData[localId] ?: return
+        val t = token() ?: return
+        try {
+            val body = JSONObject().put("action", "send").put("text", text)
+            if (replySeq > 0) body.put("replyTo", replySeq)
+            val r = ChatApi.post(t, body)
+            val m = ChatApi.parseMessage(r.getJSONObject("message"))
+            pendingData.remove(localId)
+            server.update { it + (m.seq to m) }
+            maxSeen = maxOf(maxSeen, m.seq)
+            pending.update { list -> list.filterNot { it.localId == localId } }
+            kick()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: AccountError) {
+            // Kesalahan permanen dari server (dibatasi, duplikat, kena batas kecepatan): buang, bukan kirim ulang.
+            if (e.code == "chat_banned" || e.code == "duplicate" || e.code == "rate_limited" || e.code == "empty" || e.code == "new_account" || e.code == "mention_spam" || e.code == "spam") {
+                discardPending(localId)
+                _errors.tryEmit(e.code)
+            } else {
+                markFailed(localId)
+            }
+        } catch (e: Throwable) {
+            markFailed(localId)
+        }
+    }
+
+    /** Kirim pesan suara ke Global Chat. Melempar AccountError (mis. vn_forbidden kalau bukan Dev/Admin/Staf). */
+    suspend fun sendVoice(clip: id.nexrify.music.util.VoiceClip, replyTo: ChatMessage?): ChatMessage {
+        val t = token() ?: throw AccountError("auth", "not logged in")
+        val b64 = withContext(Dispatchers.IO) { android.util.Base64.encodeToString(clip.file.readBytes(), android.util.Base64.NO_WRAP) }
+        val body = JSONObject().put("action", "send_voice").put("audio", b64).put("durMs", clip.durMs).put("wave", clip.wave)
+        if (replyTo != null && replyTo.seq > 0) body.put("replyTo", replyTo.seq)
+        val r = ChatApi.post(t, body)
+        val m = ChatApi.parseMessage(r.getJSONObject("message"))
+        server.update { it + (m.seq to m) }
+        maxSeen = maxOf(maxSeen, m.seq)
+        kick()
+        runCatching { clip.file.delete() }
+        return m
+    }
+
+    private fun markFailed(localId: String) {
+        pending.update { list -> list.map { if (it.localId == localId) it.copy(status = SendStatus.FAILED) else it } }
+    }
+
+    suspend fun edit(seq: Long, text: String): Boolean = simple(JSONObject().put("action", "edit").put("seq", seq).put("text", text.trim()), true)
+
+    suspend fun delete(seq: Long): Boolean {
+        val ok = simple(JSONObject().put("action", "delete").put("seq", seq), false)
+        if (ok) server.update { map ->
+            val m = map[seq] ?: return@update map
+            map + (seq to m.copy(deleted = true, text = "", reactions = emptyMap()))
+        }
+        return ok
+    }
+
+    suspend fun report(seq: Long, reason: String): Boolean = simple(JSONObject().put("action", "report").put("seq", seq).put("reason", reason), false)
+
+    /** Reaksi: tampil langsung (optimistis), lalu disamakan dengan jawaban server. */
+    fun react(seq: Long, emoji: String) {
+        val uid = myId()
+        server.update { map ->
+            val m = map[seq] ?: return@update map
+            val had = m.reactions[emoji].orEmpty().contains(uid)
+            val rx = LinkedHashMap<String, List<String>>()
+            for ((e, list) in m.reactions) { val l = list.filter { it != uid }; if (l.isNotEmpty()) rx[e] = l }
+            if (!had) rx[emoji] = rx[emoji].orEmpty() + uid
+            map + (seq to m.copy(reactions = rx))
+        }
+        scope.launch {
+            val t = token() ?: return@launch
+            try {
+                val r = ChatApi.post(t, JSONObject().put("action", "react").put("seq", seq).put("emoji", emoji))
+                val m = ChatApi.parseMessage(r.getJSONObject("message"))
+                server.update { it + (m.seq to m) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                kick()
+            }
+        }
+    }
+
+    private suspend fun simple(body: JSONObject, merge: Boolean): Boolean {
+        val t = token() ?: return false
+        return try {
+            val r = ChatApi.post(t, body)
+            if (merge) r.optJSONObject("message")?.let { val m = ChatApi.parseMessage(it); server.update { map -> map + (m.seq to m) } }
+            kick()
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: AccountError) {
+            _errors.tryEmit(e.code)
+            false
+        } catch (e: Throwable) {
+            _errors.tryEmit("network")
+            false
+        }
+    }
+
+    /** Dipanggil saat pengguna mengetik. Dibatasi sekali tiap 3 detik. */
+    fun notifyTyping() {
+        val now = System.currentTimeMillis()
+        if (now - lastTypingSent < 3000) return
+        lastTypingSent = now
+        scope.launch { runCatching { token()?.let { ChatApi.post(it, JSONObject().put("action", "typing")) } } }
+    }
+
+    /* ---------------- info grup dan anggota ---------------- */
+
+    suspend fun refreshGroup() {
+        val t = token() ?: return
+        try { _group.value = ChatApi.group(t) } catch (e: CancellationException) { throw e } catch (_: Throwable) {}
+    }
+
+    suspend fun refreshMembers() {
+        val t = token() ?: return
+        try { _members.value = ChatApi.members(t) } catch (e: CancellationException) { throw e } catch (_: Throwable) {}
+    }
+
+    /** Hanya admin dan staf. Nilai null = tidak diubah. photo "" = hapus foto. */
+    suspend fun updateGroup(name: String?, desc: String?, photoDataUrl: String?): Boolean {
+        val t = token() ?: return false
+        return try {
+            val body = JSONObject().put("action", "group_update")
+            if (name != null) body.put("name", name)
+            if (desc != null) body.put("desc", desc)
+            if (photoDataUrl != null) body.put("photo", photoDataUrl)
+            _group.value = ChatApi.parseGroup(ChatApi.post(t, body).getJSONObject("group"))
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: AccountError) {
+            _errors.tryEmit(e.code)
+            false
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /* ---------------- profil dan pencarian ---------------- */
+
+    suspend fun join(): ChatProfile? {
+        val t = token() ?: return null
+        val r = ChatApi.post(t, JSONObject().put("action", "join"))
+        val p = ChatApi.parseProfile(r.getJSONObject("profile"))
+        _me.value = p
+        return p
+    }
+
+    suspend fun profile(username: String): ChatProfile? {
+        val t = token() ?: return null
+        return try { ChatApi.profile(t, username) } catch (e: CancellationException) { throw e } catch (e: Throwable) { null }
+    }
+
+    suspend fun searchUsers(prefix: String): List<ChatUserHit> {
+        val t = token() ?: return emptyList()
+        return try { ChatApi.users(t, prefix) } catch (e: CancellationException) { throw e } catch (e: Throwable) { emptyList() }
+    }
+
+    suspend fun updateProfile(bio: String, status: String): Boolean {
+        val t = token() ?: return false
+        return try {
+            val r = ChatApi.post(t, JSONObject().put("action", "profile_update").put("bio", bio).put("status", status))
+            _me.value = ChatApi.parseProfile(r.getJSONObject("profile"))
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            false
+        }
+    }
+
+    /** Kirim statistik lokal (lagu disukai, playlist, lagu sering diputar) supaya tampil di profil. */
+    fun pushStats(liked: Int, playlists: Int, top: List<ChatTopTrack>) {
+        scope.launch {
+            val t = token() ?: return@launch
+            runCatching {
+                val arr = JSONArray()
+                top.take(5).forEach { arr.put(JSONObject().put("t", it.title).put("a", it.artist)) }
+                ChatApi.post(t, JSONObject().put("action", "stats").put("liked", liked).put("playlists", playlists).put("top", arr))
+            }
+        }
+    }
+
+
+    /* ================= title (pendengar terlama, top streak, kreator) ================= */
+
+    private val _titleDir = MutableStateFlow<Map<String, List<ProfileTitle>>>(emptyMap())
+    /** Title khusus per username (huruf kecil), dipakai untuk menampilkan title di samping nama pesan. */
+    val titleDir: StateFlow<Map<String, List<ProfileTitle>>> = _titleDir.asStateFlow()
+
+    fun refreshTitleDir() {
+        scope.launch {
+            val t = token() ?: return@launch
+            runCatching { _titleDir.value = ChatApi.titleDirectory(t) }
+        }
+    }
+
+    private var heartbeatJob: Job? = null
+
+    /**
+     * Dipanggil MainActivity: true saat aplikasi terlihat di layar, false saat keluar dari aplikasi.
+     * Selama terlihat, server dikabari tiap 45 detik supaya waktu "bertahan di Nexrify" terhitung.
+     * Keluar dari aplikasi mengakhiri sesi, jadi hitungannya mulai dari 0 lagi.
+     */
+    fun appForeground(visible: Boolean) {
+        if (visible) {
+            if (heartbeatJob?.isActive == true) return
+            heartbeatJob = scope.launch {
+                while (true) {
+                    val t = token()
+                    if (t != null) {
+                        val streak = id.nexrify.music.data.streak.StreakManager.getInstance(context).info.value.count
+                        runCatching { ChatApi.post(t, JSONObject().put("action", "ping").put("streak", streak)) }
+                    }
+                    kotlinx.coroutines.delay(45_000L)
+                }
+            }
+        } else {
+            heartbeatJob?.cancel()
+            heartbeatJob = null
+            scope.launch {
+                val t = token() ?: return@launch
+                runCatching { ChatApi.post(t, JSONObject().put("action", "session_end")) }
+            }
+        }
+    }
+
+    /** Lapor waktu mendengarkan lagu ke server. step: start | tick | stop. Server menghitung selisih waktunya sendiri. */
+    fun listenReport(step: String) {
+        scope.launch {
+            val t = token() ?: return@launch
+            runCatching { ChatApi.post(t, JSONObject().put("action", "listen").put("step", step)) }
+        }
+    }
+
+    /** Simpan title yang dipasang (maks 3). Mengembalikan profil terbaru, atau melempar AccountError dari server. */
+    suspend fun setTitles(codes: List<String>): ChatProfile {
+        val t = needToken()
+        val arr = JSONArray(); codes.forEach { arr.put(it) }
+        val r = ChatApi.post(t, JSONObject().put("action", "titles_set").put("codes", arr))
+        val p = ChatApi.parseProfile(r.getJSONObject("profile"))
+        _me.value = p
+        refreshTitleDir()
+        return p
+    }
+
+    /** Ajukan verifikasi Konten Kreator. Melempar AccountError (code: link, name, contact, agree, pending, already, rate_limited). */
+    suspend fun applyCreator(f: CreatorForm): ChatProfile {
+        val t = needToken()
+        val links = JSONArray(); f.links.forEach { links.put(it) }
+        val r = ChatApi.post(
+            t,
+            JSONObject().put("action", "creator_apply").put("links", links).put("channelName", f.channelName)
+                .put("whatsapp", f.whatsapp).put("followers", f.followers).put("content", f.content).put("note", f.note).put("agree", f.agree)
+        )
+        val p = ChatApi.parseProfile(r.getJSONObject("profile"))
+        _me.value = p
+        return p
+    }
+
+    /* ================= sosial: ikuti, teman, background profil ================= */
+
+    private suspend fun socialPost(body: JSONObject): ChatProfile {
+        val t = needToken()
+        val r = ChatApi.post(t, body)
+        val p = ChatApi.parseProfile(r.getJSONObject("profile"))
+        if (p.uid == _me.value?.uid) _me.value = p
+        return p
+    }
+
+    /** Ikuti pengguna. Melempar AccountError (code: blocked, rate_limited, not_found, self). Mengembalikan profil target terbaru. */
+    suspend fun follow(username: String): ChatProfile = socialPost(JSONObject().put("action", "follow").put("username", username))
+
+    suspend fun unfollow(username: String): ChatProfile = socialPost(JSONObject().put("action", "unfollow").put("username", username))
+
+    suspend fun setCover(dataUrl: String): ChatProfile = socialPost(JSONObject().put("action", "cover_set").put("image", dataUrl))
+
+    suspend fun clearCover(): ChatProfile = socialPost(JSONObject().put("action", "cover_clear"))
+
+    suspend fun followPage(username: String, kind: String, cursor: Int): FollowPage? {
+        val t = token() ?: return null
+        return try { ChatApi.follows(t, username, kind, cursor) } catch (e: CancellationException) { throw e } catch (e: Throwable) { null }
+    }
+
+    /** Dipakai untuk menyarankan @mention: pengguna yang baru bicara di chat, terbaru dulu. */
+    fun recentParticipants(limit: Int = 30): List<ChatUserHit> =
+        server.value.values.sortedByDescending { it.seq }
+            .filter { !it.announce }
+            .distinctBy { it.username }
+            .take(limit)
+            .map { ChatUserHit(it.username, it.uid, it.display) }
+
+    fun findMessage(seq: Long): ChatMessage? = server.value[seq]
+
+    /* ================= fitur chat lanjutan ================= */
+
+    private fun needToken(): String = token() ?: throw AccountError("auth", "Belum masuk")
+
+    // ---- status baca: "Tersampaikan" (belum ada yang melihat) dan "Dibaca N" ----
+    private val _seen = MutableStateFlow<List<ChatSeen>>(emptyList())
+    val seen: StateFlow<List<ChatSeen>> = _seen.asStateFlow()
+    private var lastSeenSent = 0L
+    private var lastSeenSentAt = 0L
+
+    /** Lapor ke server bahwa kita sudah melihat pesan sampai seq ini. Dibatasi sekali tiap 4 detik. */
+    fun reportSeen(seq: Long) {
+        val now = System.currentTimeMillis()
+        if (seq <= lastSeenSent || now - lastSeenSentAt < 4000) return
+        lastSeenSent = seq
+        lastSeenSentAt = now
+        scope.launch { runCatching { token()?.let { ChatXApi.seen(it, seq) } } }
+    }
+
+    // ---- terjemah ----
+    private val _translated = MutableStateFlow<Map<Long, String>>(emptyMap())
+    /** seq → teks terjemahan yang sedang ditampilkan di bawah pesan. */
+    val translated: StateFlow<Map<Long, String>> = _translated.asStateFlow()
+
+    private val _translatedLang = MutableStateFlow<Map<Long, String>>(emptyMap())
+    /** seq → bahasa terjemahan yang sedang tampil ("id" atau "en"). Dipakai tombol terjemah tunggal. */
+    val translatedLang: StateFlow<Map<Long, String>> = _translatedLang.asStateFlow()
+
+    suspend fun translate(seq: Long, to: String) {
+        val text = ChatXApi.translate(needToken(), seq, to)
+        _translated.update { it + (seq to text) }
+        _translatedLang.update { it + (seq to to) }
+    }
+
+    fun hideTranslation(seq: Long) {
+        _translated.update { it - seq }
+        _translatedLang.update { it - seq }
+    }
+
+    // ---- polling ----
+    private val _myVotes = MutableStateFlow<Map<Long, Int>>(emptyMap())
+    val myVotes: StateFlow<Map<Long, Int>> = _myVotes.asStateFlow()
+
+    suspend fun loadMyVotes() { _myVotes.value = ChatXApi.myVotes(needToken()) }
+
+    suspend fun vote(seq: Long, index: Int) {
+        val m = ChatXApi.pollVote(needToken(), seq, index)
+        server.update { it + (m.seq to m) }
+        _myVotes.update { it + (seq to index) }
+    }
+
+    suspend fun createPoll(question: String, options: List<String>, hours: Int) {
+        val m = ChatXApi.pollCreate(needToken(), question, options, hours)
+        server.update { it + (m.seq to m) }
+        maxSeen = maxOf(maxSeen, m.seq)
+        kick()
+    }
+
+    suspend fun closePoll(seq: Long) {
+        val m = ChatXApi.pollClose(needToken(), seq)
+        server.update { it + (m.seq to m) }
+    }
+
+    // ---- pesan sematan ----
+    suspend fun pin(seq: Long, on: Boolean) {
+        val m = ChatXApi.pin(needToken(), seq, on)
+        server.update { it + (m.seq to m) }
+        refreshGroup()
+    }
+
+    // ---- pencarian, thread, daftar reaksi ----
+    suspend fun searchMessages(q: String, user: String, from: Long, to: Long): List<ChatMessage> =
+        ChatXApi.search(needToken(), q, user, from, to)
+
+    suspend fun thread(seq: Long): ChatThread = ChatXApi.thread(needToken(), seq)
+
+    suspend fun reactors(seq: Long): List<ReactionGroup> = ChatXApi.reactors(needToken(), seq)
+
+    // ---- privasi dan blokir ----
+    private val _my = MutableStateFlow<ChatMyData?>(null)
+    val my: StateFlow<ChatMyData?> = _my.asStateFlow()
+
+    private fun applyMy(d: ChatMyData) {
+        _my.value = d
+        settings.setBlocked(d.blocked.map { it.username.lowercase() }.toSet())
+    }
+
+    suspend fun refreshMy() { applyMy(ChatXApi.myChat(needToken())) }
+
+    suspend fun setPrivacy(p: ChatPrivacy) { applyMy(ChatXApi.setPrivacy(needToken(), p)) }
+
+    suspend fun block(username: String, on: Boolean) { applyMy(ChatXApi.block(needToken(), username, on)) }
+
+    // ---- moderasi (admin dan staf) ----
+    suspend fun modDelete(seq: Long) {
+        ChatXApi.modDelete(needToken(), seq)
+        server.update { map ->
+            val m = map[seq] ?: return@update map
+            map + (seq to m.copy(deleted = true, text = "", reactions = emptyMap(), poll = null, pinned = false))
+        }
+    }
+
+    suspend fun modWarn(username: String, reason: String): Int = ChatXApi.modWarn(needToken(), username, reason)
+    suspend fun modMute(username: String, hours: Int) { ChatXApi.modMute(needToken(), username, hours) }
+    suspend fun modUnmute(username: String) { ChatXApi.modUnmute(needToken(), username) }
+    suspend fun modReports(): List<ModReport> = ChatXApi.modReports(needToken())
+    suspend fun modReportClear(id: String) { ChatXApi.modReportClear(needToken(), id) }
+
+    /* ---------------- notifikasi HP ---------------- */
+
+    /**
+     * Dipanggil berkala (loop di Application). Mengambil mention, balasan, reaksi, dan pengumuman baru lalu menampilkannya
+     * sebagai notifikasi HP, satu notifikasi per jenis tiap putaran supaya tidak spam. Tidak menampilkan apa pun saat Global Chat
+     * sedang dibuka (di sana sudah ada indikator langsung).
+     */
+    suspend fun checkNotifications() {
+        val t = token() ?: return
+        if (!joinedOnce) { joinedOnce = true; runCatching { join() } }
+        val since = settings.lastNotifTs
+        val (now, items) = ChatApi.notifs(t, since)
+        settings.lastNotifTs = now
+        if (since == 0L) return // pertama kali: jangan banjiri dengan riwayat lama
+        if (items.isEmpty() && pendingFallback.isEmpty()) return
+        val me = myName()
+        val muted = settings.muted.value
+        val dms = DmManager.getInstance()
+        val openDm = dms.openUsername()
+        val relevant = items.filter { (it.from.lowercase() !in muted && it.from.lowercase() !in settings.blocked.value && !it.from.equals(me, true)) || it.kind == "a" || it.kind == "w" || it.kind == "R" }
+        _mentionUnread.update { it + relevant.count { n -> n.kind == "m" || n.kind == "r" } }
+        // Riwayat untuk pusat notifikasi (DM belum punya layar, jadi tidak dicatat).
+        runCatching { id.nexrify.music.data.notif.NotifCenter.getInstance().add(relevant.filter { it.kind != "d" }) }
+        dms.refreshInbox()
+        // Peran berubah (diangkat/dicopot jadi admin, staf, developer): segarkan profil supaya fitur moderasi dan badge langsung menyesuaikan.
+        if (items.any { it.kind == "R" }) runCatching { join() }
+        if (!settings.notifAll.value) return
+        val allowed = relevant.filter {
+            when (it.kind) {
+                "m" -> settings.notifMention.value && !isActive
+                "r" -> settings.notifReply.value && !isActive
+                "x" -> settings.notifReaction.value && !isActive
+                "a" -> settings.notifAnnounce.value && !isActive
+                "d" -> settings.notifDm.value && !it.from.equals(openDm, true)
+                "f", "F" -> settings.notifFollow.value
+                "w", "R" -> true
+                else -> false
+            }
+        }
+        // Push FCM aktif bukan jaminan notifikasi sampai (izin/baterai HP, FCM telat, server gagal kirim). Jadi pengecekan ini
+        // tetap jadi cadangan: item ditampilkan lokal kecuali push-nya jelas sudah tampil di bar notifikasi.
+        if (id.nexrify.music.push.PushManager.isActive()) {
+            val shown = shownPushTags()
+            val candidates = pendingFallback + allowed
+            pendingFallback = emptyList()
+            val fallback = candidates.filter { n ->
+                // Beri push waktu 20 detik untuk tiba sebelum dianggap gagal (jam server dipakai di kedua sisi).
+                // Yang masih terlalu baru ditunda ke putaran berikutnya, bukan dibuang.
+                if (now - n.ts < 20_000L) { pendingFallback = pendingFallback + n; return@filter false }
+                val tag = when (n.kind) {
+                    "f", "F" -> n.kind + "_" + n.text.substringBefore('|')
+                    "m", "r", "x", "a" -> n.kind + "_" + n.seq
+                    else -> n.kind
+                }
+                tag !in shown && (n.kind != "d" || shown.none { it.startsWith("d_") })
+            }
+            if (fallback.isNotEmpty()) ChatNotifier.show(context, fallback)
+            return
+        }
+        ChatNotifier.show(context, allowed)
+    }
+
+    @Volatile private var pendingFallback: List<ChatNotif> = emptyList()
+
+    private val kick = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
+
+    /** Cek notifikasi sekarang juga (dipanggil saat aplikasi dibuka kembali atau push masuk). */
+    fun pollNow() { kick.trySend(Unit) }
+
+    /**
+     * Tunggu putaran berikutnya: 10 detik saat aplikasi terlihat (hampir realtime), 2 menit saat di latar belakang
+     * (di sana push FCM yang membawa notifikasi seketika). Bisa dibangunkan lebih awal lewat [pollNow].
+     */
+    suspend fun awaitNextNotifCheck() {
+        val ms = if (id.nexrify.music.capsule.AppVisibility.inForeground) 10_000L else 120_000L
+        kotlinx.coroutines.withTimeoutOrNull(ms) { kick.receive() }
+    }
+
+    /** Tag notifikasi push FCM yang sedang tampil di bar notifikasi (server memberi tag m, r, x, a, w, d_<uid>, f_<uid>, F_<uid>). */
+    private fun shownPushTags(): Set<String> = try {
+        context.getSystemService(android.app.NotificationManager::class.java).activeNotifications.mapNotNull { it.tag }.toSet()
+    } catch (_: Throwable) { emptySet() }
+
+    /**
+     * Pesan push FCM diterima saat proses aplikasi hidup. Aturannya sama dengan pengecekan berkala (pengaturan notifikasi,
+     * mute, blokir, chat sedang dibuka). Pusat notifikasi dan lencana diisi pengecekan berkala yang dijalankan sesudahnya.
+     */
+    suspend fun onPush(n: ChatNotif) {
+        if (n.kind == "R") runCatching { join() }
+        if (!settings.notifAll.value) return
+        val from = n.from.lowercase()
+        if (n.kind != "a" && n.kind != "w" && n.kind != "R" && (from in settings.muted.value || from in settings.blocked.value || n.from.equals(myName(), true))) return
+        val allowed = when (n.kind) {
+            "m" -> settings.notifMention.value && !isActive
+            "r" -> settings.notifReply.value && !isActive
+            "x" -> settings.notifReaction.value && !isActive
+            "a" -> settings.notifAnnounce.value && !isActive
+            "d" -> settings.notifDm.value && !n.from.equals(DmManager.getInstance().openUsername(), true)
+            "f", "F" -> settings.notifFollow.value
+            "w", "R" -> true
+            else -> false
+        }
+        if (allowed) ChatNotifier.show(context, listOf(n))
+        scope.launch { runCatching { checkNotifications() } }
+    }
+
+    companion object {
+        @Volatile private var instance: ChatManager? = null
+        fun init(context: Context): ChatManager {
+            ChatSettings.init(context)
+            return instance ?: synchronized(this) { instance ?: ChatManager(context.applicationContext).also { instance = it } }
+        }
+        fun getInstance(): ChatManager = instance ?: throw IllegalStateException("ChatManager belum diinisialisasi")
+    }
+}
