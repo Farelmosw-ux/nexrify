@@ -77,7 +77,7 @@ fun rememberMicPermission(onGranted: () -> Unit): () -> Unit {
     val context = LocalContext.current
     val latest by rememberUpdatedState(onGranted)
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) latest() else NexNotifier.warning(S.callMicNeeded, S.callTitle)
+        if (granted) latest() else NexNotifier.warning(currentStrings().callMicNeeded, currentStrings().callTitle)
     }
     return {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) latest()
@@ -100,7 +100,7 @@ fun CallOverlay() {
     val answer = rememberMicPermission { cm.accept() }
 
     LaunchedEffect(phase) { if (phase == CallPhase.IDLE || phase == CallPhase.INCOMING) minimized = false }
-    LaunchedEffect(Unit) { cm.errors.collect { code -> NexNotifier.warning(callErrText(code), S.callTitle) } }
+    LaunchedEffect(Unit) { cm.errors.collect { code -> NexNotifier.warning(callErrText(code), currentStrings().callTitle) } }
 
     val p = peer
     if (phase == CallPhase.IDLE || p == null) return
