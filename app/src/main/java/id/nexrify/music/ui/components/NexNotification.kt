@@ -29,6 +29,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -132,7 +134,7 @@ fun NexNotificationHost() {
     val current = shown ?: return
     val density = LocalDensity.current
     // Tampil di bagian atas (di bawah status bar) supaya tidak menutupi pesan, kolom kirim, mini player, maupun bilah navigasi.
-    val topOffset = with(density) { (androidx.compose.foundation.layout.WindowInsets.statusBars.getTop(density) + 10.dp.roundToPx()) }
+    val topOffset = with(density) { (WindowInsets.statusBars.getTop(density) + 10.dp.roundToPx()) }
     val positionProvider = remember(topOffset) {
         object : PopupPositionProvider {
             override fun calculatePosition(
