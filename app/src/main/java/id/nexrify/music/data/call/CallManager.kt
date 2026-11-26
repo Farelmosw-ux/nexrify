@@ -276,12 +276,15 @@ class CallManager private constructor(private val context: Context) {
     private suspend fun poll(t: String) {
         var since = 0
         var fails = 0
+        var lastCode = "network"
         var answered = !isCaller
         while (_phase.value != CallPhase.IDLE) {
             val id = callId ?: return
             flushIce(t, id)
+            var ok = false
             try {
                 val r = ChatApi.get(t, mapOf("call" to id, "since" to since.toString()))
+                ok = true
                 fails = 0
                 if (r.optString("state") == "ended") { finishRemote(r.optString("why")); return }
                 if (!answered) {
@@ -300,14 +303,25 @@ class CallManager private constructor(private val context: Context) {
             } catch (e: AccountError) {
                 if (e.code == "not_found") { finishRemote("ended"); return }
                 fails++
+                lastCode = e.code
                 lastDetail = "poll ${e.code}: ${e.message}"
-                if (fails >= 8) { fail("network"); return }
             } catch (e: Throwable) {
                 fails++
+                lastCode = "network"
                 lastDetail = "poll ${e.javaClass.simpleName}: ${e.message}"
-                if (fails >= 8) { fail("network"); return }
             }
-            delay(if (_phase.value == CallPhase.ACTIVE) 2000L else 1000L)
+            if (!ok) {
+                // Audio mengalir langsung antar perangkat (WebRTC), jadi saat panggilan sudah berlangsung
+                // gangguan server sesaat tidak boleh memutus panggilan; cukup coba lagi pelan-pelan.
+                // Saat masih menyambung beri kesempatan lebih lama (kira-kira 40 detik) sebelum menyerah.
+                if (_phase.value != CallPhase.ACTIVE && fails >= 25) {
+                    fail(if (lastCode == "network") "network" else "call_server")
+                    return
+                }
+                delay(minOf(1000L + fails * 500L, 5000L))
+            } else {
+                delay(if (_phase.value == CallPhase.ACTIVE) 2000L else 1000L)
+            }
         }
     }
 
