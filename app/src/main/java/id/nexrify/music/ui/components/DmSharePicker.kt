@@ -28,18 +28,22 @@ import androidx.compose.ui.unit.sp
 import id.nexrify.music.data.chat.DmConversation
 import id.nexrify.music.data.chat.DmManager
 import id.nexrify.music.i18n.S
+import id.nexrify.music.i18n.currentStrings
 import id.nexrify.music.ui.theme.NexrifyAppTheme
 import kotlinx.coroutines.launch
 
-private fun shareErrText(code: String): String = when (code) {
-    "dm_blocked" -> S.dmErrBlocked
-    "dm_you_blocked" -> S.dmErrYouBlocked
-    "dm_pending" -> S.dmErrPending
-    "dm_declined" -> S.dmErrDeclined
-    "chat_banned" -> S.dmBannedErr
-    "rate_limited" -> S.dmSlowDown
-    "network" -> S.dmNoNetworkErr
-    else -> S.dmGenericErr
+private fun shareErrText(code: String): String {
+    val s = currentStrings()
+    return when (code) {
+        "dm_blocked" -> s.dmErrBlocked
+        "dm_you_blocked" -> s.dmErrYouBlocked
+        "dm_pending" -> s.dmErrPending
+        "dm_declined" -> s.dmErrDeclined
+        "chat_banned" -> s.dmBannedErr
+        "rate_limited" -> s.dmSlowDown
+        "network" -> s.dmNoNetworkErr
+        else -> s.dmGenericErr
+    }
 }
 
 /**
