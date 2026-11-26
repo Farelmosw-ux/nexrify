@@ -78,6 +78,7 @@ fun callErrText(code: String): String {
         "call_declined" -> s.callDeclined
         "call_unanswered" -> s.callUnanswered
         "call_failed" -> s.callErrFailed
+        "call_server" -> s.callErrServer
         "network" -> s.dmNoNetworkErr
         "rate_limited" -> s.dmSlowDown
         "chat_banned" -> s.dmBannedErr
