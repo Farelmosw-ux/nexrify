@@ -1,6 +1,7 @@
 package id.nexrify.music.ui.screens
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.horizontalScroll
 
 import id.nexrify.music.ui.components.NexFooter
 import id.nexrify.music.ui.components.PullToRefreshBox
@@ -195,38 +196,52 @@ fun HomeScreen(
             )
         } else {
         // Greeting mengikuti jam lokal perangkat (zona waktu wilayah otomatis).
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val timeContext = id.nexrify.music.data.settings.TimeContext.resolve(localNow, maghribTime)
-            val greeting = S.period(timeContext.period)
-            val description = if (S.english) timeContext.descriptionEn else timeContext.descriptionId
-            Column(modifier = Modifier.weight(1f)) {
-                Text(greeting, style = Typography.headlineLarge.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary)
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(description, style = Typography.bodyLarge, color = colors.textMuted)
-                if (maghribStatus == id.nexrify.music.data.prayer.MaghribManager.Status.NO_PERMISSION &&
-                    localNow.hour in 16..18
-                ) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(S.maghribHomeHint, style = Typography.bodySmall, color = colors.textSecondary)
+        // Salam di baris sendiri (lebar penuh) dan tombol di baris di bawahnya yang bisa digeser, jadi
+        // di HP sempit / dpi tinggi / font besar teks tidak lagi terjepit menjadi satu huruf per baris.
+        val timeContext = id.nexrify.music.data.settings.TimeContext.resolve(localNow, maghribTime)
+        val greeting = S.period(timeContext.period)
+        val description = if (S.english) timeContext.descriptionEn else timeContext.descriptionId
+        val unreadMail by id.nexrify.music.data.mailbox.MailboxManager.getInstance().unreadCount.collectAsState()
+        val chatUnread by id.nexrify.music.data.chat.ChatManager.getInstance().mentionUnread.collectAsState()
+        val notifUnread by id.nexrify.music.data.notif.NotifCenter.getInstance().unread.collectAsState()
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val wide = maxWidth >= 620.dp
+            @Composable
+            fun Buttons(mod: Modifier) {
+                Row(mod, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    StreakChip(streak, onClick = { showStreak = true })
+                    ChatTopButton(unread = chatUnread, onClick = onOpenChat)
+                    NotifTopButton(unread = notifUnread, onClick = onOpenNotifications)
+                    DmTopButton(onClick = onOpenDm)
+                    MailboxTopButton(unread = unreadMail, onClick = onOpenMailbox)
+                    AccountTopButton(account = currentAccount, onClick = { showProfileMenu = true })
                 }
             }
-            val unreadMail by id.nexrify.music.data.mailbox.MailboxManager.getInstance().unreadCount.collectAsState()
-            val chatUnread by id.nexrify.music.data.chat.ChatManager.getInstance().mentionUnread.collectAsState()
-            StreakChip(streak, onClick = { showStreak = true })
-            Spacer(modifier = Modifier.width(10.dp))
-            ChatTopButton(unread = chatUnread, onClick = onOpenChat)
-            Spacer(modifier = Modifier.width(10.dp))
-            val notifUnread by id.nexrify.music.data.notif.NotifCenter.getInstance().unread.collectAsState()
-            NotifTopButton(unread = notifUnread, onClick = onOpenNotifications)
-            Spacer(modifier = Modifier.width(10.dp))
-            DmTopButton(onClick = onOpenDm)
-            Spacer(modifier = Modifier.width(10.dp))
-            MailboxTopButton(unread = unreadMail, onClick = onOpenMailbox)
-            Spacer(modifier = Modifier.width(10.dp))
-            AccountTopButton(account = currentAccount, onClick = { showProfileMenu = true })
+            @Composable
+            fun Greeting(mod: Modifier) {
+                Column(mod) {
+                    Text(greeting, style = Typography.headlineLarge.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(description, style = Typography.bodyLarge, color = colors.textMuted)
+                    if (maghribStatus == id.nexrify.music.data.prayer.MaghribManager.Status.NO_PERMISSION && localNow.hour in 16..18) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(S.maghribHomeHint, style = Typography.bodySmall, color = colors.textSecondary)
+                    }
+                }
+            }
+            if (wide) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Greeting(Modifier.weight(1f))
+                    Spacer(Modifier.width(10.dp))
+                    Buttons(Modifier)
+                }
+            } else {
+                Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                    Greeting(Modifier.fillMaxWidth().padding(horizontal = 20.dp))
+                    Spacer(Modifier.height(10.dp))
+                    Buttons(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = 20.dp))
+                }
+            }
         }
 
         }
@@ -1147,37 +1162,53 @@ private fun V2UtilityBar(
 ) {
     val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
     val shape = RoundedCornerShape(30.dp)
-    Row(
+    androidx.compose.foundation.layout.BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .clip(shape)
             .background(colors.surface)
             .border(1.dp, colors.border, shape)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
     ) {
-        AccountTopButton(account = account, onClick = onProfile)
-        Spacer(modifier = Modifier.width(10.dp))
-        Text("Nexrify", style = Typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary, maxLines = 1, softWrap = false, modifier = Modifier.weight(1f))
-        StreakChip(streak, onClick = onStreak)
-        Spacer(modifier = Modifier.width(8.dp))
-        ChatTopButton(unread = chatUnread, onClick = onChat)
-        Spacer(modifier = Modifier.width(8.dp))
-        NotifTopButton(unread = notifUnread, onClick = onNotifs)
-        Spacer(modifier = Modifier.width(8.dp))
-        MailboxTopButton(unread = mailUnread, onClick = onMail)
-        Spacer(modifier = Modifier.width(8.dp))
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(colors.card)
-                .border(1.dp, colors.border, CircleShape)
-                .clickable(onClick = onSettings),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(NexIcons.Settings, contentDescription = S.cd("Settings"), tint = colors.textPrimary, modifier = Modifier.size(20.dp))
+        // 40 avatar + 60 chip + 4 tombol x 40 + 6 celah x 8 + padding 20 = sekitar 330dp; judul hanya muncul kalau muat.
+        val roomForTitle = maxWidth >= 400.dp
+        val items: @Composable () -> Unit = {
+            StreakChip(streak, onClick = onStreak)
+            Spacer(modifier = Modifier.width(8.dp))
+            ChatTopButton(unread = chatUnread, onClick = onChat)
+            Spacer(modifier = Modifier.width(8.dp))
+            NotifTopButton(unread = notifUnread, onClick = onNotifs)
+            Spacer(modifier = Modifier.width(8.dp))
+            MailboxTopButton(unread = mailUnread, onClick = onMail)
+            Spacer(modifier = Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(colors.card)
+                    .border(1.dp, colors.border, CircleShape)
+                    .clickable(onClick = onSettings),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(NexIcons.Settings, contentDescription = S.cd("Settings"), tint = colors.textPrimary, modifier = Modifier.size(20.dp))
+            }
+        }
+        if (roomForTitle) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                AccountTopButton(account = account, onClick = onProfile)
+                Spacer(modifier = Modifier.width(10.dp))
+                Text("Nexrify", style = Typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary, maxLines = 1, softWrap = false, modifier = Modifier.weight(1f))
+                items()
+            }
+        } else {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                AccountTopButton(account = account, onClick = onProfile)
+                Spacer(modifier = Modifier.width(10.dp))
+                items()
+            }
         }
     }
 }
