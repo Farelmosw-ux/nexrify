@@ -82,8 +82,8 @@ fun DmSharePicker(onSend: suspend (DmConversation) -> String?, onDismiss: () -> 
                                 onDismiss()
                                 scope.launch {
                                     val err = onSend(c)
-                                    if (err == null) NexNotifier.success(S.dmShareSent(name), S.dmTitle)
-                                    else NexNotifier.warning(shareErrText(err), S.dmTitle)
+                                    if (err == null) NexNotifier.success(currentStrings().dmShareSent(name), currentStrings().dmTitle)
+                                    else NexNotifier.warning(shareErrText(err), currentStrings().dmTitle)
                                 }
                             }.padding(vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
