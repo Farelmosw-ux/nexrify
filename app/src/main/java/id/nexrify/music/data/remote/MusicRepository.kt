@@ -69,7 +69,7 @@ class MusicRepository {
     }
 
     private val streamUrlCache = LruCache<String, Pair<ResolvedStream, Long>>(50)
-    private val CACHE_EXPIRY_MS = 3 * 60 * 60 * 1000L
+    private val CACHE_EXPIRY_MS = 100 * 60 * 1000L
 
     private var homeCache: Pair<List<HomeSection>, Long>? = null
     private val HOME_CACHE_TTL = 10 * 60 * 1000L // 10 minutes
