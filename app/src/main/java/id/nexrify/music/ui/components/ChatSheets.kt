@@ -384,7 +384,8 @@ fun ChatProfileSheet(
     onMention: (String) -> Unit,
     onToggleMute: () -> Unit,
     onDismiss: () -> Unit,
-    showActions: Boolean = true
+    showActions: Boolean = true,
+    showMention: Boolean = true
 ) {
     val colors = NexrifyAppTheme.colors
     val manager = remember { ChatManager.getInstance() }
@@ -676,7 +677,7 @@ fun ChatProfileSheet(
                         }
                         Spacer(Modifier.height(10.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            PillButton(S.chatMention, filled = false, modifier = Modifier.weight(1f)) { onMention(p.username) }
+                            if (showMention) PillButton(S.chatMention, filled = false, modifier = Modifier.weight(1f)) { onMention(p.username) }
                             PillButton(if (isMuted) S.chatUnmuteAction else S.chatMuteAction, filled = false, modifier = Modifier.weight(1f), onClick = onToggleMute)
                         }
                         var blk by remember(p.chatBlocked) { mutableStateOf(p.chatBlocked) }
