@@ -400,7 +400,7 @@ private fun DmInboxContent(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
                             askFolderPin = false
                             showLocked = true
                         } else {
-                            folderPinError = S.dmPinWrong
+                            folderPinError = currentStrings().dmPinWrong
                         }
                     }
                 )
@@ -444,13 +444,13 @@ private fun DmInboxContent(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
             confirmButton = {
                 TextButton(onClick = {
                     showStatus = false
-                    scope.launch { dms.setMood(emoji, text.trim())?.let { NexNotifier.warning(dmErrText(it), S.dmTitle) } }
+                    scope.launch { dms.setMood(emoji, text.trim())?.let { NexNotifier.warning(dmErrText(it), currentStrings().dmTitle) } }
                 }) { Text(S.dmSave, color = colors.textPrimary) }
             },
             dismissButton = {
                 TextButton(onClick = {
                     showStatus = false
-                    scope.launch { dms.setMood("", "")?.let { NexNotifier.warning(dmErrText(it), S.dmTitle) } }
+                    scope.launch { dms.setMood("", "")?.let { NexNotifier.warning(dmErrText(it), currentStrings().dmTitle) } }
                 }) { Text(S.dmStatusClear, color = RED) }
             }
         )
@@ -472,11 +472,11 @@ private fun DmInboxContent(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
                             1 -> { lockFirst = pin; lockFlow = 2 }
                             2 -> if (pin == lockFirst) {
                                 dms.setPin(pin); lockFlow = 0; lockFirst = ""
-                                NexNotifier.success(S.dmLockDone, S.dmTitle)
+                                NexNotifier.success(currentStrings().dmLockDone, currentStrings().dmTitle)
                             } else { lockFlow = 1; lockFirst = ""; lockError = S.dmPinMismatch }
                             3 -> if (dms.checkPin(pin)) {
                                 dms.removePin(); lockFlow = 0
-                                NexNotifier.info(S.dmLockOffDone, S.dmTitle)
+                                NexNotifier.info(currentStrings().dmLockOffDone, currentStrings().dmTitle)
                             } else { lockError = S.dmPinWrong }
                             4 -> if (dms.checkPin(pin)) { lockFlow = 1 } else { lockError = S.dmPinWrong }
                             else -> Unit
@@ -500,22 +500,22 @@ private fun DmInboxContent(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
                 Text(c.display.ifBlank { c.username }, color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
                 SheetRow(NexIcons.Pin, if (c.pinned) S.dmUnpin else S.dmPin) {
                     menuFor = null
-                    scope.launch { dms.inboxAction("dm_pin", c.uid, !c.pinned)?.let { NexNotifier.warning(dmErrText(it), S.dmTitle) } }
+                    scope.launch { dms.inboxAction("dm_pin", c.uid, !c.pinned)?.let { NexNotifier.warning(dmErrText(it), currentStrings().dmTitle) } }
                 }
                 SheetRow(if (c.muted) NexIcons.Bell else NexIcons.BellOff, if (c.muted) S.dmUnmute else S.dmMute) {
                     menuFor = null
-                    scope.launch { dms.inboxAction("dm_mute", c.uid, !c.muted)?.let { NexNotifier.warning(dmErrText(it), S.dmTitle) } }
+                    scope.launch { dms.inboxAction("dm_mute", c.uid, !c.muted)?.let { NexNotifier.warning(dmErrText(it), currentStrings().dmTitle) } }
                 }
                 if (c.unread == 0) SheetRow(NexIcons.Mail, S.dmMarkUnread) {
                     menuFor = null
-                    scope.launch { dms.inboxAction("dm_unread", c.uid)?.let { NexNotifier.warning(dmErrText(it), S.dmTitle) } }
+                    scope.launch { dms.inboxAction("dm_unread", c.uid)?.let { NexNotifier.warning(dmErrText(it), currentStrings().dmTitle) } }
                 }
                 SheetRow(NexIcons.Lock, if (dms.isChatLocked(c.uid)) S.dmUnlockChat else S.dmLockChat) {
                     menuFor = null
                     if (dms.isChatLocked(c.uid)) {
                         dms.setChatLocked(c.uid, c.username, false)
                     } else if (!dms.lockEnabled()) {
-                        NexNotifier.info(S.dmLockNeedPin, S.dmTitle)
+                        NexNotifier.info(currentStrings().dmLockNeedPin, currentStrings().dmTitle)
                         showLockSheet = true
                     } else {
                         dms.setChatLocked(c.uid, c.username, true)
@@ -523,7 +523,7 @@ private fun DmInboxContent(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
                 }
                 SheetRow(NexIcons.Download, if (c.archived) S.dmUnarchive else S.dmArchive) {
                     menuFor = null
-                    scope.launch { dms.inboxAction("dm_archive", c.uid, !c.archived)?.let { NexNotifier.warning(dmErrText(it), S.dmTitle) } }
+                    scope.launch { dms.inboxAction("dm_archive", c.uid, !c.archived)?.let { NexNotifier.warning(dmErrText(it), currentStrings().dmTitle) } }
                 }
                 SheetRow(NexIcons.DeleteOutline, S.dmDeleteChat, danger = true) { confirmHide = c; menuFor = null }
             }
@@ -540,7 +540,7 @@ private fun DmInboxContent(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
                 TextButton(onClick = {
                     confirmHide = null
                     dmDrafts.remove(c.uid)
-                    scope.launch { dms.inboxAction("dm_hide", c.uid)?.let { NexNotifier.warning(dmErrText(it), S.dmTitle) } }
+                    scope.launch { dms.inboxAction("dm_hide", c.uid)?.let { NexNotifier.warning(dmErrText(it), currentStrings().dmTitle) } }
                 }) { Text(S.dmDeleteAction, color = RED) }
             },
             dismissButton = { TextButton(onClick = { confirmHide = null }) { Text(S.dmCancel, color = colors.textPrimary) } }
@@ -672,7 +672,7 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
     val shownPeer = livePeer?.takeIf { it.uid == peer?.uid } ?: peer
     val messages = if (shownPeer != null && livePeer?.uid == shownPeer.uid) liveMessages else emptyList()
 
-    LaunchedEffect(Unit) { dms.errors.collect { NexNotifier.warning(dmErrText(it), S.dmTitle) } }
+    LaunchedEffect(Unit) { dms.errors.collect { NexNotifier.warning(dmErrText(it), currentStrings().dmTitle) } }
 
     var input by remember { mutableStateOf(TextFieldValue("")) }
     var replyTo by remember { mutableStateOf<DmMessage?>(null) }
@@ -698,7 +698,7 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
         if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) beginRecording()
         else micLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
     }
-    LaunchedEffect(Unit) { VoicePlayer.errors.collect { code -> NexNotifier.warning(dmErrText(if (code == "vn_gone") "vn_gone" else code), S.dmTitle) } }
+    LaunchedEffect(Unit) { VoicePlayer.errors.collect { code -> NexNotifier.warning(dmErrText(if (code == "vn_gone") "vn_gone" else code), currentStrings().dmTitle) } }
     // Terakhir aktif lawan bicara (hormati pengaturan privasi: kalau disembunyikan, tidak ditampilkan).
     var peerSeen by remember { mutableStateOf(0L) }
     var peerOnline by remember { mutableStateOf(false) }
@@ -714,7 +714,7 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
     val placeCall = rememberMicPermission {
         val sp = shownPeer
         if (sp != null) {
-            if (callPhase != CallPhase.IDLE) NexNotifier.info(S.callErrBusyMe, S.callTitle)
+            if (callPhase != CallPhase.IDLE) NexNotifier.info(currentStrings().callErrBusyMe, currentStrings().callTitle)
             else CallManager.getInstance().startCall(CallPeer(sp.uid, sp.username, sp.display, sp.av))
         }
     }
@@ -744,13 +744,13 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
             scope.launch {
                 val prep = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { DmImageUtil.compress(context, uri) }
                 if (prep == null) {
-                    NexNotifier.warning(S.dmPhotoFail, S.dmTitle)
+                    NexNotifier.warning(currentStrings().dmPhotoFail, currentStrings().dmTitle)
                 } else {
                     val err = dms.sendImage(prep.bytes, prep.w, prep.h, caption, rt, once)
                     if (err == null) {
                         replyTo = null
                         if (caption.isNotEmpty() && editing == null) input = TextFieldValue("")
-                    } else NexNotifier.warning(dmErrText(err), S.dmTitle)
+                    } else NexNotifier.warning(dmErrText(err), currentStrings().dmTitle)
                 }
                 sendingImage = false
             }
@@ -862,16 +862,16 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
                                 try {
                                     if (mb.room.value == null) mb.create(viewModel.currentTrack.value)
                                     if (mb.room.value == null) {
-                                        NexNotifier.warning(S.dmGenericErr, S.dmTitle)
+                                        NexNotifier.warning(currentStrings().dmGenericErr, currentStrings().dmTitle)
                                     } else {
                                         mb.invite(sp.username)
-                                        NexNotifier.success(S.dmMubarSent(sp.display.ifBlank { sp.username }), S.dmTitle)
+                                        NexNotifier.success(currentStrings().dmMubarSent(sp.display.ifBlank { sp.username }), currentStrings().dmTitle)
                                         mb.openSheet()
                                     }
                                 } catch (e: AccountError) {
-                                    NexNotifier.warning(dmErrText(e.code), S.dmTitle)
+                                    NexNotifier.warning(dmErrText(e.code), currentStrings().dmTitle)
                                 } catch (e: Throwable) {
-                                    NexNotifier.warning(S.dmNoNetworkErr, S.dmTitle)
+                                    NexNotifier.warning(currentStrings().dmNoNetworkErr, currentStrings().dmTitle)
                                 }
                             }
                         }
@@ -887,8 +887,8 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
                             val uid = shownPeer?.uid ?: return@DropdownMenuItem
                             scope.launch {
                                 val ok = dms.setBlock(uid, !blocked)
-                                if (ok) NexNotifier.info(if (blocked) S.dmUnblockedDone else S.dmBlockedDone, S.dmTitle)
-                                else NexNotifier.warning(S.dmGenericErr, S.dmTitle)
+                                if (ok) NexNotifier.info(if (blocked) currentStrings().dmUnblockedDone else currentStrings().dmBlockedDone, currentStrings().dmTitle)
+                                else NexNotifier.warning(currentStrings().dmGenericErr, currentStrings().dmTitle)
                             }
                         }
                     )
@@ -989,7 +989,7 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
                             val uid = shownPeer?.uid ?: return@clickable
                             scope.launch {
                                 val err = dms.declineRequest(uid)
-                                if (err == null) onBack() else NexNotifier.warning(dmErrText(err), S.dmTitle)
+                                if (err == null) onBack() else NexNotifier.warning(dmErrText(err), currentStrings().dmTitle)
                             }
                         }.padding(vertical = 12.dp),
                         contentAlignment = Alignment.Center
@@ -997,7 +997,7 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
                     Box(
                         Modifier.weight(1f).clip(RoundedCornerShape(24.dp)).background(colors.textPrimary).clickable {
                             val uid = shownPeer?.uid ?: return@clickable
-                            scope.launch { dms.acceptRequest(uid)?.let { NexNotifier.warning(dmErrText(it), S.dmTitle) } }
+                            scope.launch { dms.acceptRequest(uid)?.let { NexNotifier.warning(dmErrText(it), currentStrings().dmTitle) } }
                         }.padding(vertical = 12.dp),
                         contentAlignment = Alignment.Center
                     ) { Text(S.dmAccept, color = colors.background, fontWeight = FontWeight.Bold) }
@@ -1044,7 +1044,7 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
                             sendingVoice = false
                             recording = false
                             if (err == null) replyTo = null
-                            else { runCatching { clip.file.delete() }; NexNotifier.warning(dmErrText(err), S.dmTitle) }
+                            else { runCatching { clip.file.delete() }; NexNotifier.warning(dmErrText(err), currentStrings().dmTitle) }
                         }
                     }
                 )
@@ -1114,7 +1114,7 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
                 if (m.voice == null && m.image == null) SheetRow(NexIcons.Send, S.dmForward) { forwardMsg = m; menuMsg = null }
                 if (m.text.isNotBlank() && m.seq !in translations) SheetRow(NexIcons.Translate, S.dmTranslate) {
                     menuMsg = null
-                    scope.launch { dms.translate(m.seq, if (S.english) "en" else "id")?.let { NexNotifier.warning(dmErrText(it), S.dmTitle) } }
+                    scope.launch { dms.translate(m.seq, if (currentStrings().english) "en" else "id")?.let { NexNotifier.warning(dmErrText(it), currentStrings().dmTitle) } }
                 }
                 SheetRow(NexIcons.Flag, if (m.seq in stars) S.dmUnstar else S.dmStar) {
                     menuMsg = null
@@ -1122,7 +1122,7 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
                 }
                 if (m.text.isNotBlank()) SheetRow(NexIcons.Copy, S.dmCopy) {
                     clipboard.setText(AnnotatedString(m.text)); menuMsg = null
-                    NexNotifier.info(S.dmCopied, S.dmTitle)
+                    NexNotifier.info(currentStrings().dmCopied, currentStrings().dmTitle)
                 }
                 if (mine && m.text.isNotBlank() && m.song == null && System.currentTimeMillis() - m.ts < EDIT_WINDOW) SheetRow(NexIcons.Edit, S.dmEditAction) {
                     editing = m; replyTo = null
@@ -1146,17 +1146,17 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
                     showAttach = false
                     val txt = input.text.trim()
                     if (txt.isEmpty()) {
-                        NexNotifier.info(S.dmTextOnceHint, S.dmTitle)
+                        NexNotifier.info(currentStrings().dmTextOnceHint, currentStrings().dmTitle)
                     } else {
                         input = TextFieldValue("")
-                        scope.launch { dms.sendOnceText(txt)?.let { NexNotifier.warning(dmErrText(it), S.dmTitle) } }
+                        scope.launch { dms.sendOnceText(txt)?.let { NexNotifier.warning(dmErrText(it), currentStrings().dmTitle) } }
                     }
                 }
                 SheetRow(NexIcons.Lock, S.dmPhotoOnce) { showAttach = false; pendingOnce = true; pickImage.launch("image/*") }
                 SheetRow(NexIcons.Headphones, S.dmSongNow) {
                     showAttach = false
                     val t = viewModel.currentTrack.value
-                    if (t == null) NexNotifier.info(S.dmNoSong, S.dmTitle)
+                    if (t == null) NexNotifier.info(currentStrings().dmNoSong, currentStrings().dmTitle)
                     else dms.sendSong(DmSong(t.id, t.title, t.artist, t.thumbnailUrl, t.url, t.durationSeconds))
                 }
             }
@@ -1283,7 +1283,7 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
                                 forwardMsg = null
                                 scope.launch {
                                     val err = dms.forward(c.uid, fm)
-                                    if (err == null) NexNotifier.success(S.dmForwardDone, S.dmTitle) else NexNotifier.warning(dmErrText(err), S.dmTitle)
+                                    if (err == null) NexNotifier.success(currentStrings().dmForwardDone, currentStrings().dmTitle) else NexNotifier.warning(dmErrText(err), currentStrings().dmTitle)
                                 }
                             }.padding(vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
@@ -1602,7 +1602,7 @@ private fun DmLockGate(onBack: () -> Unit, forceUid: String? = null, content: @C
                     PinPad(
                         title = S.dmPinEnter, error = error,
                         onComplete = { pin ->
-                            if (dms.checkPin(pin)) { dms.touchLock(); forceUid?.let { dms.markChatUnlocked(it) }; error = null; locked = false } else { error = S.dmPinWrong }
+                            if (dms.checkPin(pin)) { dms.touchLock(); forceUid?.let { dms.markChatUnlocked(it) }; error = null; locked = false } else { error = currentStrings().dmPinWrong }
                         }
                     )
                     TextButton(onClick = { confirmReset = true }) { Text(S.dmForgotPin, color = colors.textMuted) }
