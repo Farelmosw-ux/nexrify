@@ -517,7 +517,74 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
     }
     private var searchJob: Job? = null
     private var pendingTrackToPlay: Track? = null
-    private var hasRetriedFallback = false
+    /** Percobaan pulih untuk lagu yang sedang diputar (URL kedaluwarsa / koneksi putus). Direset saat suara benar-benar jalan. */
+    private var streamRetries = 0
+    /** Penanda generasi: bertambah tiap playTrack(), supaya hasil/aba-aba dari lagu lama tidak menimpa lagu yang baru dipilih. */
+    @Volatile private var playGen = 0L
+    /** True selama lagu baru sedang disiapkan (URL stream dicari). Event selesai/error dari lagu lama di saat ini harus diabaikan. */
+    @Volatile private var resolvingTrack = false
+
+    /**
+     * Event pemutar yang bukan milik lagu yang sekarang dipilih (sisa lagu lama saat lagu baru masih disiapkan).
+     * Dulu event seperti ini memicu skipNext() sehingga lagu A yang dipilih malah diganti lagu B.
+     */
+    private fun isStalePlayerEvent(): Boolean {
+        if (resolvingTrack) return true
+        val cur = _currentTrack.value ?: return false
+        val itemId = mediaController?.currentMediaItem?.mediaId
+        return itemId != null && itemId.isNotBlank() && itemId != cur.id
+    }
+
+    private fun buildMediaItem(track: Track, url: String, mime: String?): MediaItem {
+        val meta = MediaMetadata.Builder()
+            .setTitle(track.title)
+            .setArtist(track.artist)
+            .setArtworkUri(Uri.parse(track.highResThumbnailUrl))
+            .setDisplayTitle(track.title)
+            .build()
+        return MediaItem.Builder()
+            .setMediaId(track.id)
+            .setUri(url)
+            .apply { if (!mime.isNullOrBlank()) setMimeType(mime) }
+            .setMediaMetadata(meta)
+            .build()
+    }
+
+    /** Pulihkan lagu yang putus di tengah jalan: ambil URL baru lalu lanjut dari posisi terakhir, bukan dari awal / loncat lagu. */
+    private fun recoverCurrentStream(track: Track, resumeAtMs: Long): Boolean {
+        if (streamRetries >= 2) return false
+        streamRetries++
+        val attempt = streamRetries
+        val gen = playGen
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.invalidateStream(track.url)
+            val quality = settingsManager.audioQuality.value
+            var fresh = if (attempt == 1) repository.getAudioStream(track.url, quality) else null
+            if (fresh == null || (attempt > 1 && fresh?.url == track.streamUrl)) {
+                fresh = repository.getFallbackStream(track.url, failedUrl = track.streamUrl)
+            }
+            withContext(Dispatchers.Main) {
+                // Pengguna sudah pindah lagu selagi menunggu: jangan timpa.
+                if (gen != playGen || _currentTrack.value?.id != track.id) return@withContext
+                val f = fresh
+                if (f == null) {
+                    streamRetries = 0
+                    _isLoadingTrack.value = false
+                    _isPlaying.value = false
+                    mediaController?.pause()
+                    return@withContext
+                }
+                val updated = track.copy(streamUrl = f.url, mimeType = f.mimeType)
+                _currentTrack.value = updated
+                mediaController?.let { ctrl ->
+                    ctrl.setMediaItem(buildMediaItem(updated, f.url, f.mimeType), resumeAtMs)
+                    ctrl.prepare()
+                    ctrl.play()
+                }
+            }
+        }
+        return true
+    }
     private var trackStartTime = 0L
     private var lastRecordedPlaybackStart = -1L
 
@@ -648,7 +715,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
                     override fun onIsPlayingChanged(playing: Boolean) {
                         _isPlaying.value = playing
-                        if (playing) consecutiveErrors = 0
+                        if (playing) { consecutiveErrors = 0; streamRetries = 0 }
                         saveSnapshot()
                         if (playing) {
                             _isLoadingTrack.value = false
@@ -706,6 +773,8 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                             }
                             Player.STATE_ENDED -> {
                                 _isLoadingTrack.value = false
+                                // Abaikan "selesai" milik lagu lama saat lagu baru masih disiapkan.
+                                if (isStalePlayerEvent()) return
                                 // Di Musik Bareng giliran berikutnya diatur server, jangan lompat ke lagu antrian.
                                 if (!mubarLocked) skipNext()
                             }
@@ -717,11 +786,15 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
 
                     override fun onPlayerError(error: PlaybackException) {
                         Log.e("NexrifyMusicViewModel", "Player error: ${error.message}", error)
+                        // Error dari lagu lama yang sudah diganti: abaikan (jangan loncat ke lagu lain).
+                        if (isStalePlayerEvent()) return
                         consecutiveErrors++
                         val failing = _currentTrack.value
+                        val resumeAt = (mediaController?.currentPosition ?: 0L).coerceAtLeast(0L)
                         // Terlalu banyak gagal beruntun: berhenti, jangan loncat terus dari lagu ke lagu.
                         if (consecutiveErrors >= 4) {
                             consecutiveErrors = 0
+                            streamRetries = 0
                             _isLoadingTrack.value = false
                             _isPlaying.value = false
                             mediaController?.pause()
@@ -734,13 +807,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                             _isPlaying.value = false
                             if (network.isOnline()) {
                                 forceNetworkOnce = failing.id
-                                playTrack(failing)
+                                playTrack(failing, startPositionMs = resumeAt)
                             } else {
                                 mediaController?.pause()
                             }
                             return
                         }
-                        // Streaming gagal karena tidak ada internet: pindah ke lagu offline kalau ada, bukan lagu streaming lain.
+                        // Streaming gagal karena tidak ada internet: tahan di lagu ini (lanjut otomatis saat online),
+                        // kecuali ada lagu offline di antrean.
                         if (!network.isOnline()) {
                             _isLoadingTrack.value = false
                             _isPlaying.value = false
@@ -753,52 +827,16 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                             }
                             return
                         }
-                        val track = _currentTrack.value
-                        if (track != null && track.streamUrl != null && !hasRetriedFallback) {
-                            hasRetriedFallback = true
-                            viewModelScope.launch(Dispatchers.IO) {
-                                repository.invalidateStream(track.url)
-                                val fallback = repository.getFallbackStream(track.url, failedUrl = track.streamUrl)
-                                val fallbackUrl = fallback?.url
-                                if (fallbackUrl != null && fallbackUrl != track.streamUrl) {
-                                    val fallbackMime = fallback?.mimeType
-                                    val fallbackTrack = track.copy(streamUrl = fallbackUrl, mimeType = fallbackMime)
-                                    withContext(Dispatchers.Main) {
-                                        _currentTrack.value = fallbackTrack
-                                        mediaController?.let { ctrl ->
-                                            val meta = MediaMetadata.Builder()
-                                                .setTitle(fallbackTrack.title)
-                                                .setArtist(fallbackTrack.artist)
-                                                .setArtworkUri(Uri.parse(fallbackTrack.highResThumbnailUrl))
-                                                .setDisplayTitle(fallbackTrack.title)
-                                                .build()
-
-                                            val item = MediaItem.Builder()
-                                                .setMediaId(fallbackTrack.id)
-                                                .setUri(fallbackUrl)
-                                                .apply { if (fallbackMime != null) setMimeType(fallbackMime) }
-                                                .setMediaMetadata(meta)
-                                                .build()
-
-                                            ctrl.setMediaItem(item)
-                                            ctrl.prepare()
-                                            ctrl.play()
-                                        }
-                                    }
-                                    return@launch
-                                }
-                                withContext(Dispatchers.Main) {
-                                    _isLoadingTrack.value = false
-                                    _isPlaying.value = false
-                                    skipNext()
-                                }
-                            }
-                        } else {
-                            hasRetriedFallback = false
-                            _isLoadingTrack.value = false
-                            _isPlaying.value = false
-                            skipNext()
+                        // Streaming gagal padahal online (URL kedaluwarsa, koneksi putus sesaat): ambil URL baru lalu
+                        // lanjut dari posisi terakhir. Baru kalau dua kali gagal, lompat ke lagu berikutnya.
+                        if (failing != null && recoverCurrentStream(failing, resumeAt)) {
+                            _isLoadingTrack.value = true
+                            return
                         }
+                        streamRetries = 0
+                        _isLoadingTrack.value = false
+                        _isPlaying.value = false
+                        skipNext()
                     }
                 })
                 // The service can outlive the Activity after it is swiped from Recents.
@@ -1054,7 +1092,11 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         }
         playJob?.cancel()
         restoredPending = false
+        val gen = ++playGen
+        resolvingTrack = true
+        streamRetries = 0
         playJob = viewModelScope.launch {
+          try {
             _currentTrack.value = track
             _isLoadingTrack.value = true
             _playbackPosition.value = startPositionMs
@@ -1078,6 +1120,12 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     } else if (playlistQueue.isEmpty()) {
                         playlistQueue.add(track)
                         currentIndex = 0
+                    } else {
+                        // Lagu dipilih dari luar antrean: sisipkan tepat setelah lagu aktif dan jadikan posisi sekarang.
+                        // Dulu indeks dibiarkan menunjuk lagu lain, sehingga "berikutnya" dan pemulihan error memutar lagu yang salah.
+                        val at = (currentIndex + 1).coerceIn(0, playlistQueue.size)
+                        playlistQueue.add(at, track)
+                        currentIndex = at
                     }
                 }
             }
@@ -1112,7 +1160,6 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 loadLyrics(track, forceRefresh = false)
 
                 // Resolve direct audio stream URL via NewPipeExtractor with user chosen Audio Quality!
-            hasRetriedFallback = false
             trackStartTime = System.currentTimeMillis()
             // Lagu yang sudah diunduh diputar dari file di aplikasi, tanpa internet.
             val localFile = if (forceNetworkOnce == track.id) null else offline.localFile(track.id)
@@ -1156,6 +1203,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                     controller.setMediaItem(mediaItemBuilder.build(), startPositionMs)
                     controller.prepare()
                     controller.play()
+                    if (gen == playGen) resolvingTrack = false
                 } else {
                     pendingTrackToPlay = updatedTrack
                 }
@@ -1171,10 +1219,14 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
                 _isLoadingTrack.value = false
                 Log.e("NexrifyMusicViewModel", "Failed to resolve stream URL for ${track.title}")
                 // Auto skip to next available song if this track cannot be resolved!
+                if (gen == playGen) resolvingTrack = false
                 if (playlistQueue.isNotEmpty() && currentIndex + 1 < playlistQueue.size) {
                     skipNext()
                 }
             }
+          } finally {
+            if (gen == playGen) resolvingTrack = false
+          }
         }
     }
 
