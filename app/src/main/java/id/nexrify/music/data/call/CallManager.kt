@@ -15,6 +15,8 @@ import androidx.core.content.ContextCompat
 import id.nexrify.music.data.account.AccountError
 import id.nexrify.music.data.account.AccountManager
 import id.nexrify.music.data.chat.ChatApi
+import id.nexrify.music.capsule.AppVisibility
+import id.nexrify.music.push.CallNotifier
 import id.nexrify.music.service.CallService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -38,6 +40,11 @@ import org.webrtc.PeerConnection
 enum class CallPhase { IDLE, OUTGOING, INCOMING, CONNECTING, ACTIVE }
 
 data class CallPeer(val uid: String, val username: String, val display: String, val av: String)
+
+/** Permintaan dari notifikasi: tombol Jawab ditekan. Layar panggilan menjawab begitu panggilan masuk sudah terbaca. */
+object CallNav {
+    val answerRequested = MutableStateFlow(false)
+}
 
 /**
  * Panggilan suara 1-lawan-1. Semua logika berjalan di thread utama (Dispatchers.Main.immediate); panggilan jaringan
@@ -64,6 +71,8 @@ class CallManager private constructor(private val context: Context) {
     private val _errors = MutableSharedFlow<String>(extraBufferCapacity = 4)
     /** Kode galat/keterangan untuk ditampilkan UI: call_busy, call_declined, call_unanswered, call_failed, network, dst. */
     val errors: SharedFlow<String> = _errors.asSharedFlow()
+    /** Rincian teknis galat terakhir (untuk diagnosis), mis. "network: Unable to resolve host". */
+    @Volatile var lastDetail: String = ""
 
     private var callId: String? = null
     private var isCaller = false
@@ -108,8 +117,10 @@ class CallManager private constructor(private val context: Context) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: AccountError) {
+                lastDetail = "${e.code}: ${e.message}"
                 fail(e.code)
             } catch (e: Throwable) {
+                lastDetail = "${e.javaClass.simpleName}: ${e.message}"
                 fail("call_failed")
             }
         }
@@ -123,6 +134,8 @@ class CallManager private constructor(private val context: Context) {
         val offer = pendingOffer ?: return
         ringWatch?.cancel(); ringWatch = null
         stopRinging()
+        CallNotifier.cancel(context)
+        CallNav.answerRequested.value = false
         _phase.value = CallPhase.CONNECTING
         job = scope.launch {
             try {
@@ -134,8 +147,10 @@ class CallManager private constructor(private val context: Context) {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: AccountError) {
+                lastDetail = "${e.code}: ${e.message}"
                 fail(e.code)
             } catch (e: Throwable) {
+                lastDetail = "${e.javaClass.simpleName}: ${e.message}"
                 fail("call_failed")
             }
         }
@@ -180,11 +195,29 @@ class CallManager private constructor(private val context: Context) {
         }
     }
 
-    fun checkIncomingNow() {
-        scope.launch { checkIncoming() }
+    /** [fromPush]: notifikasi sudah ditampilkan dari data push, jadi kalau ternyata tidak ada panggilan (sudah dibatalkan) cabut lagi. */
+    fun checkIncomingNow(fromPush: Boolean = false) {
+        scope.launch { checkIncoming(fromPush) }
     }
 
-    private suspend fun checkIncoming() {
+    /** Tombol Tolak di notifikasi: tolak lewat id panggilan; kalau id belum diketahui, cari panggilan masuk dulu. */
+    suspend fun declineFromNotification(callIdArg: String) {
+        if (_phase.value == CallPhase.INCOMING) { hangup(); return }
+        val t = token() ?: return
+        var id = callIdArg
+        if (id.isBlank()) {
+            id = try {
+                ChatApi.get(t, mapOf("callin" to "1")).optJSONObject("call")?.optString("id").orEmpty()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                ""
+            }
+        }
+        if (id.isNotBlank()) runCatching { ChatApi.post(t, JSONObject().put("action", "call_end").put("id", id)) }
+    }
+
+    private suspend fun checkIncoming(fromPush: Boolean = false) {
         if (_phase.value != CallPhase.IDLE) return
         val t = token() ?: return
         val r = try {
@@ -194,7 +227,11 @@ class CallManager private constructor(private val context: Context) {
         } catch (e: Throwable) {
             return
         }
-        val c = r.optJSONObject("call") ?: return
+        val c = r.optJSONObject("call")
+        if (c == null) {
+            if (fromPush) CallNotifier.cancel(context)
+            return
+        }
         val p = c.optJSONObject("peer") ?: return
         if (_phase.value != CallPhase.IDLE) return
         reset()
@@ -203,7 +240,13 @@ class CallManager private constructor(private val context: Context) {
         pendingOffer = c.optString("offer")
         _peer.value = CallPeer(p.optString("uid"), p.optString("username"), p.optString("display"), p.optString("av"))
         _phase.value = CallPhase.INCOMING
-        startRinging()
+        // Aplikasi tidak tampil: dering dan tombol Jawab/Tolak lewat notifikasi layar penuh. Tampil: dering dan layar panggilan di dalam aplikasi.
+        if (AppVisibility.inForeground) {
+            CallNotifier.cancel(context)
+            startRinging()
+        } else {
+            CallNotifier.showIncoming(context, p.optString("display").ifBlank { p.optString("username") }, callId)
+        }
         val left = c.optLong("msLeft", 45_000L)
         ringWatch = scope.launch { watchRinging(t, left) }
     }
@@ -257,9 +300,11 @@ class CallManager private constructor(private val context: Context) {
             } catch (e: AccountError) {
                 if (e.code == "not_found") { finishRemote("ended"); return }
                 fails++
+                lastDetail = "poll ${e.code}: ${e.message}"
                 if (fails >= 8) { fail("network"); return }
             } catch (e: Throwable) {
                 fails++
+                lastDetail = "poll ${e.javaClass.simpleName}: ${e.message}"
                 if (fails >= 8) { fail("network"); return }
             }
             delay(if (_phase.value == CallPhase.ACTIVE) 2000L else 1000L)
@@ -416,6 +461,8 @@ class CallManager private constructor(private val context: Context) {
         ringWatch?.cancel(); ringWatch = null
         timerJob?.cancel(); timerJob = null
         stopRinging()
+        CallNotifier.cancel(context)
+        CallNav.answerRequested.value = false
         rtc?.close(); rtc = null
         endAudio()
         runCatching { context.stopService(Intent(context, CallService::class.java)) }
