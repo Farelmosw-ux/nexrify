@@ -144,6 +144,10 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        if (Build.VERSION.SDK_INT >= 27) {
+            setShowWhenLocked(false)
+            setTurnScreenOn(false)
+        }
         AppVisibility.set(false)
         runCatching { id.nexrify.music.data.chat.ChatManager.getInstance().appForeground(false) }
         runCatching { id.nexrify.music.data.mubar.MubarManager.getInstance().setForeground(false) }
@@ -151,7 +155,20 @@ class MainActivity : ComponentActivity() {
         super.onStop()
     }
 
+    /** Notifikasi panggilan masuk: tampil di atas layar kunci dan, kalau tombol Jawab yang ditekan, minta layar panggilan menjawab. */
+    private fun handleCallIntent(intent: android.content.Intent?) {
+        val kind = intent?.getStringExtra(id.nexrify.music.push.CallNotifier.EXTRA_CALL) ?: return
+        intent.removeExtra(id.nexrify.music.push.CallNotifier.EXTRA_CALL)
+        if (Build.VERSION.SDK_INT >= 27) {
+            setShowWhenLocked(true)
+            setTurnScreenOn(true)
+        }
+        if (kind == id.nexrify.music.push.CallNotifier.CALL_ANSWER) id.nexrify.music.data.call.CallNav.answerRequested.value = true
+        runCatching { id.nexrify.music.data.call.CallManager.getInstance().checkIncomingNow() }
+    }
+
     private fun handleChatIntent(intent: android.content.Intent?) {
+        handleCallIntent(intent)
         // Notifikasi push yang ditampilkan sistem saat aplikasi tertutup membawa datanya sebagai extra
         id.nexrify.music.push.PushHandler.route(intent)
         if (intent?.getBooleanExtra(id.nexrify.music.data.chat.ChatNotifier.EXTRA_OPEN_CHAT, false) == true) {
@@ -261,7 +278,22 @@ class MainActivity : ComponentActivity() {
                 showLaunch = false
             }
 
-            CompositionLocalProvider(LocalStrings provides strings) {
+            // Sesuaikan dengan ukuran layar, dpi, dan skala font perangkat: layar sempit (dpi tinggi / "ukuran tampilan" besar)
+            // diperkecil proporsional ke lebar acuan 360dp, dan skala font dibatasi supaya tata letak tidak pecah.
+            val cfg = androidx.compose.ui.platform.LocalConfiguration.current
+            val baseDensity = androidx.compose.ui.platform.LocalDensity.current
+            val adaptiveDensity = remember(cfg.screenWidthDp, cfg.densityDpi, cfg.fontScale, baseDensity.density) {
+                val minSide = minOf(cfg.screenWidthDp, cfg.screenHeightDp).coerceAtLeast(1)
+                val shrink = if (minSide < 360) (minSide / 360f).coerceIn(0.78f, 1f) else 1f
+                androidx.compose.ui.unit.Density(
+                    density = baseDensity.density * shrink,
+                    fontScale = baseDensity.fontScale.coerceIn(0.85f, 1.15f)
+                )
+            }
+            CompositionLocalProvider(
+                LocalStrings provides strings,
+                androidx.compose.ui.platform.LocalDensity provides adaptiveDensity
+            ) {
                 NexrifyTheme(themeMode = themeMode, themeStyle = viewModel.themeStyle.collectAsState().value) {
                     Box(Modifier.fillMaxSize()) {
                         crashReport?.let { report ->
