@@ -42,6 +42,7 @@ import androidx.core.content.ContextCompat
 import id.nexrify.music.data.call.CallManager
 import id.nexrify.music.data.call.CallPhase
 import id.nexrify.music.i18n.S
+import id.nexrify.music.i18n.currentStrings
 import id.nexrify.music.ui.icons.NexIcons
 
 private val CALL_BG = Color(0xFF0E0E10)
@@ -50,18 +51,21 @@ private val CALL_RED = Color(0xFFE5484D)
 private val CALL_BTN = Color(0xFF2A2A2E)
 
 /** Teks keterangan untuk kode galat/hasil panggilan dari [CallManager.errors] atau server. */
-fun callErrText(code: String): String = when (code) {
-    "call_busy" -> S.callErrBusy
-    "call_busy_me" -> S.callErrBusyMe
-    "call_not_allowed" -> S.callErrNotAllowed
-    "dm_blocked" -> S.dmErrBlocked
-    "call_declined" -> S.callDeclined
-    "call_unanswered" -> S.callUnanswered
-    "call_failed" -> S.callErrFailed
-    "network" -> S.dmNoNetworkErr
-    "rate_limited" -> S.dmSlowDown
-    "chat_banned" -> S.dmBannedErr
-    else -> S.dmGenericErr
+fun callErrText(code: String): String {
+    val s = currentStrings()
+    return when (code) {
+        "call_busy" -> s.callErrBusy
+        "call_busy_me" -> s.callErrBusyMe
+        "call_not_allowed" -> s.callErrNotAllowed
+        "dm_blocked" -> s.dmErrBlocked
+        "call_declined" -> s.callDeclined
+        "call_unanswered" -> s.callUnanswered
+        "call_failed" -> s.callErrFailed
+        "network" -> s.dmNoNetworkErr
+        "rate_limited" -> s.dmSlowDown
+        "chat_banned" -> s.dmBannedErr
+        else -> s.dmGenericErr
+    }
 }
 
 /**
