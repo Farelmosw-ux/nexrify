@@ -6,6 +6,18 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.zIndex
+import id.nexrify.music.ui.components.ChatProfileSheet
+import id.nexrify.music.ui.components.PersonTags
+import id.nexrify.music.ui.components.rememberChatProfiles
 import androidx.compose.ui.window.DialogProperties
 import id.nexrify.music.data.chat.DmImage
 import id.nexrify.music.util.DmImage as DmImageUtil
@@ -127,6 +139,21 @@ import kotlinx.coroutines.launch
 
 private const val EDIT_WINDOW = 3_600_000L
 private val RED = Color(0xFFE5484D)
+
+/** Pesan yang disembunyikan "untuk saya" saja: tersimpan di perangkat per percakapan, tidak menyentuh server. */
+private fun readHidden(c: android.content.Context, key: String): Set<Long> =
+    c.getSharedPreferences("nexrify_dm_hidden", android.content.Context.MODE_PRIVATE).getStringSet(key, emptySet()).orEmpty()
+        .mapNotNull { it.toLongOrNull() }.toSet()
+
+private fun writeHidden(c: android.content.Context, key: String, set: Set<Long>) {
+    c.getSharedPreferences("nexrify_dm_hidden", android.content.Context.MODE_PRIVATE).edit()
+        .putStringSet(key, set.map { it.toString() }.toSet()).apply()
+}
+
+/** Dua pesan dikelompokkan kalau pengirimnya sama, hari sama, dan selisihnya kurang dari 3 menit. */
+private fun dmSameGroup(a: DmMessage?, b: DmMessage?): Boolean =
+    a != null && b != null && a.call == null && b.call == null && a.uid == b.uid &&
+        chatDayKey(a.ts) == chatDayKey(b.ts) && kotlin.math.abs(b.ts - a.ts) < 3 * 60_000L
 
 /** Warna gelembung milikku. Indeks 0 = bawaan tema. */
 private val BUBBLE_THEMES = listOf(null, Color(0xFF2563EB), Color(0xFF16A34A), Color(0xFF9333EA), Color(0xFFE11D48), Color(0xFFEA580C))
@@ -670,7 +697,11 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
     val localVer by dms.localVersion.collectAsState()
     val isNote = peer?.uid != null && peer?.uid == myId
     val shownPeer = livePeer?.takeIf { it.uid == peer?.uid } ?: peer
-    val messages = if (shownPeer != null && livePeer?.uid == shownPeer.uid) liveMessages else emptyList()
+    val hiddenCtx = LocalContext.current
+    val hiddenKey = "h_" + (peer?.uid ?: "")
+    var hiddenSeqs by remember(hiddenKey) { mutableStateOf(readHidden(hiddenCtx, hiddenKey)) }
+    val messages = (if (shownPeer != null && livePeer?.uid == shownPeer.uid) liveMessages else emptyList())
+        .let { all -> if (hiddenSeqs.isEmpty()) all else all.filter { it.seq <= 0L || it.seq !in hiddenSeqs } }
 
     LaunchedEffect(Unit) { dms.errors.collect { NexNotifier.warning(dmErrText(it), currentStrings().dmTitle) } }
 
@@ -944,7 +975,11 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
                     itemsIndexed(messages, key = { _, m -> m.localId ?: "s${m.seq}" }) { i, m ->
                         val prev = messages.getOrNull(i - 1)
                         if (prev == null || chatDayKey(prev.ts) != chatDayKey(m.ts)) ChatDateHeader(chatDayLabel(chatDayKey(m.ts), S))
+                        val nextMsg = messages.getOrNull(i + 1)
+                        val groupedPrev = prev != null && dmSameGroup(prev, m)
+                        val groupedNext = dmSameGroup(m, nextMsg)
                         if (m.call != null) DmCallRow(m, m.uid == myId) else DmBubble(
+                            firstInGroup = !groupedPrev, lastInGroup = !groupedNext,
                             m = m, mine = m.uid == myId, read = m.uid == myId && m.seq > 0 && peerRead >= m.seq, myId = myId,
                             starred = m.seq in stars,
                             loadImage = { id -> dms.loadImage(id) },
@@ -1091,47 +1126,37 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
         }
     }
 
-    // ---- menu pesan ----
+    // ---- menu pesan (ala iPhone: reaksi di atas, aksi di bawah, latar digelapkan) ----
     menuMsg?.let { m ->
         val mine = m.uid == myId
-        ModalBottomSheet(
-            onDismissRequest = { menuMsg = null },
-            containerColor = colors.background,
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ) {
-            Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    CHAT_EMOJIS_QUICK.forEach { e ->
-                        val mineReact = m.reactions[e]?.contains(myId) == true
-                        Box(
-                            Modifier.size(44.dp).clip(CircleShape).background(if (mineReact) colors.card else Color.Transparent)
-                                .clickable { menuMsg = null; scope.launch { dms.react(m.seq, e) } },
-                            contentAlignment = Alignment.Center
-                        ) { Text(e, fontSize = 24.sp) }
-                    }
-                }
-                SheetRow(NexIcons.Reply, S.dmReply) { replyTo = m; editing = null; menuMsg = null }
-                if (m.voice == null && m.image == null) SheetRow(NexIcons.Send, S.dmForward) { forwardMsg = m; menuMsg = null }
-                if (m.text.isNotBlank() && m.seq !in translations) SheetRow(NexIcons.Translate, S.dmTranslate) {
-                    menuMsg = null
-                    scope.launch { dms.translate(m.seq, if (currentStrings().english) "en" else "id")?.let { NexNotifier.warning(dmErrText(it), currentStrings().dmTitle) } }
-                }
-                SheetRow(NexIcons.Flag, if (m.seq in stars) S.dmUnstar else S.dmStar) {
-                    menuMsg = null
-                    scope.launch { dms.star(m.seq, m.seq !in stars) }
-                }
-                if (m.text.isNotBlank()) SheetRow(NexIcons.Copy, S.dmCopy) {
-                    clipboard.setText(AnnotatedString(m.text)); menuMsg = null
-                    NexNotifier.info(currentStrings().dmCopied, currentStrings().dmTitle)
-                }
-                if (mine && m.text.isNotBlank() && m.song == null && System.currentTimeMillis() - m.ts < EDIT_WINDOW) SheetRow(NexIcons.Edit, S.dmEditAction) {
-                    editing = m; replyTo = null
-                    input = TextFieldValue(m.text, androidx.compose.ui.text.TextRange(m.text.length))
-                    menuMsg = null
-                }
-                if (mine) SheetRow(NexIcons.DeleteOutline, S.dmDeleteAction, danger = true) { deleteMsg = m; menuMsg = null }
-            }
-        }
+        DmMessageContextMenu(
+            m = m, mine = mine, myId = myId,
+            mineColor = BUBBLE_THEMES.getOrNull(shownPeer?.uid?.let { dms.theme(it) } ?: 0),
+            starred = m.seq in stars,
+            canForward = m.voice == null && m.image == null,
+            canTranslate = m.text.isNotBlank() && m.seq !in translations,
+            canCopy = m.text.isNotBlank(),
+            canEdit = mine && m.text.isNotBlank() && m.song == null && System.currentTimeMillis() - m.ts < EDIT_WINDOW,
+            onDismiss = { menuMsg = null },
+            onReact = { e -> menuMsg = null; scope.launch { dms.react(m.seq, e) } },
+            onReply = { replyTo = m; editing = null; menuMsg = null },
+            onForward = { forwardMsg = m; menuMsg = null },
+            onTranslate = {
+                menuMsg = null
+                scope.launch { dms.translate(m.seq, if (currentStrings().english) "en" else "id")?.let { NexNotifier.warning(dmErrText(it), currentStrings().dmTitle) } }
+            },
+            onStar = { menuMsg = null; scope.launch { dms.star(m.seq, m.seq !in stars) } },
+            onCopy = {
+                clipboard.setText(AnnotatedString(m.text)); menuMsg = null
+                NexNotifier.info(currentStrings().dmCopied, currentStrings().dmTitle)
+            },
+            onEdit = {
+                editing = m; replyTo = null
+                input = TextFieldValue(m.text, androidx.compose.ui.text.TextRange(m.text.length))
+                menuMsg = null
+            },
+            onDelete = { deleteMsg = m; menuMsg = null }
+        )
     }
 
     if (showAttach) {
@@ -1373,13 +1398,15 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
     }
 
     deleteMsg?.let { m ->
-        AlertDialog(
-            onDismissRequest = { deleteMsg = null },
-            containerColor = colors.surface,
-            title = { Text(S.dmDeleteMsgTitle, color = colors.textPrimary) },
-            text = { Text(S.dmDeleteMsgBody, color = colors.textSecondary) },
-            confirmButton = { TextButton(onClick = { deleteMsg = null; scope.launch { dms.delete(m.seq) } }) { Text(S.dmDeleteAction, color = RED) } },
-            dismissButton = { TextButton(onClick = { deleteMsg = null }) { Text(S.dmCancel, color = colors.textPrimary) } }
+        DmDeleteDialog(
+            canDeleteForAll = m.uid == myId && !m.deleted,
+            onDismiss = { deleteMsg = null },
+            onForMe = {
+                deleteMsg = null
+                hiddenSeqs = hiddenSeqs + m.seq
+                writeHidden(hiddenCtx, hiddenKey, hiddenSeqs)
+            },
+            onForAll = { deleteMsg = null; scope.launch { dms.delete(m.seq) } }
         )
     }
 }
@@ -1389,6 +1416,8 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DmBubble(
+    firstInGroup: Boolean = true,
+    lastInGroup: Boolean = true,
     m: DmMessage,
     mine: Boolean,
     read: Boolean,
@@ -1414,14 +1443,21 @@ private fun DmBubble(
     val bg = if (mine) (mineColor ?: colors.textPrimary) else colors.card
     val fg = if (mine) (if (mineColor != null) Color.White else colors.background) else colors.textPrimary
     val sub = if (mine) fg.copy(alpha = 0.65f) else colors.textMuted
-    val shape = RoundedCornerShape(
-        topStart = 18.dp, topEnd = 18.dp,
-        bottomStart = if (mine) 18.dp else 4.dp, bottomEnd = if (mine) 4.dp else 18.dp
+    // Gelembung berurutan dari pengirim yang sama menyatu: sudut yang saling berhadapan dikecilkan, ekor hanya di yang terakhir.
+    val big = 20.dp
+    val joined = 6.dp
+    val tail = 4.dp
+    val shape = if (mine) RoundedCornerShape(
+        topStart = big, topEnd = if (firstInGroup) big else joined,
+        bottomStart = big, bottomEnd = if (lastInGroup) tail else joined
+    ) else RoundedCornerShape(
+        topStart = if (firstInGroup) big else joined, topEnd = big,
+        bottomStart = if (lastInGroup) tail else joined, bottomEnd = big
     )
     var drag by remember { mutableStateOf(0f) }
     val trigger = with(LocalDensity.current) { 56.dp.toPx() }
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 2.dp)
+        Modifier.fillMaxWidth().padding(top = if (firstInGroup) 7.dp else 1.5.dp, bottom = 1.5.dp)
             .offset { IntOffset(drag.roundToInt(), 0) }
             .clip(RoundedCornerShape(12.dp))
             .background(if (highlight) colors.accent.copy(alpha = 0.22f) else Color.Transparent)
@@ -1489,11 +1525,11 @@ private fun DmBubble(
                             }
                         }
                     }
-                    if (m.text.isNotBlank()) Text(m.text, color = fg, fontSize = 15.sp, lineHeight = 20.sp)
+                    if (m.text.isNotBlank() && !PROFILE_RE.matches(m.text.trim())) Text(m.text, color = fg, fontSize = 15.sp, lineHeight = 20.sp)
                     translation?.let { TranslationBlock(it, fg, sub, onHideTranslation) }
                     if (m.text.isNotBlank() && !m.deleted) DmLinkCards(m.text, loadPreview, fg, sub)
                 }
-                Row(Modifier.align(Alignment.End).padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (lastInGroup || starred || m.status != SendStatus.SENT || m.expires > 0) Row(Modifier.align(Alignment.End).padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (starred) Text("★  ", color = sub, fontSize = 10.sp)
                     if (m.expires > 0 && !m.deleted) Text("⏳  ", color = sub, fontSize = 10.sp)
                     if (m.edited > 0 && !m.deleted) Text("${S.dmEdited}  ", color = sub, fontSize = 10.sp)
@@ -1510,16 +1546,23 @@ private fun DmBubble(
             }
             if (m.status == SendStatus.FAILED) Text(S.dmFailedTap, color = RED, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp))
             if (m.reactions.isNotEmpty() && !m.deleted) {
-                Row(Modifier.padding(top = 3.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                // Satu pil reaksi yang menempel di sudut gelembung, seperti tapback iPhone.
+                Row(
+                    Modifier.padding(bottom = 6.dp).offset(y = (-7).dp).zIndex(1f)
+                        .clip(RoundedCornerShape(14.dp)).background(colors.surface)
+                        .border(1.dp, colors.border, RoundedCornerShape(14.dp))
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     m.reactions.entries.forEach { (emoji, users) ->
                         val me = users.contains(myId)
                         Row(
-                            Modifier.clip(RoundedCornerShape(12.dp)).background(if (me) colors.accent.copy(alpha = 0.25f) else colors.card)
-                                .border(1.dp, if (me) colors.accent else colors.border, RoundedCornerShape(12.dp))
-                                .clickable { onReact(emoji) }.padding(horizontal = 7.dp, vertical = 2.dp),
+                            Modifier.clip(RoundedCornerShape(11.dp)).background(if (me) colors.accent.copy(alpha = 0.22f) else Color.Transparent)
+                                .clickable { onReact(emoji) }.padding(horizontal = 5.dp, vertical = 1.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(emoji, fontSize = 13.sp)
+                            Text(emoji, fontSize = 14.sp)
                             if (users.size > 1) Text(" ${users.size}", color = colors.textSecondary, fontSize = 11.sp)
                         }
                     }
@@ -1734,10 +1777,7 @@ private val PREVIEW_HOSTS = listOf("youtube.com", "youtu.be", "open.spotify.com"
 private fun DmLinkCards(text: String, loadPreview: suspend (String) -> LinkPreview?, fg: Color, sub: Color) {
     val context = LocalContext.current
     PROFILE_RE.find(text.trim())?.let { m ->
-        val name = m.groupValues[1]
-        SimpleLinkCard("👤", S.dmProfileCard, "@$name  ·  ${S.dmProfileOpen}", fg, sub) {
-            id.nexrify.music.data.chat.ChatNav.profileRequest.value = name
-        }
+        DmProfileCard(m.groupValues[1], fg, sub)
         return
     }
     PlaylistShareNav.parseText(text)?.let { pid ->
@@ -1799,5 +1839,197 @@ private fun DmOnceTextCard(viewed: Boolean, mine: Boolean, fg: Color, sub: Color
         Icon(NexIcons.Lock, null, tint = if (viewed) sub else fg, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(10.dp))
         Text(label, color = if (viewed) sub else fg, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+
+/* =============================== KOMPONEN BARU =============================== */
+
+/**
+ * Kartu kontak yang dibagikan. Isinya diambil langsung dari profil asli orangnya (foto, nama panggilan/display,
+ * bio, title), jadi selalu terbaru. Diketuk membuka profil lengkap di tempat, tanpa pindah layar.
+ */
+@Composable
+private fun DmProfileCard(username: String, fg: Color, sub: Color) {
+    val profiles by rememberChatProfiles(listOf(username))
+    val p = profiles[username.lowercase()]
+    var open by remember { mutableStateOf(false) }
+    val myName = AccountManager.getInstance().user.value?.username.orEmpty()
+    val settings = remember { id.nexrify.music.data.chat.ChatManager.getInstance().settings }
+    val muted by settings.muted.collectAsState()
+
+    Column(
+        Modifier.padding(top = 6.dp).widthIn(min = 220.dp).clip(RoundedCornerShape(14.dp)).background(fg.copy(alpha = 0.10f))
+            .clickable { open = true }.padding(12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (p != null) ChatAvatar(p.uid, p.av, p.display.ifBlank { p.username }, 48.dp)
+            else Box(Modifier.size(48.dp).clip(CircleShape).background(fg.copy(alpha = 0.15f)), contentAlignment = Alignment.Center) { Text("👤", fontSize = 22.sp) }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f, fill = false)) {
+                Text(
+                    p?.display?.ifBlank { null } ?: "@$username", color = fg, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                )
+                Text("@$username", color = sub, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        if (p != null && p.titles.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            PersonTags(p, Modifier)
+        }
+        val bio = p?.bio?.trim().orEmpty()
+        if (bio.isNotBlank() && p?.profileHidden != true) {
+            Spacer(Modifier.height(8.dp))
+            Text(bio, color = fg.copy(alpha = 0.9f), fontSize = 13.sp, lineHeight = 18.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(S.dmProfileFull, color = sub, fontSize = 11.sp)
+    }
+
+    if (open) {
+        ChatProfileSheet(
+            username = username,
+            isMe = username.equals(myName, true),
+            isMuted = username.lowercase() in muted,
+            onMention = { open = false },
+            onToggleMute = {
+                val st = currentStrings()
+                if (username.lowercase() in muted) { settings.unmute(username); NexNotifier.info(st.chatUnmuted("@$username"), st.chatTitle) }
+                else { settings.mute(username); NexNotifier.info(st.chatMuted("@$username"), st.chatTitle) }
+            },
+            onDismiss = { open = false },
+            showMention = false
+        )
+    }
+}
+
+/** Menu tekan-lama ala iPhone: pil reaksi di atas, pratinjau pesan di tengah, daftar aksi di bawah, latar digelapkan. */
+@Composable
+private fun DmMessageContextMenu(
+    m: DmMessage, mine: Boolean, myId: String, mineColor: Color?, starred: Boolean,
+    canForward: Boolean, canTranslate: Boolean, canCopy: Boolean, canEdit: Boolean,
+    onDismiss: () -> Unit, onReact: (String) -> Unit, onReply: () -> Unit, onForward: () -> Unit,
+    onTranslate: () -> Unit, onStar: () -> Unit, onCopy: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit
+) {
+    val colors = NexrifyAppTheme.colors
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { shown = true }
+    val sc by animateFloatAsState(if (shown) 1f else 0.86f, label = "ctxScale")
+    val al by animateFloatAsState(if (shown) 1f else 0f, label = "ctxAlpha")
+    val bubbleBg = if (mine) (mineColor ?: colors.textPrimary) else colors.card
+    val bubbleFg = if (mine) (if (mineColor != null) Color.White else colors.background) else colors.textPrimary
+    val cardShape = RoundedCornerShape(18.dp)
+    // Urutan tapback ala iPhone: hati dulu.
+    val emojis = remember { (listOf("❤️") + CHAT_EMOJIS_QUICK).distinct() }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    ) {
+        Box(
+            Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.66f * al))
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss)
+                .statusBarsPadding().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).scale(sc).alpha(al),
+                horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // pil reaksi
+                if (m.seq > 0) Row(
+                    Modifier.clip(RoundedCornerShape(28.dp)).background(colors.surface)
+                        .border(1.dp, colors.border, RoundedCornerShape(28.dp)).padding(horizontal = 6.dp, vertical = 5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically
+                ) {
+                    emojis.forEach { e ->
+                        val mineReact = m.reactions[e]?.contains(myId) == true
+                        Box(
+                            Modifier.size(42.dp).clip(CircleShape).background(if (mineReact) colors.accent.copy(alpha = 0.25f) else Color.Transparent)
+                                .clickable { onReact(e) },
+                            contentAlignment = Alignment.Center
+                        ) { Text(e, fontSize = 24.sp) }
+                    }
+                }
+                // pratinjau pesan
+                Box(
+                    Modifier.widthIn(max = 300.dp)
+                        .clip(RoundedCornerShape(20.dp)).background(bubbleBg)
+                        .then(if (!mine) Modifier.border(1.dp, colors.border, RoundedCornerShape(20.dp)) else Modifier)
+                        .padding(horizontal = 14.dp, vertical = 10.dp)
+                ) {
+                    Text(
+                        dmPreview(m).ifBlank { S.dmMessageDeleted },
+                        color = bubbleFg, fontSize = 15.sp, lineHeight = 21.sp, maxLines = 8, overflow = TextOverflow.Ellipsis
+                    )
+                }
+                // daftar aksi
+                Column(
+                    Modifier.widthIn(min = 230.dp, max = 270.dp).clip(cardShape).background(colors.surface).border(1.dp, colors.border, cardShape)
+                ) {
+                    CtxRow(S.dmReply, NexIcons.Reply, false, onReply)
+                    if (canCopy) { CtxDivider(); CtxRow(S.dmCopy, NexIcons.Copy, false, onCopy) }
+                    if (canForward) { CtxDivider(); CtxRow(S.dmForward, NexIcons.Send, false, onForward) }
+                    if (canTranslate) { CtxDivider(); CtxRow(S.dmTranslate, NexIcons.Translate, false, onTranslate) }
+                    if (m.seq > 0) { CtxDivider(); CtxRow(if (starred) S.dmUnstar else S.dmStar, NexIcons.Flag, false, onStar) }
+                    if (canEdit) { CtxDivider(); CtxRow(S.dmEditAction, NexIcons.Edit, false, onEdit) }
+                    CtxDivider()
+                    CtxRow(S.dmDeleteAction, NexIcons.DeleteOutline, true, onDelete)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CtxDivider() {
+    Box(Modifier.fillMaxWidth().height(0.5.dp).background(NexrifyAppTheme.colors.border))
+}
+
+@Composable
+private fun CtxRow(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, danger: Boolean, onClick: () -> Unit) {
+    val colors = NexrifyAppTheme.colors
+    val c = if (danger) RED else colors.textPrimary
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, color = c, fontSize = 15.sp, modifier = Modifier.weight(1f))
+        Icon(icon, null, tint = c, modifier = Modifier.size(20.dp))
+    }
+}
+
+/** Pilihan hapus ala iPhone: "untuk saya" (hanya di perangkat ini) atau "untuk semua" (pesan sendiri). */
+@Composable
+private fun DmDeleteDialog(canDeleteForAll: Boolean, onDismiss: () -> Unit, onForMe: () -> Unit, onForAll: () -> Unit) {
+    val colors = NexrifyAppTheme.colors
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            val shape = RoundedCornerShape(18.dp)
+            Column(Modifier.fillMaxWidth().clip(shape).background(colors.surface).border(1.dp, colors.border, shape)) {
+                Text(
+                    S.dmDeleteMsgTitle, color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp)
+                )
+                CtxDivider()
+                Column(Modifier.fillMaxWidth().clickable(onClick = onForMe).padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(S.dmDeleteForMe, color = RED, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                    Text(S.dmDeleteForMeHint, color = colors.textMuted, fontSize = 11.sp)
+                }
+                if (canDeleteForAll) {
+                    CtxDivider()
+                    Column(Modifier.fillMaxWidth().clickable(onClick = onForAll).padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(S.dmDeleteForAll, color = RED, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                        Text(S.dmDeleteForAllHint, color = colors.textMuted, fontSize = 11.sp)
+                    }
+                }
+            }
+            Box(
+                Modifier.fillMaxWidth().clip(shape).background(colors.surface).border(1.dp, colors.border, shape).clickable(onClick = onDismiss).padding(vertical = 15.dp),
+                contentAlignment = Alignment.Center
+            ) { Text(S.dmCancel, color = colors.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.SemiBold) }
+        }
     }
 }
