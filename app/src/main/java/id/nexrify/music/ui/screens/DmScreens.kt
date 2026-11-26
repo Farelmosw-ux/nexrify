@@ -473,12 +473,12 @@ private fun DmInboxContent(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
                             2 -> if (pin == lockFirst) {
                                 dms.setPin(pin); lockFlow = 0; lockFirst = ""
                                 NexNotifier.success(currentStrings().dmLockDone, currentStrings().dmTitle)
-                            } else { lockFlow = 1; lockFirst = ""; lockError = S.dmPinMismatch }
+                            } else { lockFlow = 1; lockFirst = ""; lockError = currentStrings().dmPinMismatch }
                             3 -> if (dms.checkPin(pin)) {
                                 dms.removePin(); lockFlow = 0
                                 NexNotifier.info(currentStrings().dmLockOffDone, currentStrings().dmTitle)
-                            } else { lockError = S.dmPinWrong }
-                            4 -> if (dms.checkPin(pin)) { lockFlow = 1 } else { lockError = S.dmPinWrong }
+                            } else { lockError = currentStrings().dmPinWrong }
+                            4 -> if (dms.checkPin(pin)) { lockFlow = 1 } else { lockError = currentStrings().dmPinWrong }
                             else -> Unit
                         }
                         Unit
