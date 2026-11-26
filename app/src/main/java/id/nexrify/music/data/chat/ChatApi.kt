@@ -308,7 +308,10 @@ object ChatApi {
                 DmSong(sg.optString("id"), sg.optString("title"), sg.optString("artist"), sg.optString("thumb"), sg.optString("url"), sg.optLong("dur"))
             },
             forwarded = o.optBoolean("forwarded"), expires = o.optLong("expires"),
-            voice = o.optJSONObject("voice")?.let { v -> ChatVoice(v.optString("id"), v.optLong("durMs"), v.optString("wave")) }
+            voice = o.optJSONObject("voice")?.let { v -> ChatVoice(v.optString("id"), v.optLong("durMs"), v.optString("wave")) },
+            image = o.optJSONObject("image")?.let { v -> DmImage(v.optString("id"), v.optInt("w", 1), v.optInt("h", 1), v.optBoolean("once"), v.optBoolean("viewed")) },
+            call = o.optJSONObject("call")?.let { v -> DmCall(v.optString("status"), v.optLong("dur")) },
+            onceText = o.optBoolean("onceText"), onceViewed = o.optBoolean("onceViewed")
         )
     }
 
