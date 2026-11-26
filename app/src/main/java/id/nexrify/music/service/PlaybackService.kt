@@ -250,10 +250,10 @@ class PlaybackService : MediaSessionService() {
         // Ultra-low latency buffering with robust fMP4/AAC headroom
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                /* minBufferMs = */ 15_000,
-                /* maxBufferMs = */ 50_000,
-                /* bufferForPlaybackMs = */ 500,
-                /* bufferForPlaybackAfterRebufferMs = */ 1_500
+                /* minBufferMs = */ 30_000,
+                /* maxBufferMs = */ 90_000,
+                /* bufferForPlaybackMs = */ 800,
+                /* bufferForPlaybackAfterRebufferMs = */ 2_500
             )
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
@@ -263,6 +263,8 @@ class PlaybackService : MediaSessionService() {
             .setLoadControl(loadControl)
             .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true)
+            // Tanpa ini CPU dan Wi-Fi ikut tidur saat layar mati, streaming putus, lagu berhenti tiba-tiba.
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
 
         exo = exoPlayer
@@ -445,8 +447,11 @@ class PlaybackService : MediaSessionService() {
             startForeground(NOTIFICATION_ID, n)
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                 val pl = player
-                val idle = pl == null || pl.mediaItemCount == 0 ||
-                    pl.playbackState == Player.STATE_IDLE || pl.playbackState == Player.STATE_ENDED
+                // Jangan lepas status foreground kalau lagu baru masih disiapkan (cari URL bisa > 4 detik)
+                // atau pengguna sudah menekan putar; kalau dilepas, sistem bisa mematikan proses dan lagu mati sendiri.
+                val busy = PlaybackBridge.isLoading.value || pl?.playWhenReady == true
+                val idle = !busy && (pl == null || pl.mediaItemCount == 0 ||
+                    pl.playbackState == Player.STATE_IDLE || pl.playbackState == Player.STATE_ENDED)
                 if (alive && idle) {
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
