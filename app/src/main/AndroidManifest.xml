@@ -12,6 +12,8 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Panggilan masuk tampil penuh di layar kunci dengan tombol Jawab / Tolak -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <!-- Dipakai khusus untuk menampilkan panel musik kapsul di atas layar -->
@@ -100,6 +102,11 @@
             android:noHistory="true"
             android:taskAffinity=""
             android:theme="@style/Theme.Nexrify.Transparent" />
+
+        <!-- Tombol Tolak pada notifikasi panggilan masuk -->
+        <receiver
+            android:name=".push.CallActionReceiver"
+            android:exported="false" />
 
         <!-- Notifikasi push Firebase Cloud Messaging -->
         <service
