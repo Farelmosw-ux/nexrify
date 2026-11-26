@@ -30,7 +30,12 @@ object PushHandler {
                 val seq = d["nx_seq"]?.toLongOrNull() ?: 0L
                 ChatManager.getInstance().onPush(ChatNotif(kind, seq, from, text, System.currentTimeMillis()))
             }
-            "c" -> id.nexrify.music.data.call.CallManager.getInstance().checkIncomingNow()
+            "c" -> {
+                // Tampilkan dulu notifikasi panggilan dari data push supaya langsung berdering, lalu cocokkan dengan server.
+                val who = d["nx_name"].orEmpty().ifBlank { d["nx_user"].orEmpty() }.ifBlank { title }
+                CallNotifier.showIncoming(context, who, d["nx_id"])
+                id.nexrify.music.data.call.CallManager.getInstance().checkIncomingNow(fromPush = true)
+            }
             "mail" -> {
                 PushNotifier.show(context, PushNotifier.CH_MAIL, "mail_" + d["nx_id"].orEmpty(), 4208, title, body, extras = mapOf("nx_kind" to "mail"))
                 runCatching { MailboxManager.getInstance().refresh() }
