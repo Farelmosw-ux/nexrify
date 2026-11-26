@@ -921,6 +921,7 @@ class Strings(val english: Boolean) {
     val callErrBusy get() = t("Sedang dalam panggilan lain", "Already on another call")
     val callErrBusyMe get() = t("Kamu sedang dalam panggilan", "You're already on a call")
     val callErrNotAllowed get() = t("Panggilan hanya untuk teman atau percakapan yang sudah diterima", "Calls are only for friends or accepted chats")
+    val callErrServer get() = t("Server panggilan sedang bermasalah. Coba lagi sebentar", "The call server is having trouble. Try again shortly")
     val callErrFailed get() = t("Panggilan gagal tersambung. Coba lagi", "The call couldn't connect. Try again")
     fun callLogEnded(d: String) = t("Panggilan suara · $d", "Voice call · $d")
     val callLogMissedIn get() = t("Panggilan tak terjawab", "Missed call")
