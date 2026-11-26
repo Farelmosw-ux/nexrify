@@ -105,9 +105,9 @@ object NexNotifier {
 }
 
 /**
- * Taruh sekali di akar aplikasi. Kartu kompak muncul di bagian bawah layar (di atas mini player dan bilah navigasi),
+ * Taruh sekali di akar aplikasi. Kartu kompak muncul di bagian atas layar (di bawah status bar),
  * jadi tidak menutupi judul, kontrol pemutar, maupun tombol-tombol di atas. Hilang sendiri dengan garis hitung mundur,
- * bisa ditutup dengan tombol X, ketuk kartu, atau geser ke bawah. Sentuhan di luar kartu diteruskan ke layar di bawahnya.
+ * bisa ditutup dengan tombol X, ketuk kartu, atau geser ke atas. Sentuhan di luar kartu diteruskan ke layar di bawahnya.
  */
 @Composable
 fun NexNotificationHost() {
@@ -131,8 +131,9 @@ fun NexNotificationHost() {
 
     val current = shown ?: return
     val density = LocalDensity.current
-    val bottomOffset = with(density) { 150.dp.roundToPx() }
-    val positionProvider = remember(bottomOffset) {
+    // Tampil di bagian atas (di bawah status bar) supaya tidak menutupi pesan, kolom kirim, mini player, maupun bilah navigasi.
+    val topOffset = with(density) { (androidx.compose.foundation.layout.WindowInsets.statusBars.getTop(density) + 10.dp.roundToPx()) }
+    val positionProvider = remember(topOffset) {
         object : PopupPositionProvider {
             override fun calculatePosition(
                 anchorBounds: IntRect,
@@ -141,7 +142,7 @@ fun NexNotificationHost() {
                 popupContentSize: IntSize
             ): IntOffset = IntOffset(
                 (windowSize.width - popupContentSize.width) / 2,
-                (windowSize.height - popupContentSize.height - bottomOffset).coerceAtLeast(0)
+                topOffset
             )
         }
     }
@@ -152,8 +153,8 @@ fun NexNotificationHost() {
     ) {
         AnimatedVisibility(
             visible = visible,
-            enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
-            exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut()
+            enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut()
         ) {
             val tone = when (current.kind) {
                 NoteKind.SUCCESS -> Color(0xFF4ADE80)
@@ -178,8 +179,9 @@ fun NexNotificationHost() {
             Column(
                 modifier = Modifier
                     .padding(horizontal = 16.dp)
+                    .widthIn(max = 520.dp)
                     .fillMaxWidth()
-                    .offset { IntOffset(0, dragY.toInt().coerceAtLeast(0)) }
+                    .offset { IntOffset(0, dragY.toInt().coerceAtMost(0)) }
                     .shadow(18.dp, shape, ambientColor = tone, spotColor = tone)
                     .clip(shape)
                     .background(
@@ -191,7 +193,7 @@ fun NexNotificationHost() {
                     .pointerInput(current.id) {
                         detectVerticalDragGestures(
                             onVerticalDrag = { _, d -> dragY += d },
-                            onDragEnd = { if (dragY > 40f) NexNotifier.clear(current.id) else dragY = 0f },
+                            onDragEnd = { if (dragY < -40f) NexNotifier.clear(current.id) else dragY = 0f },
                             onDragCancel = { dragY = 0f }
                         )
                     }
@@ -229,7 +231,7 @@ fun NexNotificationHost() {
                             fontSize = 13.sp,
                             lineHeight = 18.sp,
                             color = colors.textPrimary.copy(alpha = 0.82f),
-                            maxLines = 3,
+                            maxLines = 4,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
