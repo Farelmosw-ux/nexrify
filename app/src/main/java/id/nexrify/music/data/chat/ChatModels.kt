@@ -253,7 +253,11 @@ data class DmMessage(
     val song: DmSong? = null,
     val forwarded: Boolean = false,
     val expires: Long = 0,
-    val voice: ChatVoice? = null
+    val voice: ChatVoice? = null,
+    val image: DmImage? = null,
+    val call: DmCall? = null,
+    val onceText: Boolean = false,
+    val onceViewed: Boolean = false
 )
 
 /** Kartu lagu yang dikirim lewat chat pribadi. */
