@@ -83,12 +83,12 @@ class DmManager private constructor(private val context: Context) {
     /* ---------------- percakapan ---------------- */
 
     private val server = MutableStateFlow<Map<Long, DmMessage>>(emptyMap())
-    private val pending = MutableStateFlow<List<DmMessage>>(emptyList())
+    private val outbox = MutableStateFlow<List<DmMessage>>(emptyList())
     private val pendingData = HashMap<String, Pair<String, Long>>()
     private val pendingSong = HashMap<String, DmSong>()
     private var localCounter = 0L
 
-    val messages: StateFlow<List<DmMessage>> = combine(server, pending) { s, p ->
+    val messages: StateFlow<List<DmMessage>> = combine(server, outbox) { s, p ->
         s.values.sortedBy { it.seq } + p
     }.stateIn(scope, SharingStarted.Eagerly, emptyList())
 
@@ -139,7 +139,7 @@ class DmManager private constructor(private val context: Context) {
         if (openUid == peer.uid && threadJob?.isActive == true) return
         threadJob?.cancel()
         server.value = emptyMap()
-        pending.value = emptyList()
+        outbox.value = emptyList()
         pendingData.clear()
         pendingSong.clear()
         _typing.value = false
@@ -243,7 +243,7 @@ class DmManager private constructor(private val context: Context) {
             status = SendStatus.SENDING, localId = localId
         )
         pendingData[localId] = clean to (replyTo?.seq ?: 0L)
-        pending.update { it + msg }
+        outbox.update { it + msg }
         scope.launch { deliver(localId, uid) }
     }
 
@@ -259,20 +259,20 @@ class DmManager private constructor(private val context: Context) {
         )
         pendingData[localId] = "" to 0L
         pendingSong[localId] = song
-        pending.update { it + msg }
+        outbox.update { it + msg }
         scope.launch { deliver(localId, uid) }
     }
 
     fun retry(localId: String) {
         val uid = openUid ?: return
-        pending.update { list -> list.map { if (it.localId == localId) it.copy(status = SendStatus.SENDING) else it } }
+        outbox.update { list -> list.map { if (it.localId == localId) it.copy(status = SendStatus.SENDING) else it } }
         scope.launch { deliver(localId, uid) }
     }
 
     fun discardPending(localId: String) {
         pendingData.remove(localId)
         pendingSong.remove(localId)
-        pending.update { list -> list.filterNot { it.localId == localId } }
+        outbox.update { list -> list.filterNot { it.localId == localId } }
     }
 
     private suspend fun deliver(localId: String, uid: String) {
@@ -290,7 +290,7 @@ class DmManager private constructor(private val context: Context) {
             pendingData.remove(localId)
             pendingSong.remove(localId)
             server.update { it + (m.seq to m) }
-            pending.update { list -> list.filterNot { it.localId == localId } }
+            outbox.update { list -> list.filterNot { it.localId == localId } }
             kick()
             scope.launch { refreshInbox() }
         } catch (e: CancellationException) {
@@ -304,7 +304,7 @@ class DmManager private constructor(private val context: Context) {
     }
 
     private fun markFailed(localId: String) {
-        pending.update { list -> list.map { if (it.localId == localId) it.copy(status = SendStatus.FAILED) else it } }
+        outbox.update { list -> list.map { if (it.localId == localId) it.copy(status = SendStatus.FAILED) else it } }
     }
 
     suspend fun edit(seq: Long, text: String): Boolean {
