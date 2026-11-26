@@ -32,7 +32,8 @@ object ChatApi {
                 val json = runCatching { JSONObject(text) }.getOrNull()
                     ?: throw AccountError("server", "HTTP ${response.code}")
                 if (!json.optBoolean("ok", false)) {
-                    throw AccountError(json.optString("code", "server"), json.optString("error", "HTTP ${response.code}"))
+                    val detail = json.optString("detail").takeIf { it.isNotBlank() }
+                    throw AccountError(json.optString("code", "server"), json.optString("error", "HTTP ${response.code}") + (detail?.let { " ($it)" } ?: ""))
                 }
                 return json
             }
