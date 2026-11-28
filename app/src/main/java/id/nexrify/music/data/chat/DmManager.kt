@@ -23,11 +23,21 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import org.json.JSONArray
 import org.json.JSONObject
 
+data class DmContact(
+    val uid: String,
+    val username: String,
+    val firstName: String,
+    val lastName: String,
+    val av: String
+) {
+    val fullName: String get() = listOf(firstName, lastName).filter { it.isNotBlank() }.joinToString(" ").ifBlank { username }
+}
+
 /**
- * Pesan langsung (DM) satu lawan satu. Kotak masuk dicek tiap 8 detik hanya saat layar chat atau pesan terlihat,
- * percakapan yang sedang dibuka dicek tiap 2,5 detik dan melambat saat sepi.
+ * Pesan langsung (DM) satu lawan satu.
  */
 class DmManager private constructor(private val context: Context) {
 
@@ -39,7 +49,6 @@ class DmManager private constructor(private val context: Context) {
     private val _inbox = MutableStateFlow<List<DmConversation>>(emptyList())
     val inbox: StateFlow<List<DmConversation>> = _inbox.asStateFlow()
     private val _unread = MutableStateFlow(0)
-    /** Total pesan langsung yang belum dibaca (badge). */
     val unread: StateFlow<Int> = _unread.asStateFlow()
     private val _inboxLoaded = MutableStateFlow(false)
     val inboxLoaded: StateFlow<Boolean> = _inboxLoaded.asStateFlow()
@@ -73,19 +82,18 @@ class DmManager private constructor(private val context: Context) {
             val before = _unread.value
             _inbox.value = list
             _unread.value = list.sumOf { if (it.muted || it.archived || it.request || isChatLocked(it.uid)) 0 else it.unread }
-            // Pesan baru masuk saat kotak masuk terbuka (tidak sedang di dalam percakapan): bunyikan nada pesan.
             if (_inboxLoaded.value && openUid == null && _unread.value > before) id.nexrify.music.util.NexSounds.playMessage(context)
             _inboxLoaded.value = true
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
-            // diam saja: dicoba lagi pada putaran berikutnya
+            // diam saja
         }
     }
 
     /* ---------------- percakapan ---------------- */
 
-    private val server = MutableStateFlow<Map<Long, DmMessage>>(emptyMap())
+    private val server = MutableStateFlow>(emptyMap())
     private val outbox = MutableStateFlow<List<DmMessage>>(emptyList())
     private val pendingData = HashMap<String, Pair<String, Long>>()
     private val pendingSong = HashMap<String, DmSong>()
@@ -104,19 +112,14 @@ class DmManager private constructor(private val context: Context) {
     private val _blocked = MutableStateFlow(false)
     val blocked: StateFlow<Boolean> = _blocked.asStateFlow()
     private val _stars = MutableStateFlow<Set<Long>>(emptySet())
-    /** Nomor pesan yang kuberi bintang di percakapan terbuka. */
     val stars: StateFlow<Set<Long>> = _stars.asStateFlow()
     private val _disappear = MutableStateFlow(0L)
-    /** Detik sebelum pesan baru hilang sendiri (0 = mati). */
     val disappear: StateFlow<Long> = _disappear.asStateFlow()
-    private val _translated = MutableStateFlow<Map<Long, String>>(emptyMap())
-    /** Terjemahan pesan di percakapan terbuka (nomor pesan -> teks). Hanya di memori. */
-    val translated: StateFlow<Map<Long, String>> = _translated.asStateFlow()
+    private val _translated = MutableStateFlow>(emptyMap())
+    val translated: StateFlow> = _translated.asStateFlow()
     private val _request = MutableStateFlow(false)
-    /** Percakapan terbuka adalah permintaan pesan dari orang yang belum jadi temanku. */
     val request: StateFlow<Boolean> = _request.asStateFlow()
     private val _pending = MutableStateFlow(false)
-    /** Pesanku masih menunggu diterima lawan bicara. */
     val pending: StateFlow<Boolean> = _pending.asStateFlow()
     private val _loaded = MutableStateFlow(false)
     val loaded: StateFlow<Boolean> = _loaded.asStateFlow()
@@ -186,7 +189,6 @@ class DmManager private constructor(private val context: Context) {
                     val me = myId()
                     server.update { old -> old + data.messages.associateBy { it.seq } }
                     incoming = data.messages.any { it.uid != me && !it.deleted }
-                    // Nada pesan hanya untuk pesan lawan bicara yang benar-benar baru (bukan riwayat awal, ubahan, atau reaksi).
                     val newest = data.messages.filter { it.uid != me && !it.deleted && it.call == null }.maxOfOrNull { it.seq } ?: 0L
                     if (!first && newest > maxPeerSeq) id.nexrify.music.util.NexSounds.playMessage(context)
                     if (newest > maxPeerSeq) maxPeerSeq = newest
@@ -228,7 +230,6 @@ class DmManager private constructor(private val context: Context) {
         }
     }
 
-    /** Tandai percakapan terbuka sudah dibaca (dibatasi tiap 2 detik) dan kosongkan badge-nya. */
     fun markRead() {
         val uid = openUid ?: return
         val now = System.currentTimeMillis()
@@ -256,7 +257,6 @@ class DmManager private constructor(private val context: Context) {
         scope.launch { deliver(localId, uid) }
     }
 
-    /** Kirim kartu lagu ke lawan bicara yang sedang dibuka. */
     fun sendSong(song: DmSong) {
         val uid = openUid ?: return
         localCounter++
@@ -371,7 +371,6 @@ class DmManager private constructor(private val context: Context) {
         }
     }
 
-    /** Reaksi emoji pada pesan. Emoji yang sama ditekan lagi = batal. */
     suspend fun react(seq: Long, emoji: String): Boolean {
         val uid = openUid ?: return false
         val t = token() ?: return false
@@ -389,7 +388,6 @@ class DmManager private constructor(private val context: Context) {
         }
     }
 
-    /** Aksi kotak masuk: dm_pin, dm_mute (pakai on), dm_unread, dm_hide. Mengembalikan kode galat atau null kalau berhasil. */
     suspend fun inboxAction(action: String, uid: String, on: Boolean = true): String? {
         val t = token() ?: return "auth"
         return try {
@@ -405,7 +403,6 @@ class DmManager private constructor(private val context: Context) {
         }
     }
 
-    /** Kirim pesan suara ke lawan bicara yang sedang dibuka. Mengembalikan kode galat atau null kalau berhasil. */
     suspend fun sendVoice(clip: id.nexrify.music.util.VoiceClip, replyTo: DmMessage?): String? {
         val uid = openUid ?: return "network"
         val t = token() ?: return "auth"
@@ -432,7 +429,6 @@ class DmManager private constructor(private val context: Context) {
         override fun sizeOf(key: String, value: android.graphics.Bitmap): Int = value.byteCount
     }
 
-    /** Foto di percakapan yang sedang dibuka. Disimpan di memori dan cache disk; null kalau kedaluwarsa atau gagal. */
     suspend fun loadImage(id: String): android.graphics.Bitmap? {
         imgCache.get(id)?.let { return it }
         val uid = openUid ?: return null
@@ -454,7 +450,6 @@ class DmManager private constructor(private val context: Context) {
         }
     }
 
-    /** Kirim foto (JPEG hasil kompres) dengan keterangan opsional. Mengembalikan kode galat atau null kalau berhasil. */
     suspend fun sendImage(jpeg: ByteArray, w: Int, h: Int, caption: String, replyTo: DmMessage?, once: Boolean = false): String? {
         val uid = openUid ?: return "network"
         val t = token() ?: return "auth"
@@ -476,7 +471,6 @@ class DmManager private constructor(private val context: Context) {
         }
     }
 
-    /** Terjemahkan satu pesan ke "id" atau "en". Mengembalikan kode galat atau null kalau berhasil. */
     suspend fun translate(seq: Long, lang: String): String? {
         val uid = openUid ?: return "network"
         val t = token() ?: return "auth"
@@ -495,7 +489,7 @@ class DmManager private constructor(private val context: Context) {
 
     fun hideTranslation(seq: Long) { _translated.update { it - seq } }
 
-    /* ---------------- kunci PIN layar pesan (hanya di perangkat ini) ---------------- */
+    /* ---------------- kunci PIN layar pesan ---------------- */
 
     @Volatile private var lastActive = 0L
 
@@ -520,13 +514,12 @@ class DmManager private constructor(private val context: Context) {
         _localVersion.update { it + 1 }
     }
 
-    /* ---------------- kunci per percakapan (folder "Chat terkunci", butuh PIN) ---------------- */
+    /* ---------------- kunci per percakapan ---------------- */
 
     private fun lockedEntries(): Set<String> = localPrefs.getStringSet("locked_chats", emptySet()).orEmpty()
 
     fun isChatLocked(uid: String): Boolean = lockedEntries().any { it.substringBefore('|') == uid }
 
-    /** Uid percakapan terkunci milik [username], atau null. Dipakai saat percakapan dibuka lewat notifikasi/profil sebelum kotak masuk termuat. */
     fun lockedUidForUsername(username: String): String? =
         if (!lockEnabled()) null
         else lockedEntries().firstOrNull { it.substringAfter('|', "").equals(username, true) }?.substringBefore('|')
@@ -541,22 +534,15 @@ class DmManager private constructor(private val context: Context) {
 
     private val chatUnlockedAt = HashMap<String, Long>()
 
-    /** Percakapan terkunci yang baru saja dibuka PIN-nya tidak meminta PIN lagi selama 2 menit. */
     fun chatUnlocked(uid: String): Boolean =
         System.currentTimeMillis() - (synchronized(chatUnlockedAt) { chatUnlockedAt[uid] } ?: 0L) < 120_000L
 
     fun markChatUnlocked(uid: String) { synchronized(chatUnlockedAt) { chatUnlockedAt[uid] = System.currentTimeMillis() } }
 
-    /** Tandai layar pesan sedang dipakai; dipanggil berkala selama terbuka. */
     fun touchLock() { lastActive = System.currentTimeMillis() }
 
-    /** Perlu PIN kalau kunci aktif dan layar pesan sudah lebih dari 1 menit tidak dipakai. */
     fun shouldLock(): Boolean = lockEnabled() && System.currentTimeMillis() - lastActive > 60_000L
 
-    /**
-     * Buka foto sekali lihat: server menandai terbuka dan hanya mengizinkan satu kali unduhan. Mengembalikan id foto,
-     * atau null (galat dikirim ke [errors]; "viewed" berarti sudah pernah dibuka).
-     */
     suspend fun openOnce(seq: Long): String? {
         val uid = openUid ?: return null
         val t = token() ?: return null
@@ -571,7 +557,6 @@ class DmManager private constructor(private val context: Context) {
         }
     }
 
-    /** Unduh foto sekali lihat langsung ke memori: tidak disimpan di cache disk maupun memori. */
     suspend fun loadOnceImage(id: String): android.graphics.Bitmap? {
         val uid = openUid ?: return null
         val t = token() ?: return null
@@ -594,7 +579,6 @@ class DmManager private constructor(private val context: Context) {
 
     private val previewCache = HashMap<String, LinkPreview?>()
 
-    /** Pratinjau tautan (di-cache di memori selama proses hidup). */
     suspend fun linkPreview(url: String): LinkPreview? {
         synchronized(previewCache) { if (previewCache.containsKey(url)) return previewCache[url] }
         val t = token() ?: return null
@@ -609,7 +593,6 @@ class DmManager private constructor(private val context: Context) {
         return p
     }
 
-    /** Mood dan lagu yang sedang didengar [uid]; null kalau gagal. Hanya terisi untuk teman. */
     suspend fun peerExtra(uid: String): PeerExtra? {
         val t = token() ?: return null
         return try { ChatApi.peerExtra(t, uid) } catch (e: CancellationException) { throw e } catch (e: Throwable) { null }
@@ -618,7 +601,6 @@ class DmManager private constructor(private val context: Context) {
     fun myMoodEmoji(): String = localPrefs.getString("my_mood_e", "").orEmpty()
     fun myMoodText(): String = localPrefs.getString("my_mood_t", "").orEmpty()
 
-    /** Atur status mood sendiri (kosong = hapus). Hilang sendiri setelah 24 jam di server. Mengembalikan kode galat atau null. */
     suspend fun setMood(emoji: String, text: String): String? {
         val t = token() ?: return "auth"
         return try {
@@ -635,7 +617,6 @@ class DmManager private constructor(private val context: Context) {
         }
     }
 
-    /** Bagikan lagu yang sedang diputar ke teman? Bawaan: mati (privasi). */
     fun shareNowPlaying(): Boolean = localPrefs.getBoolean("share_np", false)
 
     fun setShareNowPlaying(on: Boolean) {
@@ -645,7 +626,6 @@ class DmManager private constructor(private val context: Context) {
 
     private var npPublished = false
 
-    /** Umumkan lagu yang sedang diputar ([track] null = hapus). Server menyimpannya 5,5 menit, jadi panggil ulang tiap 4 menit. */
     suspend fun publishNowPlaying(track: id.nexrify.music.data.model.Track?) {
         if (track == null && !npPublished) return
         val t = token() ?: return
@@ -657,11 +637,10 @@ class DmManager private constructor(private val context: Context) {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
-            // dicoba lagi pada pembaruan berikutnya
+            // dicoba lagi
         }
     }
 
-    /** Kirim teks dan/atau kartu lagu ke percakapan mana pun (dipakai tombol "Kirim ke teman"). Mengembalikan kode galat atau null. */
     suspend fun sendTo(toUid: String, text: String, song: DmSong? = null): String? {
         val t = token() ?: return "auth"
         return try {
@@ -682,7 +661,6 @@ class DmManager private constructor(private val context: Context) {
         }
     }
 
-    /** Kirim pesan teks sekali lihat. Isinya tidak pernah muncul di daftar pesan, hanya lewat [openOnceText]. Kode galat atau null. */
     suspend fun sendOnceText(text: String): String? {
         val uid = openUid ?: return "network"
         val t = token() ?: return "auth"
@@ -701,7 +679,6 @@ class DmManager private constructor(private val context: Context) {
         }
     }
 
-    /** Buka pesan teks sekali lihat: mengembalikan isinya satu kali saja, atau null (galat dikirim ke [errors]). */
     suspend fun openOnceText(seq: Long): String? {
         val uid = openUid ?: return null
         val t = token() ?: return null
@@ -716,24 +693,73 @@ class DmManager private constructor(private val context: Context) {
         }
     }
 
-    /** Terima permintaan pesan. Kode galat, atau null kalau berhasil. */
     suspend fun acceptRequest(uid: String): String? {
         val err = inboxAction("dm_accept", uid)
         if (err == null && openUid == uid) _request.value = false
         return err
     }
 
-    /** Tolak permintaan pesan: hilang dari kotak masuk dan pengirim tidak bisa mengirim lagi selama 7 hari. */
     suspend fun declineRequest(uid: String): String? = inboxAction("dm_decline", uid)
 
-    /* ---------------- pengaturan lokal (hanya di perangkat ini) ---------------- */
+    /* ---------------- kontak & pengaturan lokal ---------------- */
 
     private val localPrefs = context.getSharedPreferences("dm_local", Context.MODE_PRIVATE)
     private val _localVersion = MutableStateFlow(0)
-    /** Naik tiap nama panggilan atau tema berubah, supaya layar ikut tersusun ulang. */
     val localVersion: StateFlow<Int> = _localVersion.asStateFlow()
 
-    fun nickname(uid: String): String = localPrefs.getString("nick_$uid", "").orEmpty()
+    fun contacts(): List<DmContact> {
+        val raw = localPrefs.getString("saved_contacts", "[]").orEmpty()
+        val arr = runCatching { JSONArray(raw) }.getOrNull() ?: return emptyList()
+        val out = ArrayList<DmContact>()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val uid = o.optString("uid")
+            val un = o.optString("username")
+            if (uid.isBlank() || un.isBlank()) continue
+            out.add(DmContact(uid, un, o.optString("first"), o.optString("last"), o.optString("av")))
+        }
+        return out
+    }
+
+    fun getContact(uid: String): DmContact? = contacts().firstOrNull { it.uid == uid }
+
+    fun saveContact(uid: String, username: String, firstName: String, lastName: String, av: String) {
+        val list = contacts().filterNot { it.uid == uid }.toMutableList()
+        val f = firstName.trim().take(24)
+        val l = lastName.trim().take(24)
+        list.add(0, DmContact(uid, username, f, l, av))
+        val arr = JSONArray()
+        list.forEach { c ->
+            arr.put(
+                JSONObject().put("uid", c.uid).put("username", c.username)
+                    .put("first", c.firstName).put("last", c.lastName).put("av", c.av)
+            )
+        }
+        val full = listOf(f, l).filter { it.isNotBlank() }.joinToString(" ")
+        val e = localPrefs.edit().putString("saved_contacts", arr.toString())
+        if (full.isBlank()) e.remove("nick_$uid") else e.putString("nick_$uid", full)
+        e.apply()
+        _localVersion.update { it + 1 }
+    }
+
+    fun deleteContact(uid: String) {
+        val list = contacts().filterNot { it.uid == uid }
+        val arr = JSONArray()
+        list.forEach { c ->
+            arr.put(
+                JSONObject().put("uid", c.uid).put("username", c.username)
+                    .put("first", c.firstName).put("last", c.lastName).put("av", c.av)
+            )
+        }
+        localPrefs.edit().putString("saved_contacts", arr.toString()).remove("nick_$uid").apply()
+        _localVersion.update { it + 1 }
+    }
+
+    fun nickname(uid: String): String {
+        val c = getContact(uid)
+        if (c != null && c.fullName.isNotBlank()) return c.fullName
+        return localPrefs.getString("nick_$uid", "").orEmpty()
+    }
 
     fun setNickname(uid: String, name: String) {
         val e = localPrefs.edit()
@@ -742,7 +768,6 @@ class DmManager private constructor(private val context: Context) {
         _localVersion.update { it + 1 }
     }
 
-    /** Indeks warna gelembungku di percakapan ini; 0 = bawaan. */
     fun theme(uid: String): Int = localPrefs.getInt("theme_$uid", 0)
 
     fun setTheme(uid: String, index: Int) {
@@ -750,7 +775,6 @@ class DmManager private constructor(private val context: Context) {
         _localVersion.update { it + 1 }
     }
 
-    /** Bintangi atau lepas bintang pesan (hanya terlihat olehku). */
     suspend fun star(seq: Long, on: Boolean): Boolean {
         val uid = openUid ?: return false
         val t = token() ?: return false
@@ -773,7 +797,18 @@ class DmManager private constructor(private val context: Context) {
         return try { ChatApi.dmStars(t, uid) } catch (e: CancellationException) { throw e } catch (e: Throwable) { emptyList() }
     }
 
-    /** Atur pesan hilang sendiri: 0, 86400 (24 jam), atau 604800 (7 hari). Berlaku untuk pesan baru. */
+    /** Ambil semua pesan berbintang dari seluruh percakapan di kotak masuk. */
+    suspend fun allStarred(): List<Pair<DmConversation, DmMessage>> {
+        val t = token() ?: return emptyList()
+        val convs = _inbox.value
+        val out = ArrayList<Pair<DmConversation, DmMessage>>()
+        for (c in convs) {
+            val list = runCatching { ChatApi.dmStars(t, c.uid) }.getOrDefault(emptyList())
+            list.forEach { m -> out.add(c to m) }
+        }
+        return out.sortedByDescending { it.second.ts }
+    }
+
     suspend fun setDisappear(secs: Long): Boolean {
         val uid = openUid ?: return false
         val t = token() ?: return false
@@ -790,7 +825,6 @@ class DmManager private constructor(private val context: Context) {
         }
     }
 
-    /** Teruskan pesan (teks atau kartu lagu) ke percakapan lain. Mengembalikan kode galat atau null kalau berhasil. */
     suspend fun forward(toUid: String, msg: DmMessage): String? {
         val t = token() ?: return "auth"
         return try {
@@ -811,7 +845,6 @@ class DmManager private constructor(private val context: Context) {
         }
     }
 
-    /** Cari kata di percakapan yang sedang dibuka. */
     suspend fun search(q: String): List<DmMessage> {
         val uid = openUid ?: return emptyList()
         val t = token() ?: return emptyList()
