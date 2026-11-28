@@ -93,7 +93,7 @@ class DmManager private constructor(private val context: Context) {
 
     /* ---------------- percakapan ---------------- */
 
-    private val server = MutableStateFlow>(emptyMap())
+    private val server = MutableStateFlow<Map<Long, DmMessage>>(emptyMap())
     private val outbox = MutableStateFlow<List<DmMessage>>(emptyList())
     private val pendingData = HashMap<String, Pair<String, Long>>()
     private val pendingSong = HashMap<String, DmSong>()
@@ -115,8 +115,8 @@ class DmManager private constructor(private val context: Context) {
     val stars: StateFlow<Set<Long>> = _stars.asStateFlow()
     private val _disappear = MutableStateFlow(0L)
     val disappear: StateFlow<Long> = _disappear.asStateFlow()
-    private val _translated = MutableStateFlow>(emptyMap())
-    val translated: StateFlow> = _translated.asStateFlow()
+    private val _translated = MutableStateFlow<Map<Long, String>>(emptyMap())
+    val translated: StateFlow<Map<Long, String>> = _translated.asStateFlow()
     private val _request = MutableStateFlow(false)
     val request: StateFlow<Boolean> = _request.asStateFlow()
     private val _pending = MutableStateFlow(false)
