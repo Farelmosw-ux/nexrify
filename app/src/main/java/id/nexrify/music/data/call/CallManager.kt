@@ -17,6 +17,7 @@ import id.nexrify.music.data.account.AccountManager
 import id.nexrify.music.data.chat.ChatApi
 import id.nexrify.music.capsule.AppVisibility
 import id.nexrify.music.push.CallNotifier
+import id.nexrify.music.R
 import id.nexrify.music.service.CallService
 import id.nexrify.music.util.NexSounds
 import kotlinx.coroutines.CancellationException
@@ -706,7 +707,7 @@ class CallManager private constructor(private val context: Context) {
                 val ch = NotificationChannel(CH_INCOMING, "Panggilan masuk", NotificationManager.IMPORTANCE_HIGH)
                 nm.deleteNotificationChannel("nexrify_call")
                 ch.setSound(
-                    android.net.Uri.parse("android.resource://" + context.packageName + "/" + id.nexrify.music.R.raw.ringtone),
+                    android.net.Uri.parse("android.resource://" + context.packageName + "/" + R.raw.ringtone),
                     AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
                 )
                 ch.enableVibration(true)
