@@ -28,7 +28,7 @@ object PushHandler {
                     else -> body
                 }
                 val seq = d["nx_seq"]?.toLongOrNull() ?: 0L
-                ChatManager.getInstance().onPush(ChatNotif(kind, seq, from, text, System.currentTimeMillis()))
+                ChatManager.getInstance().onPush(ChatNotif(kind, seq, from, text, System.currentTimeMillis(), uid = d["nx_uid"].orEmpty(), display = d["nx_display"].orEmpty()))
             }
             "c" -> {
                 // Tampilkan dulu notifikasi panggilan dari data push supaya langsung berdering, lalu cocokkan dengan server.
