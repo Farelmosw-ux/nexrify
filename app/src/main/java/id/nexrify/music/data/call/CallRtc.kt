@@ -1,6 +1,8 @@
 package id.nexrify.music.data.call
 
 import android.content.Context
+import android.media.AudioAttributes
+import android.media.AudioManager
 import org.json.JSONObject
 import org.webrtc.AudioSource
 import org.webrtc.AudioTrack
@@ -10,6 +12,7 @@ import org.webrtc.MediaConstraints
 import org.webrtc.MediaStream
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
+import org.webrtc.RtpReceiver
 import org.webrtc.SdpObserver
 import org.webrtc.SessionDescription
 import org.webrtc.audio.JavaAudioDeviceModule
@@ -27,9 +30,6 @@ private open class SdpAdapter : SdpObserver {
 
 /**
  * Pembungkus WebRTC untuk satu panggilan suara (hanya audio, tanpa video). Satu objek = satu sambungan.
- * [onLocalIce] dipanggil untuk tiap kandidat jaringan milik kita (JSON: m = mid, i = indeks, c = kandidat).
- * [onState] true saat audio tersambung, false saat sambungan gagal.
- * Callback datang dari thread WebRTC, jadi pemakai harus memindahkannya ke thread utama sendiri.
  */
 class CallRtc(
     context: Context,
@@ -44,14 +44,31 @@ class CallRtc(
     private val lock = Any()
     private var remoteSet = false
     private var closed = false
+    private var notifiedConnected = false
     private val pendingIce = ArrayList<IceCandidate>()
+
+    private fun fireConnected() {
+        synchronized(lock) {
+            if (closed || notifiedConnected) return
+            notifiedConnected = true
+        }
+        onState(true)
+    }
 
     private val observer = object : PeerConnection.Observer {
         override fun onSignalingChange(s: PeerConnection.SignalingState?) {}
         override fun onIceConnectionChange(s: PeerConnection.IceConnectionState?) {
             when (s) {
-                PeerConnection.IceConnectionState.CONNECTED, PeerConnection.IceConnectionState.COMPLETED -> onState(true)
+                PeerConnection.IceConnectionState.CONNECTED,
+                PeerConnection.IceConnectionState.COMPLETED -> fireConnected()
                 PeerConnection.IceConnectionState.FAILED -> onState(false)
+                else -> Unit
+            }
+        }
+        override fun onConnectionChange(newState: PeerConnection.PeerConnectionState?) {
+            when (newState) {
+                PeerConnection.PeerConnectionState.CONNECTED -> fireConnected()
+                PeerConnection.PeerConnectionState.FAILED -> onState(false)
                 else -> Unit
             }
         }
@@ -62,14 +79,27 @@ class CallRtc(
             onLocalIce(JSONObject().put("m", c.sdpMid ?: "").put("i", c.sdpMLineIndex).put("c", c.sdp).toString())
         }
         override fun onIceCandidatesRemoved(c: Array<out IceCandidate>?) {}
-        override fun onAddStream(s: MediaStream?) {}
+        override fun onAddStream(s: MediaStream?) {
+            s?.audioTracks?.forEach { remoteTrack ->
+                runCatching {
+                    remoteTrack.setEnabled(true)
+                    remoteTrack.setVolume(10.0)
+                }
+            }
+        }
+        override fun onAddTrack(receiver: RtpReceiver?, streams: Array<out MediaStream>?) {
+            val remoteTrack = receiver?.track() as? AudioTrack
+            runCatching {
+                remoteTrack?.setEnabled(true)
+                remoteTrack?.setVolume(10.0)
+            }
+        }
         override fun onRemoveStream(s: MediaStream?) {}
         override fun onDataChannel(d: DataChannel?) {}
         override fun onRenegotiationNeeded() {}
     }
 
     init {
-        // Satu pabrik + modul audio dipakai bersama semua sambungan (panggilan grup), supaya mikrofon hanya dibuka sekali.
         factory = acquire(context.applicationContext)
         val config = PeerConnection.RTCConfiguration(iceServers).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
@@ -80,8 +110,17 @@ class CallRtc(
             iceTransportsType = PeerConnection.IceTransportsType.ALL
         }
         pc = factory.createPeerConnection(config, observer) ?: run { release(); throw IllegalStateException("peer connection") }
-        source = factory.createAudioSource(MediaConstraints())
-        track = factory.createAudioTrack("nx_audio", source)
+        val audioSourceConstraints = MediaConstraints().apply {
+            optional.add(MediaConstraints.KeyValuePair("googEchoCancellation", "true"))
+            optional.add(MediaConstraints.KeyValuePair("googAutoGainControl", "true"))
+            optional.add(MediaConstraints.KeyValuePair("googNoiseSuppression", "true"))
+            optional.add(MediaConstraints.KeyValuePair("googHighpassFilter", "true"))
+        }
+        source = factory.createAudioSource(audioSourceConstraints)
+        track = factory.createAudioTrack("nx_audio", source).apply {
+            setEnabled(true)
+            setVolume(10.0)
+        }
         pc.addTrack(track, listOf("nx_stream"))
     }
 
@@ -90,7 +129,6 @@ class CallRtc(
         mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveVideo", "false"))
     }
 
-    /** Pemanggil: buat offer dan pasang sebagai deskripsi lokal. Mengembalikan teks SDP untuk dikirim ke server. */
     suspend fun createOffer(): String = suspendCancellableCoroutine { cont ->
         pc.createOffer(object : SdpAdapter() {
             override fun onCreateSuccess(d: SessionDescription?) {
@@ -104,7 +142,6 @@ class CallRtc(
         }, audioConstraints())
     }
 
-    /** Penerima: pasang offer lawan bicara, buat answer, dan kembalikan teks SDP answer. */
     suspend fun acceptOffer(offer: String): String = suspendCancellableCoroutine { cont ->
         pc.setRemoteDescription(object : SdpAdapter() {
             override fun onSetSuccess() {
@@ -124,7 +161,6 @@ class CallRtc(
         }, SessionDescription(SessionDescription.Type.OFFER, offer))
     }
 
-    /** Pemanggil: pasang answer dari penerima. */
     fun setRemoteAnswer(answer: String) {
         pc.setRemoteDescription(object : SdpAdapter() {
             override fun onSetSuccess() { markRemoteSet() }
@@ -132,7 +168,6 @@ class CallRtc(
         }, SessionDescription(SessionDescription.Type.ANSWER, answer))
     }
 
-    /** Kandidat ICE dari lawan bicara (JSON hasil [onLocalIce] di sisi sana). Ditahan dulu kalau deskripsi remote belum terpasang. */
     fun addRemoteIce(json: String) {
         val c = try {
             val o = JSONObject(json)
@@ -156,7 +191,7 @@ class CallRtc(
     }
 
     fun setMuted(muted: Boolean) {
-        track.setEnabled(!muted)
+        runCatching { track.setEnabled(!muted) }
     }
 
     fun close() {
@@ -191,10 +226,18 @@ class CallRtc(
             ensureInit(app)
             val existing = sharedFactory
             if (existing != null) { refs++; return existing }
+            val attrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                .build()
             val adm = JavaAudioDeviceModule.builder(app)
+                .setAudioAttributes(attrs)
                 .setUseHardwareAcousticEchoCanceler(true)
                 .setUseHardwareNoiseSuppressor(true)
+                .setSamplesReadyCallback { }
                 .createAudioDeviceModule()
+            adm.setMicrophoneMute(false)
+            adm.setSpeakerMute(false)
             val f = PeerConnectionFactory.builder().setAudioDeviceModule(adm).createPeerConnectionFactory()
             sharedAdm = adm
             sharedFactory = f
