@@ -70,7 +70,6 @@ import id.nexrify.music.data.settings.TimeContext
 import id.nexrify.music.data.streak.StreakInfo
 import id.nexrify.music.i18n.S
 import id.nexrify.music.ui.components.AddToPlaylistDialog
-import id.nexrify.music.ui.components.GlassPillContainer
 import id.nexrify.music.ui.components.LoginWebViewDialog
 import id.nexrify.music.ui.components.NexAvatar
 import id.nexrify.music.ui.components.NexFooter
@@ -169,13 +168,12 @@ fun HomeScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(top = if (isV2) 4.dp else 10.dp)
+                .padding(top = if (isV2) 4.dp else 16.dp)
         ) {
             val timeContext = TimeContext.resolve(localNow, maghribTime)
             val unreadMail by MailboxManager.getInstance().unreadCount.collectAsState()
             val chatUnread by ChatManager.getInstance().mentionUnread.collectAsState()
             val notifUnread by NotifCenter.getInstance().unread.collectAsState()
-            val dmUnread by DmManager.getInstance().unread.collectAsState()
 
             if (isV2) {
                 V2UtilityBar(
@@ -183,11 +181,9 @@ fun HomeScreen(
                     chatUnread = chatUnread,
                     mailUnread = unreadMail,
                     notifUnread = notifUnread,
-                    dmUnread = dmUnread,
                     onNotifs = onOpenNotifications,
                     onProfile = { showProfileMenu = true },
                     onChat = onOpenChat,
-                    onDm = onOpenDm,
                     onMail = onOpenMailbox,
                     onSettings = { showSettingsDialog = true },
                     streak = streak,
@@ -199,24 +195,58 @@ fun HomeScreen(
                     hint = if (maghribStatus == MaghribManager.Status.NO_PERMISSION && localNow.hour in 16..18) S.maghribHomeHint else null
                 )
             } else {
-                // Header Modern Premium (Perbaikan Foto ke-1)
-                PremiumHomeHeader(
-                    greeting = S.period(timeContext.period),
-                    description = if (S.english) timeContext.descriptionEn else timeContext.descriptionId,
-                    maghribHint = if (maghribStatus == MaghribManager.Status.NO_PERMISSION && localNow.hour in 16..18) S.maghribHomeHint else null,
-                    streak = streak,
-                    account = currentAccount,
-                    chatUnread = chatUnread,
-                    notifUnread = notifUnread,
-                    dmUnread = dmUnread,
-                    mailUnread = unreadMail,
-                    onStreak = { showStreak = true },
-                    onChat = onOpenChat,
-                    onNotifs = onOpenNotifications,
-                    onDm = onOpenDm,
-                    onMail = onOpenMailbox,
-                    onProfile = { showProfileMenu = true }
-                )
+                val greeting = S.period(timeContext.period)
+                val description = if (S.english) timeContext.descriptionEn else timeContext.descriptionId
+                val maghribHint = if (maghribStatus == MaghribManager.Status.NO_PERMISSION && localNow.hour in 16..18) S.maghribHomeHint else null
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = greeting,
+                            style = Typography.headlineLarge.copy(fontWeight = FontWeight.Bold),
+                            color = colors.textPrimary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        StreakChip(streak, onClick = { showStreak = true })
+                    }
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                        text = description,
+                        style = Typography.bodyLarge,
+                        color = colors.textMuted
+                    )
+                    if (maghribHint != null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = maghribHint,
+                            style = Typography.bodySmall,
+                            color = colors.textSecondary
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        ChatTopButton(unread = chatUnread, onClick = onOpenChat)
+                        NotifTopButton(unread = notifUnread, onClick = onOpenNotifications)
+                        DmTopButton(onClick = onOpenDm)
+                        MailboxTopButton(unread = unreadMail, onClick = onOpenMailbox)
+                        Spacer(modifier = Modifier.weight(1f))
+                        AccountTopButton(account = currentAccount, onClick = { showProfileMenu = true })
+                    }
+                }
             }
 
             if (!isV2) {
@@ -482,220 +512,6 @@ fun HomeScreen(
     }
 }
 
-/* =============================== HEADER BERKELAS (FOTO KE-1) =============================== */
-
-@Composable
-private fun PremiumHomeHeader(
-    greeting: String,
-    description: String,
-    maghribHint: String?,
-    streak: StreakInfo,
-    account: UserAccount?,
-    chatUnread: Int,
-    notifUnread: Int,
-    dmUnread: Int,
-    mailUnread: Int,
-    onStreak: () -> Unit,
-    onChat: () -> Unit,
-    onNotifs: () -> Unit,
-    onDm: () -> Unit,
-    onMail: () -> Unit,
-    onProfile: () -> Unit
-) {
-    val colors = NexrifyAppTheme.colors
-    val nexUser by AccountManager.getInstance().user.collectAsState()
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-    ) {
-        // Kartu Sapaan + Streak Badge di pojok kanan atas
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(24.dp))
-                .background(
-                    Brush.linearGradient(
-                        colors = if (colors.isDark) {
-                            listOf(
-                                Color(0xFF1A1D26),
-                                Color(0xFF111319)
-                            )
-                        } else {
-                            listOf(
-                                Color(0xFFF6F7FA),
-                                Color(0xFFECEEF3)
-                            )
-                        }
-                    )
-                )
-                .border(
-                    width = 1.dp,
-                    brush = Brush.linearGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = if (colors.isDark) 0.14f else 0.6f),
-                            Color.Transparent
-                        )
-                    ),
-                    shape = RoundedCornerShape(24.dp)
-                )
-                .padding(horizontal = 18.dp, vertical = 16.dp)
-        ) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "NEXRIFY",
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 2.sp,
-                            color = colors.accent.copy(alpha = 0.85f)
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = greeting,
-                            style = Typography.headlineMedium.copy(
-                                fontWeight = FontWeight.ExtraBold,
-                                letterSpacing = (-0.5).sp
-                            ),
-                            color = colors.textPrimary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    StreakChip(streak, onClick = onStreak)
-                }
-
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = description,
-                    style = Typography.bodyMedium,
-                    color = colors.textSecondary,
-                    lineHeight = 19.sp
-                )
-                if (maghribHint != null) {
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = maghribHint,
-                        style = Typography.bodySmall,
-                        color = colors.accent,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Glass Action Dock terpadu (Room Chat, Notif, DM, Mailbox, Profil)
-                GlassPillContainer(
-                    modifier = Modifier.fillMaxWidth(),
-                    radius = 22.dp,
-                    elevated = false
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 10.dp, vertical = 7.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        DockActionIcon(
-                            icon = NexIcons.Group,
-                            cd = S.chatOpenChat,
-                            unread = chatUnread,
-                            onClick = onChat
-                        )
-                        DockActionIcon(
-                            icon = NexIcons.Bell,
-                            cd = S.notifCenterTitle,
-                            unread = notifUnread,
-                            onClick = onNotifs
-                        )
-                        DockActionIcon(
-                            icon = NexIcons.Send,
-                            cd = S.dmTitle,
-                            unread = dmUnread,
-                            onClick = onDm
-                        )
-                        DockActionIcon(
-                            icon = NexIcons.Mail,
-                            cd = S.mailboxTitle,
-                            unread = mailUnread,
-                            onClick = onMail
-                        )
-                        // Pemisah vertikal halus sebelum avatar profil
-                        Box(
-                            Modifier
-                                .width(1.dp)
-                                .height(24.dp)
-                                .background(colors.border.copy(alpha = 0.6f))
-                        )
-                        Box(
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .border(1.5.dp, colors.accent.copy(alpha = 0.65f), CircleShape)
-                                .clickable(onClick = onProfile)
-                                .padding(2.dp)
-                        ) {
-                            NexAvatar(user = nexUser, size = 36.dp)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DockActionIcon(
-    icon: ImageVector,
-    cd: String,
-    unread: Int,
-    onClick: () -> Unit
-) {
-    val colors = NexrifyAppTheme.colors
-    Box(modifier = Modifier.size(42.dp), contentAlignment = Alignment.Center) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(colors.textPrimary.copy(alpha = 0.05f))
-                .clickable(onClick = onClick),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = cd,
-                tint = colors.textPrimary,
-                modifier = Modifier.size(19.dp)
-            )
-        }
-        if (unread > 0) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .clip(CircleShape)
-                    .background(Color(0xFFEF4444))
-                    .border(1.5.dp, colors.surface, CircleShape)
-                    .padding(horizontal = 5.dp, vertical = 1.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = if (unread > 9) "9+" else unread.toString(),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-            }
-        }
-    }
-}
-
 @Composable
 fun AccountTopButton(
     account: UserAccount?,
@@ -760,7 +576,7 @@ fun YtmMusicCard(
         Box(
             modifier = Modifier
                 .size(144.dp)
-                .clip(RoundedCornerShape(if (cardV2) 26.dp else 14.dp))
+                .clip(RoundedCornerShape(if (cardV2) 26.dp else 12.dp))
                 .background(colors.card)
         ) {
             AsyncImage(
@@ -1101,7 +917,7 @@ private fun DonateEntryCard(onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 5.dp)
+            .padding(horizontal = 20.dp, vertical = 6.dp)
             .clip(shape)
             .background(
                 Brush.horizontalGradient(
@@ -1131,7 +947,6 @@ private fun DonateEntryCard(onClick: () -> Unit) {
             Text(S.donateTitle, style = Typography.titleSmall.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary)
             Text(S.donateEntrySub, style = Typography.bodySmall, color = colors.textMuted)
         }
-        Icon(NexIcons.ChevronRight, null, tint = Color(0xFFF5C242), modifier = Modifier.size(20.dp))
     }
 }
 
@@ -1142,7 +957,7 @@ private fun FeedbackEntryCard(onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 5.dp)
+            .padding(horizontal = 20.dp, vertical = 6.dp)
             .clip(shape)
             .background(colors.card)
             .border(1.dp, colors.border, shape)
@@ -1161,7 +976,132 @@ private fun FeedbackEntryCard(onClick: () -> Unit) {
             Text(S.feedbackEntry, style = Typography.titleSmall.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary)
             Text(S.feedbackEntrySub, style = Typography.bodySmall, color = colors.textMuted)
         }
-        Icon(NexIcons.ChevronRight, null, tint = colors.textMuted, modifier = Modifier.size(20.dp))
+    }
+}
+
+@Composable
+private fun ChatTopButton(unread: Int, onClick: () -> Unit) {
+    val colors = NexrifyAppTheme.colors
+    Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(colors.card)
+                .border(1.dp, colors.border, CircleShape)
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(NexIcons.Group, S.chatOpenChat, tint = colors.textPrimary, modifier = Modifier.size(20.dp))
+        }
+        if (unread > 0) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .clip(CircleShape)
+                    .background(colors.accent)
+                    .border(2.dp, colors.background, CircleShape)
+                    .padding(horizontal = 5.dp, vertical = 1.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (unread > 9) "9+" else unread.toString(),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.background
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotifTopButton(unread: Int, onClick: () -> Unit) {
+    val colors = NexrifyAppTheme.colors
+    Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier.size(40.dp).clip(CircleShape).background(colors.card).border(1.dp, colors.border, CircleShape).clickable(onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) { Icon(NexIcons.Bell, S.notifCenterTitle, tint = colors.textPrimary, modifier = Modifier.size(20.dp)) }
+        if (unread > 0) {
+            Box(
+                modifier = Modifier.align(Alignment.TopEnd).clip(CircleShape).background(colors.accent).border(2.dp, colors.background, CircleShape).padding(horizontal = 5.dp, vertical = 1.dp),
+                contentAlignment = Alignment.Center
+            ) { Text(text = if (unread > 9) "9+" else unread.toString(), fontSize = 9.sp, fontWeight = FontWeight.Bold, color = colors.background) }
+        }
+    }
+}
+
+@Composable
+private fun DmTopButton(onClick: () -> Unit) {
+    val colors = NexrifyAppTheme.colors
+    val unread by DmManager.getInstance().unread.collectAsState()
+    Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(colors.card)
+                .border(1.dp, colors.border, CircleShape)
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(NexIcons.Send, S.dmTitle, tint = colors.textPrimary, modifier = Modifier.size(19.dp))
+        }
+        if (unread > 0) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .clip(CircleShape)
+                    .background(colors.accent)
+                    .border(2.dp, colors.background, CircleShape)
+                    .padding(horizontal = 5.dp, vertical = 1.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (unread > 9) "9+" else unread.toString(),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.background
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MailboxTopButton(unread: Int, onClick: () -> Unit) {
+    val colors = NexrifyAppTheme.colors
+    Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(colors.card)
+                .border(1.dp, colors.border, CircleShape)
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(NexIcons.Mail, S.mailboxTitle, tint = colors.textPrimary, modifier = Modifier.size(20.dp))
+        }
+        if (unread > 0) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .clip(CircleShape)
+                    .background(colors.accent)
+                    .border(2.dp, colors.background, CircleShape)
+                    .padding(horizontal = 5.dp, vertical = 1.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (unread > 9) "9+" else unread.toString(),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = colors.background
+                )
+            }
+        }
     }
 }
 
@@ -1194,11 +1134,9 @@ private fun V2UtilityBar(
     chatUnread: Int,
     mailUnread: Int,
     notifUnread: Int,
-    dmUnread: Int,
     onNotifs: () -> Unit,
     onProfile: () -> Unit,
     onChat: () -> Unit,
-    onDm: () -> Unit,
     onMail: () -> Unit,
     onSettings: () -> Unit,
     streak: StreakInfo,
@@ -1206,34 +1144,52 @@ private fun V2UtilityBar(
 ) {
     val colors = NexrifyAppTheme.colors
     val shape = RoundedCornerShape(30.dp)
-    Row(
+    androidx.compose.foundation.layout.BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .clip(shape)
             .background(colors.surface)
             .border(1.dp, colors.border, shape)
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        AccountTopButton(account = account, onClick = onProfile)
-        StreakChip(streak, onClick = onStreak)
-        DockActionIcon(icon = NexIcons.Group, cd = S.chatOpenChat, unread = chatUnread, onClick = onChat)
-        DockActionIcon(icon = NexIcons.Bell, cd = S.notifCenterTitle, unread = notifUnread, onClick = onNotifs)
-        DockActionIcon(icon = NexIcons.Send, cd = S.dmTitle, unread = dmUnread, onClick = onDm)
-        DockActionIcon(icon = NexIcons.Mail, cd = S.mailboxTitle, unread = mailUnread, onClick = onMail)
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(colors.card)
-                .border(1.dp, colors.border, CircleShape)
-                .clickable(onClick = onSettings),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(NexIcons.Settings, contentDescription = S.cd("Settings"), tint = colors.textPrimary, modifier = Modifier.size(20.dp))
+        val roomForTitle = maxWidth >= 400.dp
+        val items: @Composable () -> Unit = {
+            StreakChip(streak, onClick = onStreak)
+            Spacer(modifier = Modifier.width(8.dp))
+            ChatTopButton(unread = chatUnread, onClick = onChat)
+            Spacer(modifier = Modifier.width(8.dp))
+            NotifTopButton(unread = notifUnread, onClick = onNotifs)
+            Spacer(modifier = Modifier.width(8.dp))
+            MailboxTopButton(unread = mailUnread, onClick = onMail)
+            Spacer(modifier = Modifier.width(8.dp))
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(colors.card)
+                    .border(1.dp, colors.border, CircleShape)
+                    .clickable(onClick = onSettings),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(NexIcons.Settings, contentDescription = S.cd("Settings"), tint = colors.textPrimary, modifier = Modifier.size(20.dp))
+            }
+        }
+        if (roomForTitle) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                AccountTopButton(account = account, onClick = onProfile)
+                Spacer(modifier = Modifier.width(10.dp))
+                Text("Nexrify", style = Typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary, maxLines = 1, softWrap = false, modifier = Modifier.weight(1f))
+                items()
+            }
+        } else {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                AccountTopButton(account = account, onClick = onProfile)
+                Spacer(modifier = Modifier.width(10.dp))
+                items()
+            }
         }
     }
 }
