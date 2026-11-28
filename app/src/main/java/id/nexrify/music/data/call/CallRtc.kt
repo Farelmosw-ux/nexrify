@@ -37,7 +37,6 @@ class CallRtc(
     private val onLocalIce: (String) -> Unit,
     private val onState: (Boolean) -> Unit
 ) {
-    private val adm: JavaAudioDeviceModule
     private val factory: PeerConnectionFactory
     private val pc: PeerConnection
     private val source: AudioSource
@@ -70,17 +69,17 @@ class CallRtc(
     }
 
     init {
-        ensureInit(context.applicationContext)
-        adm = JavaAudioDeviceModule.builder(context.applicationContext)
-            .setUseHardwareAcousticEchoCanceler(true)
-            .setUseHardwareNoiseSuppressor(true)
-            .createAudioDeviceModule()
-        factory = PeerConnectionFactory.builder().setAudioDeviceModule(adm).createPeerConnectionFactory()
+        // Satu pabrik + modul audio dipakai bersama semua sambungan (panggilan grup), supaya mikrofon hanya dibuka sekali.
+        factory = acquire(context.applicationContext)
         val config = PeerConnection.RTCConfiguration(iceServers).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
+            tcpCandidatePolicy = PeerConnection.TcpCandidatePolicy.ENABLED
+            bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
+            rtcpMuxPolicy = PeerConnection.RtcpMuxPolicy.REQUIRE
+            iceTransportsType = PeerConnection.IceTransportsType.ALL
         }
-        pc = factory.createPeerConnection(config, observer) ?: throw IllegalStateException("peer connection")
+        pc = factory.createPeerConnection(config, observer) ?: run { release(); throw IllegalStateException("peer connection") }
         source = factory.createAudioSource(MediaConstraints())
         track = factory.createAudioTrack("nx_audio", source)
         pc.addTrack(track, listOf("nx_stream"))
@@ -169,12 +168,15 @@ class CallRtc(
         runCatching { source.dispose() }
         runCatching { pc.close() }
         runCatching { pc.dispose() }
-        runCatching { factory.dispose() }
-        runCatching { adm.release() }
+        release()
     }
 
     companion object {
         @Volatile private var inited = false
+        private val sharedLock = Any()
+        private var sharedFactory: PeerConnectionFactory? = null
+        private var sharedAdm: JavaAudioDeviceModule? = null
+        private var refs = 0
 
         private fun ensureInit(app: Context) {
             if (inited) return
@@ -182,6 +184,31 @@ class CallRtc(
                 if (inited) return
                 PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions.builder(app).createInitializationOptions())
                 inited = true
+            }
+        }
+
+        private fun acquire(app: Context): PeerConnectionFactory = synchronized(sharedLock) {
+            ensureInit(app)
+            val existing = sharedFactory
+            if (existing != null) { refs++; return existing }
+            val adm = JavaAudioDeviceModule.builder(app)
+                .setUseHardwareAcousticEchoCanceler(true)
+                .setUseHardwareNoiseSuppressor(true)
+                .createAudioDeviceModule()
+            val f = PeerConnectionFactory.builder().setAudioDeviceModule(adm).createPeerConnectionFactory()
+            sharedAdm = adm
+            sharedFactory = f
+            refs = 1
+            f
+        }
+
+        private fun release() = synchronized(sharedLock) {
+            if (refs > 0) refs--
+            if (refs == 0) {
+                runCatching { sharedFactory?.dispose() }
+                runCatching { sharedAdm?.release() }
+                sharedFactory = null
+                sharedAdm = null
             }
         }
     }
