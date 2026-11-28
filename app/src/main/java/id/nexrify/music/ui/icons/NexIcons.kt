@@ -127,6 +127,12 @@ object NexIcons {
             "M3 17 H6 C8 17 9.2 16 10 14.8", "M14 9.2 C14.8 8 16 7 18 7 H21", "M18 4 L21 7 L18 10"
         )
     }
+    val MoreHoriz by lazy {
+        icon("MoreHoriz", "M5 12 H5.1", "M12 12 H12.1", "M19 12 H19.1", strokeWidth = 2.6f)
+    }
+    val PersonAdd by lazy {
+        icon("PersonAdd", circle(10f, 8f, 4f), "M2 21 C2 16.5 5.5 14 10 14 C11.5 14 12.8 14.3 14 14.9", "M19 8 V14", "M16 11 H22")
+    }
     val MoreVert by lazy {
         icon("MoreVert", "M12 5 V5.1", "M12 12 V12.1", "M12 19 V19.1", strokeWidth = 2.6f)
     }
