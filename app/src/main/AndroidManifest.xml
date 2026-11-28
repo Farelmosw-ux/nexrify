@@ -55,6 +55,10 @@
 
         <!-- Widget: ringkas 4x1, kotak 2x2, besar 4x2. Aksi tombol ditangani NexrifyWidgetProvider. -->
         <receiver
+            android:name=".data.chat.DmActionReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".NexrifyWidgetProvider"
             android:exported="false"
             android:label="Nexrify · Ringkas">
