@@ -66,65 +66,6 @@ fun GlassSurface(
     }
 }
 
-/** Kontainer kapsul kaca untuk header, search bar, dan action dock. */
-@Composable
-fun GlassPillContainer(
-    modifier: Modifier = Modifier,
-    radius: Dp = 26.dp,
-    elevated: Boolean = true,
-    content: @Composable BoxScope.() -> Unit
-) {
-    val colors = NexrifyAppTheme.colors
-    val shape = RoundedCornerShape(radius)
-    Box(
-        modifier = modifier
-            .then(
-                if (elevated) Modifier.shadow(
-                    elevation = 12.dp,
-                    shape = shape,
-                    ambientColor = Color.Black.copy(alpha = 0.45f),
-                    spotColor = Color.Black.copy(alpha = 0.55f)
-                ) else Modifier
-            )
-            .clip(shape)
-            .background(
-                Brush.verticalGradient(
-                    colors = if (colors.isDark) {
-                        listOf(
-                            Color(0xFF1C1E26).copy(alpha = 0.92f),
-                            Color(0xFF111318).copy(alpha = 0.96f)
-                        )
-                    } else {
-                        listOf(
-                            Color.White.copy(alpha = 0.95f),
-                            colors.card.copy(alpha = 0.92f)
-                        )
-                    }
-                )
-            )
-            .border(
-                width = 1.dp,
-                brush = Brush.linearGradient(
-                    colors = if (colors.isDark) {
-                        listOf(
-                            Color.White.copy(alpha = 0.18f),
-                            Color.White.copy(alpha = 0.05f),
-                            colors.accent.copy(alpha = 0.18f)
-                        )
-                    } else {
-                        listOf(
-                            Color.Black.copy(alpha = 0.10f),
-                            Color.Black.copy(alpha = 0.04f)
-                        )
-                    }
-                ),
-                shape = shape
-            ),
-        content = content
-    )
-}
-
-/** Kartu kaca melayang untuk pengganti DropdownMenu standar Android. */
 @Composable
 fun GlassDropdownContainer(
     modifier: Modifier = Modifier,
