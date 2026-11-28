@@ -5,9 +5,9 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
-import android.media.RingtoneManager
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -43,22 +43,12 @@ enum class CallPhase { IDLE, OUTGOING, INCOMING, CONNECTING, ACTIVE }
 
 data class CallPeer(val uid: String, val username: String, val display: String, val av: String)
 
-/** Peserta panggilan untuk ditampilkan. [state]: calling (memanggil), ringing (berdering), busy, connecting, connected. */
 data class CallMember(val peer: CallPeer, val state: String)
 
-/** Permintaan dari notifikasi: tombol Jawab ditekan. Layar panggilan menjawab begitu panggilan masuk sudah terbaca. */
 object CallNav {
     val answerRequested = MutableStateFlow(false)
 }
 
-/**
- * Panggilan suara. Semua logika berjalan di thread utama (Dispatchers.Main.immediate); panggilan jaringan
- * pindah thread sendiri lewat ChatApi, dan callback WebRTC dipindahkan balik ke sini lewat [scope].
- *
- * Satu "sambungan" (Leg) = satu pasang pengguna dengan satu PeerConnection. Panggilan biasa hanya punya satu sambungan.
- * Panggilan grup = jaringan mesh: setiap peserta punya sambungan ke setiap peserta lain. Peserta yang baru diundang
- * (yang menerima undangan) yang menelepon otomatis semua peserta lama; peserta lama menjawab otomatis.
- */
 class CallManager private constructor(private val context: Context) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -68,7 +58,6 @@ class CallManager private constructor(private val context: Context) {
     private val _peer = MutableStateFlow<CallPeer?>(null)
     val peer: StateFlow<CallPeer?> = _peer.asStateFlow()
     private val _members = MutableStateFlow<List<CallMember>>(emptyList())
-    /** Semua peserta selain kita beserta statusnya masing-masing. */
     val members: StateFlow<List<CallMember>> = _members.asStateFlow()
     private val _muted = MutableStateFlow(false)
     val muted: StateFlow<Boolean> = _muted.asStateFlow()
@@ -77,9 +66,7 @@ class CallManager private constructor(private val context: Context) {
     private val _seconds = MutableStateFlow(0)
     val seconds: StateFlow<Int> = _seconds.asStateFlow()
     private val _errors = MutableSharedFlow<String>(extraBufferCapacity = 4)
-    /** Kode galat/keterangan untuk ditampilkan UI: call_busy, call_declined, call_unanswered, call_failed, call_noaudio, network, dst. */
     val errors: SharedFlow<String> = _errors.asSharedFlow()
-    /** Rincian teknis galat terakhir (untuk diagnosis), mis. "network: Unable to resolve host". */
     @Volatile var lastDetail: String = ""
 
     private inner class Leg(val peer: CallPeer, val isCaller: Boolean, var id: String?, val offer: String?, val auto: Boolean) {
@@ -98,6 +85,7 @@ class CallManager private constructor(private val context: Context) {
     private var iAmJoiner = false
     private var knownMembers: List<CallPeer> = emptyList()
     private var ringWatch: Job? = null
+    private var outTimeoutJob: Job? = null
     private var timerJob: Job? = null
     private var fgJob: Job? = null
     private var autoJob: Job? = null
@@ -117,7 +105,6 @@ class CallManager private constructor(private val context: Context) {
 
     /* ------------------------------ memulai & menjawab ------------------------------ */
 
-    /** Telepon [p]. Izin mikrofon harus sudah diberikan sebelum memanggil ini. */
     fun startCall(p: CallPeer) {
         if (_phase.value != CallPhase.IDLE) return
         val t = token()
@@ -129,10 +116,23 @@ class CallManager private constructor(private val context: Context) {
         _peer.value = p
         _phase.value = CallPhase.OUTGOING
         publish()
+        // Batas waktu berdering 18 detik: jika tidak dijawab, otomatis mati & tercatat tidak terjawab
+        outTimeoutJob?.cancel()
+        outTimeoutJob = scope.launch {
+            delay(RING_TIMEOUT_MS)
+            if (_phase.value == CallPhase.OUTGOING && primary === leg) {
+                val ids = legs.mapNotNull { it.id }
+                val tk = token()
+                teardown()
+                _errors.tryEmit("call_unanswered")
+                if (tk != null) ids.forEach { id ->
+                    scope.launch { runCatching { ChatApi.post(tk, JSONObject().put("action", "call_end").put("id", id)) } }
+                }
+            }
+        }
         leg.job = scope.launch { runOutgoing(t, leg, null) }
     }
 
-    /** Tambah peserta ke panggilan yang sedang berlangsung (jadi panggilan grup). */
     fun addParticipant(p: CallPeer) {
         if (_phase.value != CallPhase.ACTIVE) { _errors.tryEmit("call_add_wait"); return }
         val t = token() ?: return
@@ -147,12 +147,11 @@ class CallManager private constructor(private val context: Context) {
 
     private suspend fun runOutgoing(t: String, leg: Leg, grp: String?) {
         try {
-            val r = newRtc(leg, loadIce(t))
             beginAudio()
+            val r = newRtc(leg, loadIce(t))
             val offer = r.createOffer()
             val body = JSONObject().put("action", "call_start").put("to", leg.peer.uid).put("offer", offer)
             if (grp != null) body.put("grp", grp)
-            // Tanpa NonCancellable, pembatalan saat permintaan berjalan bisa meninggalkan panggilan "hantu" di sisi server.
             val resp = withContext(NonCancellable) { ChatApi.post(t, body) }
             val id = resp.optString("id")
             resp.optString("grp").takeIf { it.isNotBlank() }?.let { groupId = it }
@@ -176,7 +175,6 @@ class CallManager private constructor(private val context: Context) {
         }
     }
 
-    /** Jawab panggilan masuk. Izin mikrofon harus sudah diberikan. */
     fun accept() {
         if (_phase.value != CallPhase.INCOMING) return
         val t = token() ?: return
@@ -196,8 +194,8 @@ class CallManager private constructor(private val context: Context) {
 
     private suspend fun runIncomingLeg(t: String, leg: Leg) {
         try {
-            val r = newRtc(leg, loadIce(t))
             beginAudio()
+            val r = newRtc(leg, loadIce(t))
             val answer = r.acceptOffer(leg.offer.orEmpty())
             ChatApi.post(t, JSONObject().put("action", "call_answer").put("id", leg.id).put("answer", answer))
             pollLeg(t, leg)
@@ -212,7 +210,6 @@ class CallManager private constructor(private val context: Context) {
         }
     }
 
-    /** Tolak panggilan masuk, batalkan panggilan keluar, atau akhiri panggilan yang berlangsung (semua sambungan). */
     fun hangup() {
         if (_phase.value == CallPhase.IDLE) return
         val ids = legs.mapNotNull { it.id }
@@ -239,24 +236,21 @@ class CallManager private constructor(private val context: Context) {
 
     /* ------------------------------ panggilan masuk ------------------------------ */
 
-    /** Aplikasi di depan: cek panggilan masuk tiap 5 detik. Di latar belakang, push FCM yang memberi tahu. */
     fun setForeground(on: Boolean) {
         fgJob?.cancel(); fgJob = null
         if (!on) return
         fgJob = scope.launch {
             while (true) {
                 if (AccountManager.getInstance().isLoggedIn()) checkIncoming()
-                delay(5000)
+                delay(4000)
             }
         }
     }
 
-    /** [fromPush]: notifikasi sudah ditampilkan dari data push, jadi kalau ternyata tidak ada panggilan (sudah dibatalkan) cabut lagi. */
     fun checkIncomingNow(fromPush: Boolean = false) {
         scope.launch { checkIncoming(fromPush) }
     }
 
-    /** Tombol Tolak di notifikasi: tolak lewat id panggilan; kalau id belum diketahui, cari panggilan masuk dulu. */
     suspend fun declineFromNotification(callIdArg: String) {
         if (_phase.value == CallPhase.INCOMING) { hangup(); return }
         val t = token() ?: return
@@ -299,20 +293,18 @@ class CallManager private constructor(private val context: Context) {
         _peer.value = peer
         _phase.value = CallPhase.INCOMING
         publish()
-        // Aplikasi tidak tampil: dering dan tombol Jawab/Tolak lewat notifikasi layar penuh. Tampil: dering dan layar panggilan di dalam aplikasi.
         if (AppVisibility.inForeground) {
             CallNotifier.cancel(context)
             startRinging()
         } else {
             CallNotifier.showIncoming(context, p.optString("display").ifBlank { p.optString("username") }, leg.id)
         }
-        val left = c.optLong("msLeft", 45_000L)
+        val left = c.optLong("msLeft", RING_TIMEOUT_MS)
         ringWatch = scope.launch { watchRinging(t, left) }
     }
 
-    /** Selama berdering: cek tiap 2 detik apakah pemanggil sudah membatalkan, dan menyerah kalau waktunya habis. */
     private suspend fun watchRinging(t: String, leftMs: Long) {
-        val until = System.currentTimeMillis() + leftMs + 2000
+        val until = System.currentTimeMillis() + leftMs + 1500
         while (_phase.value == CallPhase.INCOMING) {
             val id = primary?.id ?: return
             try {
@@ -323,10 +315,10 @@ class CallManager private constructor(private val context: Context) {
             } catch (e: AccountError) {
                 if (e.code == "not_found") { teardown(); return }
             } catch (e: Throwable) {
-                // koneksi sesaat putus: coba lagi di putaran berikutnya
+                // coba lagi
             }
             if (System.currentTimeMillis() > until) { teardown(); return }
-            delay(2000)
+            delay(1500)
         }
     }
 
@@ -350,6 +342,7 @@ class CallManager private constructor(private val context: Context) {
                 if (!answered) {
                     val ans = r.optString("answer")
                     if (ans.isNotBlank()) {
+                        outTimeoutJob?.cancel(); outTimeoutJob = null
                         leg.rtc?.setRemoteAnswer(ans)
                         answered = true
                         deadline = System.currentTimeMillis() + CONNECT_TIMEOUT_MS
@@ -378,26 +371,22 @@ class CallManager private constructor(private val context: Context) {
                 lastDetail = "poll ${e.javaClass.simpleName}: ${e.message}"
             }
             if (!leg.connected && deadline > 0 && System.currentTimeMillis() > deadline) {
-                // Sinyal sudah bertukar tapi audio tak kunjung tersambung: biasanya jaringan butuh TURN.
                 lastDetail = "ice timeout (tidak tersambung dalam ${CONNECT_TIMEOUT_MS / 1000} detik)"
                 legFailed(leg, "call_noaudio")
                 return
             }
             if (!ok) {
-                // Audio mengalir langsung antar perangkat (WebRTC), jadi saat panggilan sudah berlangsung
-                // gangguan server sesaat tidak boleh memutus panggilan; cukup coba lagi pelan-pelan.
                 if (_phase.value != CallPhase.ACTIVE && fails >= 25) {
                     legFailed(leg, if (lastCode == "network") "network" else "call_server")
                     return
                 }
-                delay(minOf(1000L + fails * 500L, 5000L))
+                delay(minOf(800L + fails * 400L, 4000L))
             } else {
-                delay(if (_phase.value == CallPhase.ACTIVE) 2000L else 1000L)
+                delay(if (_phase.value == CallPhase.ACTIVE) 2000L else 500L)
             }
         }
     }
 
-    /** Daftar peserta grup dari server. Peserta yang baru bergabung menyambung otomatis ke semua peserta lama. */
     private fun handleGroup(t: String, r: JSONObject) {
         val g = r.optString("grp")
         if (g.isNotBlank()) groupId = g
@@ -425,7 +414,6 @@ class CallManager private constructor(private val context: Context) {
         leg.job = scope.launch { runOutgoing(t, leg, g) }
     }
 
-    /** Selama dalam panggilan grup: terima sambungan otomatis dari peserta yang baru bergabung. */
     private fun startAutoWatch() {
         if (autoJob != null || groupId == null) return
         autoJob = scope.launch {
@@ -467,7 +455,7 @@ class CallManager private constructor(private val context: Context) {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
-            // dicoba lagi di putaran berikutnya
+            // dicoba lagi
         }
     }
 
@@ -476,8 +464,19 @@ class CallManager private constructor(private val context: Context) {
     private fun newRtc(leg: Leg, ice: List<PeerConnection.IceServer>): CallRtc {
         val r = CallRtc(
             context, ice,
-            onLocalIce = { j -> scope.launch { leg.iceOut.add(j) } },
-            onState = { ok -> scope.launch { if (ok) onLegConnected(leg) else if (legs.contains(leg)) legFailed(leg, "call_failed") } }
+            onLocalIce = { j ->
+                scope.launch {
+                    leg.iceOut.add(j)
+                    val t = token()
+                    if (t != null && leg.id != null) flushIce(t, leg)
+                }
+            },
+            onState = { ok ->
+                scope.launch {
+                    if (ok) onLegConnected(leg)
+                    else if (legs.contains(leg)) legFailed(leg, "call_failed")
+                }
+            }
         )
         r.setMuted(_muted.value)
         leg.rtc = r
@@ -502,7 +501,7 @@ class CallManager private constructor(private val context: Context) {
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
-            // pakai cadangan di bawah
+            // pakai cadangan
         }
         if (list.isEmpty()) {
             list.add(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
@@ -521,8 +520,9 @@ class CallManager private constructor(private val context: Context) {
         publish()
         val ph = _phase.value
         if (ph == CallPhase.ACTIVE || ph == CallPhase.IDLE || ph == CallPhase.INCOMING) return
-        // Sudah diangkat/tersambung: dering berhenti.
+        outTimeoutJob?.cancel(); outTimeoutJob = null
         NexSounds.stopRingtone()
+        applySpeaker(_speaker.value)
         _phase.value = CallPhase.ACTIVE
         _seconds.value = 0
         timerJob?.cancel()
@@ -534,25 +534,31 @@ class CallManager private constructor(private val context: Context) {
         }
     }
 
-    /** Ambil fokus audio dan masuk mode panggilan. Fokus sementara ini otomatis menjeda pemutar musik aplikasi. */
     private fun beginAudio() {
-        if (audioOn) return
-        audioOn = true
         val am = context.getSystemService(AudioManager::class.java) ?: return
-        val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build()
-            )
-            .setOnAudioFocusChangeListener { }
-            .build()
-        am.requestAudioFocus(req)
-        focusReq = req
+        if (!audioOn) {
+            audioOn = true
+            val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                .setOnAudioFocusChangeListener { }
+                .build()
+            am.requestAudioFocus(req)
+            focusReq = req
+        }
         am.mode = AudioManager.MODE_IN_COMMUNICATION
+        am.isMicrophoneMute = _muted.value
+        // Pastikan volume suara panggilan tidak 0
+        runCatching {
+            val cur = am.getStreamVolume(AudioManager.STREAM_VOICE_CALL)
+            val max = am.getStreamMaxVolume(AudioManager.STREAM_VOICE_CALL)
+            if (cur <= 1 && max > 2) am.setStreamVolume(AudioManager.STREAM_VOICE_CALL, (max * 0.7f).toInt().coerceAtLeast(2), 0)
+        }
         applySpeaker(_speaker.value)
-        // Mikrofon harus tetap aktif saat aplikasi di latar belakang, jadi jalankan layanan foreground.
         runCatching {
             ContextCompat.startForegroundService(
                 context,
@@ -564,12 +570,21 @@ class CallManager private constructor(private val context: Context) {
     @Suppress("DEPRECATION")
     private fun applySpeaker(on: Boolean) {
         val am = context.getSystemService(AudioManager::class.java) ?: return
+        am.mode = AudioManager.MODE_IN_COMMUNICATION
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val targetType = if (on) AudioDeviceInfo.TYPE_BUILTIN_SPEAKER else AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+            val dev = am.availableCommunicationDevices.firstOrNull { it.type == targetType }
+            if (dev != null) am.setCommunicationDevice(dev)
+        }
         am.isSpeakerphoneOn = on
     }
 
     private fun endAudio() {
         audioOn = false
         val am = context.getSystemService(AudioManager::class.java) ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            runCatching { am.clearCommunicationDevice() }
+        }
         @Suppress("DEPRECATION")
         am.isSpeakerphoneOn = false
         am.mode = AudioManager.MODE_NORMAL
@@ -577,7 +592,6 @@ class CallManager private constructor(private val context: Context) {
         focusReq = null
     }
 
-    /** Dering panggilan masuk (aplikasi terbuka): nada dering + getar. */
     private fun startRinging() {
         NexSounds.startRingtone(context, incoming = true)
         val vib = context.getSystemService(Vibrator::class.java) ?: return
@@ -591,7 +605,6 @@ class CallManager private constructor(private val context: Context) {
 
     /* ------------------------------ mengakhiri ------------------------------ */
 
-    /** Sambungan berakhir karena lawan bicara (selesai/ditolak/tak terjawab). Panggilan grup lanjut selama masih ada sambungan lain. */
     private fun legEndedRemote(leg: Leg, why: String) {
         if (!legs.contains(leg)) return
         if (legs.size <= 1) { finishRemote(why); return }
@@ -610,11 +623,9 @@ class CallManager private constructor(private val context: Context) {
         }
     }
 
-    /** Satu sambungan gagal. Kalau itu satu-satunya, panggilan berakhir; kalau tidak, hanya sambungan itu yang dilepas. */
     private fun legFailed(leg: Leg, code: String) {
         if (!legs.contains(leg)) return
         if (code == "call_busy" && legs.size == 1 && leg === primary) {
-            // Lawan bicara sedang dalam panggilan lain: tampilkan statusnya sebentar lalu tutup.
             leg.st = "busy"
             NexSounds.stopRingtone()
             publish()
@@ -670,6 +681,7 @@ class CallManager private constructor(private val context: Context) {
 
     private fun teardown() {
         val prev = _phase.value
+        outTimeoutJob?.cancel(); outTimeoutJob = null
         legs.forEach { it.dead = true; it.job?.cancel(); it.rtc?.close(); it.rtc = null }
         ringWatch?.cancel(); ringWatch = null
         timerJob?.cancel(); timerJob = null
@@ -682,13 +694,13 @@ class CallManager private constructor(private val context: Context) {
         reset()
         _peer.value = null
         _phase.value = CallPhase.IDLE
-        // Nada akhir panggilan, hanya kalau panggilan memang sempat dilakukan/tersambung (bukan sekadar menolak panggilan masuk).
         if (prev == CallPhase.OUTGOING || prev == CallPhase.CONNECTING || prev == CallPhase.ACTIVE) NexSounds.playEndCall(context)
     }
 
     companion object {
         const val CH_INCOMING = "nexrify_call_v2"
-        private const val CONNECT_TIMEOUT_MS = 35_000L
+        private const val RING_TIMEOUT_MS = 18_000L
+        private const val CONNECT_TIMEOUT_MS = 25_000L
         const val CH_ONGOING = "nexrify_call_ongoing"
 
         @Volatile private var instance: CallManager? = null
@@ -700,7 +712,6 @@ class CallManager private constructor(private val context: Context) {
 
         fun getInstance(): CallManager = instance ?: throw IllegalStateException("CallManager belum diinisialisasi")
 
-        /** Channel untuk push panggilan masuk (berdering) dan notifikasi panggilan berlangsung (senyap). */
         fun ensureChannels(context: Context) {
             val nm = context.getSystemService(NotificationManager::class.java) ?: return
             if (nm.getNotificationChannel(CH_INCOMING) == null) {
