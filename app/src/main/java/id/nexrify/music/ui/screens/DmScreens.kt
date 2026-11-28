@@ -16,9 +16,15 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.zIndex
 import id.nexrify.music.ui.components.ChatProfileSheet
+import id.nexrify.music.ui.components.DmSharePicker
+import id.nexrify.music.ui.components.EditProfileDialog
+import id.nexrify.music.ui.components.NexAvatar
 import id.nexrify.music.ui.components.PersonTags
+import id.nexrify.music.ui.components.TitlePickerSheet
 import id.nexrify.music.ui.components.rememberChatProfiles
+import id.nexrify.music.ui.components.rememberMyProfile
 import androidx.compose.ui.window.DialogProperties
+import id.nexrify.music.data.chat.DmContact
 import id.nexrify.music.data.chat.DmImage
 import id.nexrify.music.util.DmImage as DmImageUtil
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -60,8 +66,11 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -86,6 +95,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -93,7 +103,6 @@ import coil.compose.AsyncImage
 import id.nexrify.music.data.account.AccountManager
 import id.nexrify.music.data.chat.CHAT_EMOJIS_QUICK
 import id.nexrify.music.data.chat.CHAT_MAX_LENGTH
-import id.nexrify.music.data.chat.ChatUserHit
 import id.nexrify.music.data.chat.DmConversation
 import id.nexrify.music.data.chat.DmManager
 import id.nexrify.music.data.chat.DmMessage
@@ -102,7 +111,6 @@ import id.nexrify.music.data.chat.DmSong
 import id.nexrify.music.data.chat.ChatManager
 import id.nexrify.music.data.chat.SendStatus
 import id.nexrify.music.data.model.Track
-import androidx.compose.ui.text.input.ImeAction
 import id.nexrify.music.i18n.S
 import id.nexrify.music.i18n.currentStrings
 import id.nexrify.music.ui.components.ChatAvatar
@@ -112,8 +120,6 @@ import android.view.WindowManager
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.DialogWindowProvider
 import id.nexrify.music.data.account.AccountError
@@ -139,12 +145,9 @@ import kotlinx.coroutines.launch
 
 private const val EDIT_WINDOW = 3_600_000L
 private val RED = Color(0xFFE5484D)
-/** Warna khas Nexrify untuk percakapan: gelembung keluar biru-indigo, centang terbaca biru muda. */
-private val DM_OUT = Color(0xFF3B3FD9)
-private val DM_OUT_DEEP = Color(0xFF2B2EA8)
-private val DM_TICK = Color(0xFF8EC9FF)
+/** Centang terbaca hijau terang seperti semula agar jelas terlihat. */
+private val READ_GREEN = Color(0xFF22C55E)
 
-/** Pesan yang disembunyikan "untuk saya" saja: tersimpan di perangkat per percakapan, tidak menyentuh server. */
 private fun readHidden(c: android.content.Context, key: String): Set<Long> =
     c.getSharedPreferences("nexrify_dm_hidden", android.content.Context.MODE_PRIVATE).getStringSet(key, emptySet()).orEmpty()
         .mapNotNull { it.toLongOrNull() }.toSet()
@@ -154,18 +157,14 @@ private fun writeHidden(c: android.content.Context, key: String, set: Set<Long>)
         .putStringSet(key, set.map { it.toString() }.toSet()).apply()
 }
 
-/** Dua pesan dikelompokkan kalau pengirimnya sama, hari sama, dan selisihnya kurang dari 3 menit. */
 private fun dmSameGroup(a: DmMessage?, b: DmMessage?): Boolean =
     a != null && b != null && a.call == null && b.call == null && a.uid == b.uid &&
         chatDayKey(a.ts) == chatDayKey(b.ts) && kotlin.math.abs(b.ts - a.ts) < 3 * 60_000L
 
-/** Warna gelembung milikku. Indeks 0 = bawaan tema. */
 private val BUBBLE_THEMES = listOf(null, Color(0xFF2563EB), Color(0xFF16A34A), Color(0xFF9333EA), Color(0xFFE11D48), Color(0xFFEA580C))
 
-/** Draf yang belum terkirim, tersimpan selama aplikasi berjalan (uid lawan bicara -> teks). */
 private val dmDrafts = HashMap<String, String>()
 
-/** Ringkasan satu baris sebuah pesan untuk kutipan, hasil cari, dan daftar bintang. */
 private fun dmPreview(m: DmMessage): String {
     val s = currentStrings()
     return when {
@@ -178,7 +177,6 @@ private fun dmPreview(m: DmMessage): String {
     }
 }
 
-/** Nama yang ditampilkan; [ver] hanya memicu susun ulang saat nama panggilan berubah. */
 private fun dmName(display: String, username: String, @Suppress("UNUSED_PARAMETER") ver: Int): String = display.ifBlank { username }
 
 private fun dmErrText(code: String): String {
@@ -221,22 +219,30 @@ private fun DmInboxContent(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
     val inbox by dms.inbox.collectAsState()
     val loaded by dms.inboxLoaded.collectAsState()
     val scope = rememberCoroutineScope()
-    var showNew by remember { mutableStateOf(false) }
+    var showContacts by remember { mutableStateOf(false) }
+    var showMainMenu by remember { mutableStateOf(false) }
+    var showAllStars by remember { mutableStateOf(false) }
     var menuFor by remember { mutableStateOf<DmConversation?>(null) }
     var confirmHide by remember { mutableStateOf<DmConversation?>(null) }
     var showArchive by remember { mutableStateOf(false) }
     var showRequests by remember { mutableStateOf(false) }
-    var showLockSheet by remember { mutableStateOf(false) }
+    var showSettingsSheet by remember { mutableStateOf(false) }
+    var showEditAccount by remember { mutableStateOf(false) }
+    var showTitleSheet by remember { mutableStateOf(false) }
     var showStatus by remember { mutableStateOf(false) }
     var showLocked by remember { mutableStateOf(false) }
     var askFolderPin by remember { mutableStateOf(false) }
     var folderPinError by remember { mutableStateOf<String?>(null) }
-    // 0 = tidak ada, 1 = buat PIN baru, 2 = ulangi PIN baru, 3 = verifikasi untuk mematikan, 4 = verifikasi untuk mengubah
     var lockFlow by remember { mutableStateOf(0) }
     var lockFirst by remember { mutableStateOf("") }
     var lockError by remember { mutableStateOf<String?>(null) }
     val localVer by dms.localVersion.collectAsState()
-    val myName = AccountManager.getInstance().user.value?.username.orEmpty()
+    val meUser by AccountManager.getInstance().user.collectAsState()
+    val myProfile = rememberMyProfile()
+    val myName = meUser?.username.orEmpty()
+    val myDisplayNick = meUser?.display?.ifBlank { meUser?.username.orEmpty() }.orEmpty()
+    val noteDisplayLabel = if (myDisplayNick.isNotBlank()) "$myDisplayNick (Anda)" else S.dmNote
+
     val requestCount = inbox.count { it.request }
     val archivedCount = inbox.count { it.archived && !it.request && !dms.isChatLocked(it.uid) }
     val lockedCount = inbox.count { !it.request && dms.isChatLocked(it.uid) }
@@ -260,138 +266,258 @@ private fun DmInboxContent(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
         onDispose { dms.watchInbox(false) }
     }
 
-    Column(Modifier.fillMaxSize().background(colors.background)) {
-        Row(Modifier.fillMaxWidth().background(colors.surface).padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            TopIcon(NexIcons.ArrowBack) { if (showArchive || showRequests || showLocked) { showArchive = false; showRequests = false; showLocked = false } else onBack() }
-            Text(if (showRequests) S.dmRequests else if (showLocked) S.dmLockedFolder else if (showArchive) S.dmArchived else S.dmTitle, style = Typography.titleLarge.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary, modifier = Modifier.weight(1f).padding(start = 6.dp))
-            TopIcon(NexIcons.Lock) { showLockSheet = true }
-            TopIcon(NexIcons.Edit) { showNew = true }
-        }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border))
+    Box(Modifier.fillMaxSize().background(colors.background)) {
+        Column(Modifier.fillMaxSize()) {
+            // Header: Nexrify + titik 3 (Berbintang & Pengaturan), tanpa kunci pesan pribadi & pesan baru
+            Row(Modifier.fillMaxWidth().background(colors.surface).padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                TopIcon(NexIcons.ArrowBack) {
+                    if (showArchive || showRequests || showLocked) {
+                        showArchive = false; showRequests = false; showLocked = false
+                    } else onBack()
+                }
+                Text(
+                    text = if (showRequests) S.dmRequests else if (showLocked) S.dmLockedFolder else if (showArchive) S.dmArchived else "Nexrify",
+                    style = Typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    color = colors.textPrimary,
+                    modifier = Modifier.weight(1f).padding(start = 6.dp)
+                )
+                Box {
+                    TopIcon(NexIcons.MoreVert) { showMainMenu = true }
+                    DropdownMenu(expanded = showMainMenu, onDismissRequest = { showMainMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Berbintang", color = colors.textPrimary) },
+                            onClick = { showMainMenu = false; showAllStars = true }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Pengaturan", color = colors.textPrimary) },
+                            onClick = { showMainMenu = false; showSettingsSheet = true }
+                        )
+                    }
+                }
+            }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border))
 
-        when {
-            !loaded && inbox.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = colors.textPrimary, strokeWidth = 2.dp, modifier = Modifier.size(28.dp))
-            }
-            inbox.isEmpty() && myName.isBlank() -> Column(Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                Icon(NexIcons.ChatBubbleOutline, null, tint = colors.textMuted, modifier = Modifier.size(44.dp))
-                Spacer(Modifier.height(14.dp))
-                Text(S.dmEmptyTitle, color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                Spacer(Modifier.height(6.dp))
-                Text(S.dmEmptySub, color = colors.textMuted, fontSize = 13.sp, lineHeight = 18.sp)
-                Spacer(Modifier.height(18.dp))
-                Box(
-                    Modifier.clip(RoundedCornerShape(24.dp)).background(colors.textPrimary).clickable { showNew = true }.padding(horizontal = 22.dp, vertical = 12.dp)
-                ) { Text(S.dmNewMessage, color = colors.background, fontWeight = FontWeight.Bold) }
-            }
-            else -> LazyColumn(Modifier.fillMaxSize()) {
-                if (!showArchive && !showRequests && !showLocked && requestCount > 0) item(key = "request-row") {
-                    Row(Modifier.fillMaxWidth().clickable { showRequests = true }.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(NexIcons.Mail, null, tint = colors.textSecondary, modifier = Modifier.size(22.dp))
-                        Spacer(Modifier.width(16.dp))
-                        Text(S.dmRequests, color = colors.textPrimary, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                        Box(Modifier.clip(CircleShape).background(colors.accent).padding(horizontal = 7.dp, vertical = 2.dp)) {
-                            Text(requestCount.toString(), color = colors.background, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border.copy(alpha = 0.5f)))
+            when {
+                !loaded && inbox.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = colors.textPrimary, strokeWidth = 2.dp, modifier = Modifier.size(28.dp))
                 }
-                if (!showArchive && !showRequests && !showLocked && !hasNote && myName.isNotBlank()) item(key = "note-row") {
-                    Row(Modifier.fillMaxWidth().clickable { onOpenChat(myName) }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(50.dp).clip(CircleShape).background(colors.card).border(1.dp, colors.border, CircleShape), contentAlignment = Alignment.Center) {
-                            Icon(NexIcons.Pin, null, tint = colors.textPrimary, modifier = Modifier.size(22.dp))
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(S.dmNote, color = colors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                            Text(S.dmNoteSub, color = colors.textMuted, fontSize = 13.sp)
-                        }
-                    }
-                    Box(Modifier.fillMaxWidth().padding(start = 78.dp).height(1.dp).background(colors.border.copy(alpha = 0.5f)))
+                inbox.isEmpty() && myName.isBlank() -> Column(Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                    Icon(NexIcons.ChatBubbleOutline, null, tint = colors.textMuted, modifier = Modifier.size(44.dp))
+                    Spacer(Modifier.height(14.dp))
+                    Text(S.dmEmptyTitle, color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                    Spacer(Modifier.height(6.dp))
+                    Text(S.dmEmptySub, color = colors.textMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                    Spacer(Modifier.height(18.dp))
+                    Box(
+                        Modifier.clip(RoundedCornerShape(24.dp)).background(colors.textPrimary).clickable { showContacts = true }.padding(horizontal = 22.dp, vertical = 12.dp)
+                    ) { Text("Pilih Kontak", color = colors.background, fontWeight = FontWeight.Bold) }
                 }
-                if (!showArchive && !showRequests && !showLocked && lockedCount > 0) item(key = "locked-row") {
-                    Row(Modifier.fillMaxWidth().clickable { folderPinError = null; askFolderPin = true }.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(NexIcons.Lock, null, tint = colors.textSecondary, modifier = Modifier.size(22.dp))
-                        Spacer(Modifier.width(16.dp))
-                        Text(S.dmLockedFolder, color = colors.textPrimary, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    }
-                    Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border.copy(alpha = 0.5f)))
-                }
-                if (!showArchive && !showRequests && !showLocked && archivedCount > 0) item(key = "archive-row") {
-                    Row(Modifier.fillMaxWidth().clickable { showArchive = true }.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(NexIcons.Download, null, tint = colors.textSecondary, modifier = Modifier.size(22.dp))
-                        Spacer(Modifier.width(16.dp))
-                        Text(S.dmArchived, color = colors.textPrimary, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                        Text(archivedCount.toString(), color = colors.textMuted, fontSize = 13.sp)
-                    }
-                    Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border.copy(alpha = 0.5f)))
-                }
-                items(shown, key = { it.uid }) { c ->
-                    val draft = dmDrafts[c.uid].orEmpty()
-                    Row(
-                        Modifier.fillMaxWidth()
-                            .combinedClickable(onClick = { onOpenChat(c.username) }, onLongClick = { menuFor = c })
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        ChatAvatar(c.uid, c.av, c.display.ifBlank { c.username }, 50.dp)
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    if (c.note) S.dmNote else dmName(dms.nickname(c.uid).ifBlank { c.display }, c.username, localVer),
-                                    color = colors.textPrimary, fontWeight = if (c.unread > 0) FontWeight.Bold else FontWeight.SemiBold,
-                                    fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false)
-                                )
-                                if (c.pinned) { Spacer(Modifier.width(6.dp)); Icon(NexIcons.Pin, null, tint = colors.textMuted, modifier = Modifier.size(13.dp)) }
-                                if (c.muted) { Spacer(Modifier.width(4.dp)); Icon(NexIcons.BellOff, null, tint = colors.textMuted, modifier = Modifier.size(13.dp)) }
+                else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 88.dp)) {
+                    if (!showArchive && !showRequests && !showLocked && requestCount > 0) item(key = "request-row") {
+                        Row(Modifier.fillMaxWidth().clickable { showRequests = true }.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(NexIcons.Mail, null, tint = colors.textSecondary, modifier = Modifier.size(22.dp))
+                            Spacer(Modifier.width(16.dp))
+                            Text(S.dmRequests, color = colors.textPrimary, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                            Box(Modifier.clip(CircleShape).background(colors.accent).padding(horizontal = 7.dp, vertical = 2.dp)) {
+                                Text(requestCount.toString(), color = colors.background, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
-                            Spacer(Modifier.height(2.dp))
-                            if (draft.isNotBlank()) {
-                                Text("${S.dmDraftLabel}: $draft", color = RED, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border.copy(alpha = 0.5f)))
+                    }
+                    // Catatan pribadi default jika belum ada di inbox: <profil> nickname (Anda)
+                    if (!showArchive && !showRequests && !showLocked && !hasNote && myName.isNotBlank()) item(key = "note-row") {
+                        Row(Modifier.fillMaxWidth().clickable { onOpenChat(myName) }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            if (meUser != null) NexAvatar(meUser!!, 50.dp)
+                            else Box(Modifier.size(50.dp).clip(CircleShape).background(colors.card).border(1.dp, colors.border, CircleShape), contentAlignment = Alignment.Center) {
+                                Icon(NexIcons.Person, null, tint = colors.textPrimary, modifier = Modifier.size(22.dp))
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(noteDisplayLabel, color = colors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                                Text(S.dmNoteSub, color = colors.textMuted, fontSize = 13.sp)
+                            }
+                        }
+                        Box(Modifier.fillMaxWidth().padding(start = 78.dp).height(1.dp).background(colors.border.copy(alpha = 0.5f)))
+                    }
+                    if (!showArchive && !showRequests && !showLocked && lockedCount > 0) item(key = "locked-row") {
+                        Row(Modifier.fillMaxWidth().clickable { folderPinError = null; askFolderPin = true }.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(NexIcons.Lock, null, tint = colors.textSecondary, modifier = Modifier.size(22.dp))
+                            Spacer(Modifier.width(16.dp))
+                            Text(S.dmLockedFolder, color = colors.textPrimary, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        }
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border.copy(alpha = 0.5f)))
+                    }
+                    if (!showArchive && !showRequests && !showLocked && archivedCount > 0) item(key = "archive-row") {
+                        Row(Modifier.fillMaxWidth().clickable { showArchive = true }.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(NexIcons.Download, null, tint = colors.textSecondary, modifier = Modifier.size(22.dp))
+                            Spacer(Modifier.width(16.dp))
+                            Text(S.dmArchived, color = colors.textPrimary, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                            Text(archivedCount.toString(), color = colors.textMuted, fontSize = 13.sp)
+                        }
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border.copy(alpha = 0.5f)))
+                    }
+                    items(shown, key = { it.uid }) { c ->
+                        val draft = dmDrafts[c.uid].orEmpty()
+                        Row(
+                            Modifier.fillMaxWidth()
+                                .combinedClickable(onClick = { onOpenChat(c.username) }, onLongClick = { menuFor = c })
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (c.note && meUser != null) {
+                                NexAvatar(meUser!!, 50.dp)
                             } else {
-                                Text(
-                                    (if (c.fromMe) "${S.dmYou}: " else "") + c.last,
-                                    color = if (c.unread > 0) colors.textPrimary else colors.textMuted,
-                                    fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
-                                )
+                                ChatAvatar(c.uid, c.av, c.display.ifBlank { c.username }, 50.dp)
                             }
-                        }
-                        Spacer(Modifier.width(10.dp))
-                        Column(horizontalAlignment = Alignment.End) {
-                            val today = chatDayKey(System.currentTimeMillis())
-                            val dk = chatDayKey(c.ts)
-                            Text(
-                                if (dk == today) chatTime(c.ts) else chatDayLabel(dk, S),
-                                color = if (c.unread > 0) colors.textPrimary else colors.textMuted, fontSize = 11.sp
-                            )
-                            if (c.unread > 0) {
-                                Spacer(Modifier.height(5.dp))
-                                Box(
-                                    Modifier.clip(CircleShape).background(if (c.muted) colors.textMuted else colors.accent).padding(horizontal = 7.dp, vertical = 2.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(if (c.unread > 99) "99+" else c.unread.toString(), color = colors.background, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        if (c.note) noteDisplayLabel else dmName(dms.nickname(c.uid).ifBlank { c.display }, c.username, localVer),
+                                        color = colors.textPrimary, fontWeight = if (c.unread > 0) FontWeight.Bold else FontWeight.SemiBold,
+                                        fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                    if (c.pinned) { Spacer(Modifier.width(6.dp)); Icon(NexIcons.Pin, null, tint = colors.textMuted, modifier = Modifier.size(13.dp)) }
+                                    if (c.muted) { Spacer(Modifier.width(4.dp)); Icon(NexIcons.BellOff, null, tint = colors.textMuted, modifier = Modifier.size(13.dp)) }
+                                }
+                                Spacer(Modifier.height(2.dp))
+                                if (draft.isNotBlank()) {
+                                    Text("${S.dmDraftLabel}: $draft", color = RED, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                } else {
+                                    Text(
+                                        (if (c.fromMe) "${S.dmYou}: " else "") + c.last,
+                                        color = if (c.unread > 0) colors.textPrimary else colors.textMuted,
+                                        fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Column(horizontalAlignment = Alignment.End) {
+                                val today = chatDayKey(System.currentTimeMillis())
+                                val dk = chatDayKey(c.ts)
+                                Text(
+                                    if (dk == today) chatTime(c.ts) else chatDayLabel(dk, S),
+                                    color = if (c.unread > 0) colors.textPrimary else colors.textMuted, fontSize = 11.sp
+                                )
+                                if (c.unread > 0) {
+                                    Spacer(Modifier.height(5.dp))
+                                    Box(
+                                        Modifier.clip(CircleShape).background(if (c.muted) colors.textMuted else colors.accent).padding(horizontal = 7.dp, vertical = 2.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(if (c.unread > 99) "99+" else c.unread.toString(), color = colors.background, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
                         }
+                        Box(Modifier.fillMaxWidth().padding(start = 78.dp).height(1.dp).background(colors.border.copy(alpha = 0.5f)))
                     }
-                    Box(Modifier.fillMaxWidth().padding(start = 78.dp).height(1.dp).background(colors.border.copy(alpha = 0.5f)))
+                }
+            }
+        }
+
+        // Tombol melayang di kanan bawah untuk masuk ke Daftar Kontak
+        Row(
+            Modifier.align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                .padding(20.dp)
+                .clip(RoundedCornerShape(28.dp))
+                .background(colors.textPrimary)
+                .clickable { showContacts = true }
+                .padding(horizontal = 18.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(NexIcons.Group, "Kontak", tint = colors.background, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Kontak", color = colors.background, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        }
+    }
+
+    // Halaman Daftar Kontak (Pilih Kontak + Kontak Baru + Daftar Kontak Di Nexrify)
+    if (showContacts) {
+        ContactsScreen(
+            onBack = { showContacts = false },
+            onOpenChat = { uname -> showContacts = false; onOpenChat(uname) }
+        )
+    }
+
+    // Sheet Berbintang (semua pesan berbintang dari seluruh obrolan)
+    if (showAllStars) {
+        var allList by remember { mutableStateOf<List<Pair<DmConversation, DmMessage>>?>(null) }
+        LaunchedEffect(Unit) { allList = dms.allStarred() }
+        ModalBottomSheet(
+            onDismissRequest = { showAllStars = false },
+            containerColor = colors.background,
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
+                Text("Berbintang", color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Spacer(Modifier.height(10.dp))
+                val l = allList
+                when {
+                    l == null -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = colors.textPrimary, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
+                    }
+                    l.isEmpty() -> Text(S.dmNoStarred, color = colors.textMuted, modifier = Modifier.padding(vertical = 24.dp))
+                    else -> LazyColumn(Modifier.fillMaxWidth().height(380.dp)) {
+                        items(l, key = { "${it.first.uid}_${it.second.seq}" }) { (conv, sm) ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable {
+                                    showAllStars = false
+                                    onOpenChat(conv.username)
+                                }.padding(vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                ChatAvatar(conv.uid, conv.av, conv.display.ifBlank { conv.username }, 38.dp)
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        dmName(dms.nickname(conv.uid).ifBlank { conv.display }, conv.username, localVer),
+                                        color = colors.textMuted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold
+                                    )
+                                    Text(dmPreview(sm), color = colors.textPrimary, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                }
+                                Text(chatTime(sm.ts), color = colors.textMuted, fontSize = 11.sp)
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 
-    if (showLockSheet) {
+    // Sheet Pengaturan (Username, Profil, Title, Status, Kunci PIN, dll.)
+    if (showSettingsSheet) {
         ModalBottomSheet(
-            onDismissRequest = { showLockSheet = false },
+            onDismissRequest = { showSettingsSheet = false },
             containerColor = colors.background,
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ) {
-            Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
-                Text(S.dmSettings, color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.padding(horizontal = 20.dp))
-                Spacer(Modifier.height(6.dp))
-                SheetRow(NexIcons.Edit, S.dmMyStatus) { showLockSheet = false; showStatus = true }
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 28.dp)) {
+                Text("Pengaturan", color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.padding(horizontal = 20.dp))
+                Spacer(Modifier.height(12.dp))
+                // Kartu info akun sendiri
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 20.dp).clip(RoundedCornerShape(16.dp)).background(colors.card)
+                        .border(1.dp, colors.border, RoundedCornerShape(16.dp))
+                        .clickable { showSettingsSheet = false; showEditAccount = true }
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (meUser != null) NexAvatar(meUser!!, 48.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(meUser?.display?.ifBlank { meUser?.username.orEmpty() }.orEmpty(), color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text("@${meUser?.username.orEmpty()}", color = colors.textMuted, fontSize = 13.sp)
+                    }
+                    Icon(NexIcons.Edit, null, tint = colors.textSecondary, modifier = Modifier.size(20.dp))
+                }
+                Spacer(Modifier.height(10.dp))
+                SheetRow(NexIcons.AccountCircle, "Profil & Username") { showSettingsSheet = false; showEditAccount = true }
+                if (myProfile.value != null) {
+                    SheetRow(NexIcons.Crown, "Title Profil") { showSettingsSheet = false; showTitleSheet = true }
+                }
+                SheetRow(NexIcons.Edit, S.dmMyStatus) { showSettingsSheet = false; showStatus = true }
                 Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(S.dmShareNp, color = colors.textPrimary, fontSize = 14.sp, lineHeight = 19.sp, modifier = Modifier.weight(1f))
                     Spacer(Modifier.width(12.dp))
@@ -404,17 +530,31 @@ private fun DmInboxContent(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
                         colors = SwitchDefaults.colors(checkedTrackColor = colors.accent, checkedThumbColor = colors.background)
                     )
                 }
-                Spacer(Modifier.height(8.dp))
+                HorizontalDivider(color = colors.border, modifier = Modifier.padding(vertical = 8.dp))
                 Text(S.dmLockTitle, color = colors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, modifier = Modifier.padding(horizontal = 20.dp))
-                Text(S.dmLockNote, color = colors.textMuted, fontSize = 12.sp, lineHeight = 17.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
+                Text(S.dmLockNote, color = colors.textMuted, fontSize = 12.sp, lineHeight = 17.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp))
                 if (!dms.lockEnabled()) {
-                    SheetRow(NexIcons.Lock, S.dmLockOn) { showLockSheet = false; lockError = null; lockFlow = 1 }
+                    SheetRow(NexIcons.Lock, S.dmLockOn) { showSettingsSheet = false; lockError = null; lockFlow = 1 }
                 } else {
-                    SheetRow(NexIcons.Lock, S.dmLockChange) { showLockSheet = false; lockError = null; lockFlow = 4 }
-                    SheetRow(NexIcons.DeleteOutline, S.dmLockOff, danger = true) { showLockSheet = false; lockError = null; lockFlow = 3 }
+                    SheetRow(NexIcons.Lock, S.dmLockChange) { showSettingsSheet = false; lockError = null; lockFlow = 4 }
+                    SheetRow(NexIcons.DeleteOutline, S.dmLockOff, danger = true) { showSettingsSheet = false; lockError = null; lockFlow = 3 }
                 }
             }
         }
+    }
+
+    if (showEditAccount) {
+        EditProfileDialog(onDismiss = { showEditAccount = false })
+    }
+
+    val mp = myProfile.value
+    if (showTitleSheet && mp != null) {
+        TitlePickerSheet(
+            profile = mp,
+            onDismiss = { showTitleSheet = false },
+            onSaved = { myProfile.value = it },
+            onApplyCreator = { showTitleSheet = false }
+        )
     }
 
     if (askFolderPin) {
@@ -519,8 +659,6 @@ private fun DmInboxContent(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
         }
     }
 
-    if (showNew) NewDmSheet(onPick = { showNew = false; onOpenChat(it) }, onDismiss = { showNew = false })
-
     menuFor?.let { c ->
         ModalBottomSheet(
             onDismissRequest = { menuFor = null },
@@ -547,7 +685,7 @@ private fun DmInboxContent(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
                         dms.setChatLocked(c.uid, c.username, false)
                     } else if (!dms.lockEnabled()) {
                         NexNotifier.info(currentStrings().dmLockNeedPin, currentStrings().dmTitle)
-                        showLockSheet = true
+                        showSettingsSheet = true
                     } else {
                         dms.setChatLocked(c.uid, c.username, true)
                     }
@@ -579,6 +717,208 @@ private fun DmInboxContent(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
     }
 }
 
+/* =============================== DAFTAR KONTAK & KONTAK BARU =============================== */
+
+@Composable
+private fun ContactsScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
+    val colors = NexrifyAppTheme.colors
+    val dms = remember { DmManager.getInstance() }
+    val chat = remember { ChatManager.getInstance() }
+    val scope = rememberCoroutineScope()
+    val localVer by dms.localVersion.collectAsState()
+    val myName = AccountManager.getInstance().user.value?.username.orEmpty()
+
+    var searching by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var firstName by remember { mutableStateOf("") }
+    var lastName by remember { mutableStateOf("") }
+    var usernameInput by remember { mutableStateOf("") }
+    var saving by remember { mutableStateOf(false) }
+    var profilePreviewUser by remember { mutableStateOf<String?>(null) }
+
+    val allContacts = remember(localVer) { dms.contacts() }
+    val filteredContacts = remember(allContacts, searchQuery) {
+        val q = searchQuery.trim().removePrefix("@").lowercase()
+        if (q.isEmpty()) allContacts
+        else allContacts.filter {
+            it.firstName.lowercase().contains(q) ||
+                it.lastName.lowercase().contains(q) ||
+                it.fullName.lowercase().contains(q) ||
+                it.username.lowercase().contains(q)
+        }
+    }
+
+    Dialog(onDismissRequest = onBack, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        Column(
+            Modifier.fillMaxSize().background(colors.background).statusBarsPadding().navigationBarsPadding()
+        ) {
+            // Header: Pilih Kontak + Tombol Cari + Jumlah Kontak
+            Row(
+                Modifier.fillMaxWidth().background(colors.surface).padding(horizontal = 8.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TopIcon(NexIcons.ArrowBack, onBack)
+                Column(Modifier.weight(1f).padding(start = 6.dp)) {
+                    Text("Pilih Kontak", style = Typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary)
+                    Text("${allContacts.size} Kontak", color = colors.textMuted, fontSize = 12.sp)
+                }
+                TopIcon(NexIcons.Search) {
+                    searching = !searching
+                    if (!searching) searchQuery = ""
+                }
+            }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border))
+
+            if (searching) {
+                Box(Modifier.fillMaxWidth().background(colors.surface).padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Box(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(colors.card)
+                            .border(1.dp, colors.border, RoundedCornerShape(20.dp)).padding(horizontal = 14.dp, vertical = 10.dp)
+                    ) {
+                        if (searchQuery.isEmpty()) Text("Cari username / nama depan / belakang...", color = colors.textMuted, fontSize = 14.sp)
+                        BasicTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it.take(32) },
+                            singleLine = true,
+                            textStyle = TextStyle(color = colors.textPrimary, fontSize = 14.sp),
+                            cursorBrush = SolidColor(colors.textPrimary),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+
+            LazyColumn(
+                Modifier.fillMaxSize(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // Form Kontak Baru
+                item(key = "new-contact-card") {
+                    Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(colors.card)
+                            .border(1.dp, colors.border, RoundedCornerShape(18.dp)).padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text("Kontak Baru", color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        ContactInputField(value = firstName, hint = "Nama Depan", onValueChange = { firstName = it.take(24) })
+                        ContactInputField(value = lastName, hint = "Nama Belakang (Opsional)", onValueChange = { lastName = it.take(24) })
+                        ContactInputField(value = usernameInput, hint = "Nama Pengguna / Username", onValueChange = { usernameInput = it.take(24) })
+                        Spacer(Modifier.height(2.dp))
+                        Box(
+                            Modifier.fillMaxWidth().height(46.dp).clip(RoundedCornerShape(24.dp))
+                                .background(if (saving) colors.border else colors.textPrimary)
+                                .clickable(enabled = !saving) {
+                                    val un = usernameInput.trim().removePrefix("@").lowercase()
+                                    val fn = firstName.trim()
+                                    val ln = lastName.trim()
+                                    if (fn.isEmpty() || un.isEmpty()) {
+                                        NexNotifier.warning("Nama depan dan username wajib diisi", "Kontak")
+                                        return@clickable
+                                    }
+                                    if (un.equals(myName, true)) {
+                                        NexNotifier.warning("Tidak bisa menambahkan akun sendiri", "Kontak")
+                                        return@clickable
+                                    }
+                                    saving = true
+                                    scope.launch {
+                                        val prof = runCatching { chat.profile(un) }.getOrNull()
+                                        saving = false
+                                        if (prof == null) {
+                                            NexNotifier.warning(S.dmUserNotFound, "Kontak")
+                                        } else {
+                                            dms.saveContact(prof.uid, prof.username, fn, ln, prof.av)
+                                            firstName = ""; lastName = ""; usernameInput = ""
+                                            NexNotifier.success("Kontak disimpan", "Kontak")
+                                        }
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (saving) CircularProgressIndicator(color = colors.background, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+                            else Text("Simpan", color = colors.background, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        }
+                    }
+                }
+
+                // Judul Daftar Kontak Di Nexrify
+                item(key = "contact-list-header") {
+                    Text(
+                        "Daftar Kontak Di Nexrify",
+                        color = colors.textSecondary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(top = 4.dp, start = 4.dp)
+                    )
+                }
+
+                if (filteredContacts.isEmpty()) {
+                    item(key = "contact-empty") {
+                        Text(
+                            if (allContacts.isEmpty()) "Belum ada kontak tersimpan" else "Kontak tidak ditemukan",
+                            color = colors.textMuted,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp)
+                        )
+                    }
+                } else {
+                    items(filteredContacts, key = { it.uid }) { contact ->
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(colors.card)
+                                .border(1.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                                .clickable { onOpenChat(contact.username) }
+                                .padding(horizontal = 14.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Tekan foto profil -> munculkan profil lengkap
+                            Box(Modifier.clip(CircleShape).clickable { profilePreviewUser = contact.username }) {
+                                ChatAvatar(contact.uid, contact.av, contact.fullName, 46.dp)
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            // Tekan nama/baris kontak -> masuk ke chat
+                            Column(Modifier.weight(1f)) {
+                                Text(contact.fullName, color = colors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("@${contact.username}", color = colors.textMuted, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        profilePreviewUser?.let { u ->
+            ChatProfileSheet(
+                username = u,
+                isMe = false,
+                isMuted = false,
+                onMention = { profilePreviewUser = null },
+                onToggleMute = {},
+                onDismiss = { profilePreviewUser = null },
+                showMention = false
+            )
+        }
+    }
+}
+
+@Composable
+private fun ContactInputField(value: String, hint: String, onValueChange: (String) -> Unit) {
+    val colors = NexrifyAppTheme.colors
+    Box(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(colors.background)
+            .border(1.dp, colors.border, RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 12.dp)
+    ) {
+        if (value.isEmpty()) Text(hint, color = colors.textMuted, fontSize = 14.sp)
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            textStyle = TextStyle(color = colors.textPrimary, fontSize = 14.sp),
+            cursorBrush = SolidColor(colors.textPrimary),
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
 @Composable
 private fun SheetRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, danger: Boolean = false, onClick: () -> Unit) {
     val colors = NexrifyAppTheme.colors
@@ -589,79 +929,7 @@ private fun SheetRow(icon: androidx.compose.ui.graphics.vector.ImageVector, labe
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun NewDmSheet(onPick: (String) -> Unit, onDismiss: () -> Unit) {
-    val colors = NexrifyAppTheme.colors
-    val manager = remember { ChatManager.getInstance() }
-    val myName = AccountManager.getInstance().user.value?.username.orEmpty()
-    var query by remember { mutableStateOf("") }
-    var results by remember { mutableStateOf<List<ChatUserHit>>(emptyList()) }
-    var loading by remember { mutableStateOf(false) }
-    var searched by remember { mutableStateOf(false) }
-
-    LaunchedEffect(query) {
-        val q = query.trim().removePrefix("@")
-        if (q.length < 2) { results = emptyList(); searched = false; loading = false; return@LaunchedEffect }
-        loading = true
-        delay(300)
-        var found = runCatching { manager.searchUsers(q) }.getOrDefault(emptyList()).filter { !it.username.equals(myName, true) }
-        // Username lengkap yang diketik tepat: cari langsung ke profil, supaya tidak bergantung pada daftar awalan.
-        if (found.none { it.username.equals(q, true) } && q.length >= 3 && !q.equals(myName, true)) {
-            val prof = runCatching { manager.profile(q.lowercase()) }.getOrNull()
-            if (prof != null) found = listOf(ChatUserHit(prof.username, prof.uid, prof.display)) + found
-        }
-        results = found
-        searched = true
-        loading = false
-    }
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        containerColor = colors.background,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ) {
-        Column(Modifier.fillMaxWidth().fillMaxSize(0.9f).padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
-            Text(S.dmNewMessage, color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-            Spacer(Modifier.height(12.dp))
-            Box(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(colors.card).border(1.dp, colors.border, RoundedCornerShape(24.dp)).padding(horizontal = 16.dp, vertical = 12.dp)
-            ) {
-                if (query.isEmpty()) Text(S.dmUsernameHint, color = colors.textMuted, fontSize = 15.sp)
-                BasicTextField(
-                    value = query, onValueChange = { query = it.take(24) }, singleLine = true,
-                    textStyle = TextStyle(color = colors.textPrimary, fontSize = 15.sp),
-                    cursorBrush = SolidColor(colors.textPrimary), modifier = Modifier.fillMaxWidth()
-                )
-            }
-            Spacer(Modifier.height(10.dp))
-            when {
-                loading -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = colors.textPrimary, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
-                }
-                searched && results.isEmpty() -> Text(S.dmUserNotFound, color = RED, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(24.dp))
-                !searched -> Text(S.dmAddByUsername, color = colors.textMuted, fontSize = 13.sp, modifier = Modifier.padding(8.dp))
-                else -> LazyColumn(Modifier.fillMaxWidth()) {
-                    items(results, key = { it.uid }) { u ->
-                        Row(
-                            Modifier.fillMaxWidth().clickable { onPick(u.username) }.padding(vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            ChatAvatar(u.uid, "", u.display.ifBlank { u.username }, 42.dp)
-                            Spacer(Modifier.width(12.dp))
-                            Column {
-                                Text(u.display.ifBlank { u.username }, color = colors.textPrimary, fontWeight = FontWeight.SemiBold)
-                                Text("@${u.username}", color = colors.textMuted, fontSize = 12.sp)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/* =============================== PERCAKAPAN =============================== */
+/* =============================== PERCAKAPAN PRIBADI =============================== */
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -671,11 +939,11 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
     val scope = rememberCoroutineScope()
     val clipboard = LocalClipboardManager.current
     val myId = AccountManager.getInstance().user.value?.id.orEmpty()
+    val meUser by AccountManager.getInstance().user.collectAsState()
 
     var peer by remember { mutableStateOf<DmPeer?>(null) }
     var peerFailed by remember { mutableStateOf(false) }
 
-    // Cari lawan bicara: dari kotak masuk dulu (cepat), kalau belum ada tanya server lewat profil.
     LaunchedEffect(username) {
         peerFailed = false
         val c = dms.inbox.value.firstOrNull { it.username.equals(username, true) }
@@ -721,8 +989,11 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
     var menuMsg by remember { mutableStateOf<DmMessage?>(null) }
     var deleteMsg by remember { mutableStateOf<DmMessage?>(null) }
     var showMore by remember { mutableStateOf(false) }
-    var showStars by remember { mutableStateOf(false) }
-    var showDisappear by remember { mutableStateOf(false) }
+    var showMoreSub by remember { mutableStateOf(false) }
+    var showContactProfile by remember { mutableStateOf(false) }
+    var showMediaLinks by remember { mutableStateOf(false) }
+    var showReportDialog by remember { mutableStateOf(false) }
+    var confirmClearChat by remember { mutableStateOf(false) }
     var forwardMsg by remember { mutableStateOf<DmMessage?>(null) }
     val context = LocalContext.current
     val recorder = remember { VoiceRecorder(context) }
@@ -740,7 +1011,6 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
         else micLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
     }
     LaunchedEffect(Unit) { VoicePlayer.errors.collect { code -> NexNotifier.warning(dmErrText(if (code == "vn_gone") "vn_gone" else code), currentStrings().dmTitle) } }
-    // Terakhir aktif lawan bicara (hormati pengaturan privasi: kalau disembunyikan, tidak ditampilkan).
     var peerSeen by remember { mutableStateOf(0L) }
     var peerOnline by remember { mutableStateOf(false) }
     var peerHidden by remember { mutableStateOf(true) }
@@ -797,14 +1067,20 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
             }
         }
     }
-    var showNick by remember { mutableStateOf(false) }
-    var showTheme by remember { mutableStateOf(false) }
     var searching by remember { mutableStateOf(false) }
     var searchQ by remember { mutableStateOf("") }
     var searchRes by remember { mutableStateOf<List<DmMessage>>(emptyList()) }
     val listState = rememberLazyListState()
 
-    // Pulihkan draf saat masuk, simpan saat keluar.
+    val currentConv = inboxList.firstOrNull { it.uid == shownPeer?.uid }
+    val convMuted = currentConv?.muted == true
+    val displayNick = if (isNote) {
+        val myNick = meUser?.display?.ifBlank { meUser?.username.orEmpty() }.orEmpty()
+        if (myNick.isNotBlank()) "$myNick (Anda)" else S.dmNote
+    } else {
+        dmName(shownPeer?.uid?.let { dms.nickname(it) }.orEmpty().ifBlank { shownPeer?.display.orEmpty() }, shownPeer?.username ?: username, localVer)
+    }
+
     LaunchedEffect(shownPeer?.uid) {
         val uid = shownPeer?.uid ?: return@LaunchedEffect
         val d = dmDrafts[uid].orEmpty()
@@ -819,7 +1095,6 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
         }
     }
 
-    // Gulir ke bawah saat ada pesan baru (kalau sudah dekat dasar atau pesan dariku).
     LaunchedEffect(messages.size, typing) {
         if (messages.isEmpty()) return@LaunchedEffect
         val last = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
@@ -858,81 +1133,145 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
         shownPeer?.uid?.let { dmDrafts.remove(it) }
     }
 
+    fun clearAllLocalMessages() {
+        val allSeqs = messages.map { it.seq }.filter { it > 0L }.toSet()
+        hiddenSeqs = hiddenSeqs + allSeqs
+        writeHidden(hiddenCtx, hiddenKey, hiddenSeqs)
+        NexNotifier.info("Obrolan dibersihkan", currentStrings().dmTitle)
+    }
+
     Column(Modifier.fillMaxSize().background(colors.background)) {
         // ---- header ----
         Row(Modifier.fillMaxWidth().background(colors.surface).padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             TopIcon(NexIcons.ArrowBack, onBack)
-            if (shownPeer != null) ChatAvatar(shownPeer.uid, shownPeer.av, shownPeer.display.ifBlank { shownPeer.username }, 38.dp)
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    if (isNote) S.dmNote else dmName(shownPeer?.uid?.let { dms.nickname(it) }.orEmpty().ifBlank { shownPeer?.display.orEmpty() }, shownPeer?.username ?: username, localVer),
-                    style = Typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
-                val sub = when {
-                    isNote -> S.dmNoteSub
-                    typing -> S.dmTyping
-                    offline -> S.dmOffline
-                    !peerHidden && peerOnline -> S.dmOnline
-                    !peerHidden && peerSeen > 0 -> S.chatLastSeen(chatAgo(peerSeen, S))
-                    else -> "@${shownPeer?.username ?: username}"
+            // Profil/nickname ditekan -> otomatis masuk ke profil lengkap
+            Row(
+                Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable(enabled = shownPeer != null && !isNote) {
+                    showContactProfile = true
+                }.padding(vertical = 2.dp, horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (isNote && meUser != null) {
+                    NexAvatar(meUser!!, 38.dp)
+                } else if (shownPeer != null) {
+                    ChatAvatar(shownPeer.uid, shownPeer.av, displayNick, 38.dp)
                 }
-                val ex = extra
-                val extraLine = when {
-                    ex == null -> ""
-                    else -> listOf(
-                        (ex.moodEmoji + " " + ex.moodText).trim(),
-                        if (ex.npTitle.isNotBlank()) "🎧 " + ex.npTitle + (if (ex.npArtist.isNotBlank()) " – " + ex.npArtist else "") else ""
-                    ).filter { it.isNotBlank() }.joinToString("  ·  ")
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        displayNick,
+                        style = Typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    val sub = when {
+                        isNote -> S.dmNoteSub
+                        typing -> S.dmTyping
+                        offline -> S.dmOffline
+                        !peerHidden && peerOnline -> S.dmOnline
+                        !peerHidden && peerSeen > 0 -> S.chatLastSeen(chatAgo(peerSeen, S))
+                        else -> "@${shownPeer?.username ?: username}"
+                    }
+                    val ex = extra
+                    val extraLine = when {
+                        ex == null -> ""
+                        else -> listOf(
+                            (ex.moodEmoji + " " + ex.moodText).trim(),
+                            if (ex.npTitle.isNotBlank()) "🎧 " + ex.npTitle + (if (ex.npArtist.isNotBlank()) " – " + ex.npArtist else "") else ""
+                        ).filter { it.isNotBlank() }.joinToString("  ·  ")
+                    }
+                    Text(sub, fontSize = 12.sp, color = if (typing) colors.textPrimary else colors.textMuted, fontWeight = if (typing) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
+                    if (extraLine.isNotBlank() && !isNote) Text(extraLine, fontSize = 11.sp, color = colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Text(sub, fontSize = 12.sp, color = if (typing) colors.textPrimary else colors.textMuted, fontWeight = if (typing) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
-                if (extraLine.isNotBlank() && !isNote) Text(extraLine, fontSize = 11.sp, color = colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             if (!isNote && !blocked && !requestIn && !pending && shownPeer != null) TopIcon(NexIcons.Phone) { placeCall() }
-            TopIcon(NexIcons.Search) { searching = !searching; if (!searching) { searchQ = ""; searchRes = emptyList() } }
             Box {
-                TopIcon(NexIcons.MoreVert) { showMore = true }
-                DropdownMenu(expanded = showMore, onDismissRequest = { showMore = false }) {
-                    if (!isNote && shownPeer != null) DropdownMenuItem(
-                        text = { Text(S.dmMubarInvite, color = colors.textPrimary) },
-                        onClick = {
-                            showMore = false
-                            val sp = shownPeer
-                            scope.launch {
-                                val mb = MubarManager.getInstance()
-                                try {
-                                    if (mb.room.value == null) mb.create(viewModel.currentTrack.value)
-                                    if (mb.room.value == null) {
-                                        NexNotifier.warning(currentStrings().dmGenericErr, currentStrings().dmTitle)
-                                    } else {
-                                        mb.invite(sp.username)
-                                        NexNotifier.success(currentStrings().dmMubarSent(sp.display.ifBlank { sp.username }), currentStrings().dmTitle)
-                                        mb.openSheet()
+                TopIcon(NexIcons.MoreVert) { showMoreSub = false; showMore = true }
+                DropdownMenu(expanded = showMore, onDismissRequest = { showMore = false; showMoreSub = false }) {
+                    if (!showMoreSub) {
+                        if (!isNote && shownPeer != null) {
+                            DropdownMenuItem(
+                                text = { Text("Lihat Kontak", color = colors.textPrimary) },
+                                onClick = { showMore = false; showContactProfile = true }
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text("Cari", color = colors.textPrimary) },
+                            onClick = { showMore = false; searching = !searching; if (!searching) { searchQ = ""; searchRes = emptyList() } }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Media & tautan", color = colors.textPrimary) },
+                            onClick = { showMore = false; showMediaLinks = true }
+                        )
+                        if (!isNote && shownPeer != null) {
+                            DropdownMenuItem(
+                                text = { Text(if (convMuted) "Bunyikan Notifikasi" else "Senyapkan Notifikasi", color = colors.textPrimary) },
+                                onClick = {
+                                    showMore = false
+                                    scope.launch {
+                                        dms.inboxAction("dm_mute", shownPeer.uid, !convMuted)
+                                        NexNotifier.info(if (convMuted) "Notifikasi dibunyikan" else "Notifikasi disenyapkan", currentStrings().dmTitle)
                                     }
-                                } catch (e: AccountError) {
-                                    NexNotifier.warning(dmErrText(e.code), currentStrings().dmTitle)
-                                } catch (e: Throwable) {
-                                    NexNotifier.warning(currentStrings().dmNoNetworkErr, currentStrings().dmTitle)
                                 }
-                            }
+                            )
                         }
-                    )
-                    DropdownMenuItem(text = { Text(S.dmStarred, color = colors.textPrimary) }, onClick = { showMore = false; showStars = true })
-                    DropdownMenuItem(text = { Text(S.dmDisappear, color = colors.textPrimary) }, onClick = { showMore = false; showDisappear = true })
-                    if (!isNote) DropdownMenuItem(text = { Text(S.dmNickname, color = colors.textPrimary) }, onClick = { showMore = false; showNick = true })
-                    DropdownMenuItem(text = { Text(S.dmTheme, color = colors.textPrimary) }, onClick = { showMore = false; showTheme = true })
-                    if (!isNote) DropdownMenuItem(
-                        text = { Text(if (blocked) S.dmUnblockUser else S.dmBlockUser, color = colors.textPrimary) },
-                        onClick = {
-                            showMore = false
-                            val uid = shownPeer?.uid ?: return@DropdownMenuItem
-                            scope.launch {
-                                val ok = dms.setBlock(uid, !blocked)
-                                if (ok) NexNotifier.info(if (blocked) currentStrings().dmUnblockedDone else currentStrings().dmBlockedDone, currentStrings().dmTitle)
-                                else NexNotifier.warning(currentStrings().dmGenericErr, currentStrings().dmTitle)
-                            }
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("Lainnya", color = colors.textPrimary, modifier = Modifier.weight(1f))
+                                    Icon(NexIcons.ChevronRight, null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
+                                }
+                            },
+                            onClick = { showMoreSub = true }
+                        )
+                    } else {
+                        if (!isNote && shownPeer != null) {
+                            DropdownMenuItem(
+                                text = { Text("Laporkan", color = RED) },
+                                onClick = { showMore = false; showMoreSub = false; showReportDialog = true }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(if (blocked) "Buka Blokir" else "Blokir", color = RED) },
+                                onClick = {
+                                    showMore = false; showMoreSub = false
+                                    scope.launch {
+                                        val ok = dms.setBlock(shownPeer.uid, !blocked)
+                                        if (ok) NexNotifier.info(if (blocked) currentStrings().dmUnblockedDone else currentStrings().dmBlockedDone, currentStrings().dmTitle)
+                                    }
+                                }
+                            )
                         }
-                    )
+                        DropdownMenuItem(
+                            text = { Text("Bersihkan Obrolan", color = colors.textPrimary) },
+                            onClick = { showMore = false; showMoreSub = false; confirmClearChat = true }
+                        )
+                        if (!isNote && shownPeer != null) {
+                            DropdownMenuItem(
+                                text = { Text("Musik Bareng", color = colors.textPrimary) },
+                                onClick = {
+                                    showMore = false; showMoreSub = false
+                                    scope.launch {
+                                        val mb = MubarManager.getInstance()
+                                        try {
+                                            if (mb.room.value == null) mb.create(viewModel.currentTrack.value)
+                                            if (mb.room.value == null) {
+                                                NexNotifier.warning(currentStrings().dmGenericErr, currentStrings().dmTitle)
+                                            } else {
+                                                mb.invite(shownPeer.username)
+                                                NexNotifier.success(currentStrings().dmMubarSent(displayNick), currentStrings().dmTitle)
+                                                mb.openSheet()
+                                            }
+                                        } catch (e: AccountError) {
+                                            NexNotifier.warning(dmErrText(e.code), currentStrings().dmTitle)
+                                        } catch (_: Throwable) {
+                                            NexNotifier.warning(currentStrings().dmNoNetworkErr, currentStrings().dmTitle)
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -1026,7 +1365,7 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
         // ---- kolom ketik ----
         if (requestIn && !isNote) {
             Column(Modifier.fillMaxWidth().background(colors.surface).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(S.dmRequestBanner(shownPeer?.display?.takeIf { it.isNotBlank() } ?: shownPeer?.username ?: "@$username"), color = colors.textSecondary, fontSize = 13.sp, lineHeight = 18.sp)
+                Text(S.dmRequestBanner(displayNick), color = colors.textSecondary, fontSize = 13.sp, lineHeight = 18.sp)
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Box(
@@ -1068,7 +1407,7 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
-                            if (editing != null) S.dmEditing else (if (banner.uid == myId) S.dmYou else shownPeer?.display ?: ""),
+                            if (editing != null) S.dmEditing else (if (banner.uid == myId) S.dmYou else displayNick),
                             color = colors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 12.sp
                         )
                         Text(dmPreview(banner), color = colors.textMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1094,7 +1433,6 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
                     }
                 )
             } else Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
-                // Ala WhatsApp: satu pil berisi kolom ketik + tombol lampiran, dan tombol bulat kirim/mikrofon di kanan.
                 Row(
                     Modifier.weight(1f).clip(RoundedCornerShape(26.dp)).background(colors.card).padding(start = 18.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -1128,17 +1466,108 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
                 val canSend = input.text.isNotBlank()
                 val micMode = !canSend && editing == null
                 Box(
-                    Modifier.size(50.dp).clip(CircleShape).background(DM_OUT)
+                    Modifier.size(50.dp).clip(CircleShape).background(colors.textPrimary)
                         .clickable(enabled = canSend || micMode) { if (micMode) startVoice() else submit() },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(if (micMode) NexIcons.Mic else if (editing != null) NexIcons.Check else NexIcons.Send, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                    Icon(if (micMode) NexIcons.Mic else if (editing != null) NexIcons.Check else NexIcons.Send, null, tint = colors.background, modifier = Modifier.size(24.dp))
                 }
             }
         }
     }
 
-    // ---- menu pesan (ala iPhone: reaksi di atas, aksi di bawah, latar digelapkan) ----
+    // ---- Profil Lengkap Kontak (saat nickname/profil header atau Lihat Kontak ditekan) ----
+    if (showContactProfile && shownPeer != null && !isNote) {
+        ContactDetailScreen(
+            peer = shownPeer,
+            nickname = displayNick,
+            isMuted = convMuted,
+            isBlocked = blocked,
+            isChatLocked = dms.isChatLocked(shownPeer.uid),
+            onBack = { showContactProfile = false },
+            onCall = { showContactProfile = false; placeCall() },
+            onOpenMediaLinks = { showContactProfile = false; showMediaLinks = true },
+            onToggleMute = {
+                scope.launch {
+                    dms.inboxAction("dm_mute", shownPeer.uid, !convMuted)
+                    NexNotifier.info(if (convMuted) "Notifikasi diaktifkan" else "Notifikasi disenyapkan", currentStrings().dmTitle)
+                }
+            },
+            onToggleLock = {
+                if (dms.isChatLocked(shownPeer.uid)) {
+                    dms.setChatLocked(shownPeer.uid, shownPeer.username, false)
+                    NexNotifier.info("Kunci obrolan dimatikan", currentStrings().dmTitle)
+                } else if (!dms.lockEnabled()) {
+                    NexNotifier.info("Atur kunci PIN terlebih dahulu di Pengaturan", currentStrings().dmTitle)
+                } else {
+                    dms.setChatLocked(shownPeer.uid, shownPeer.username, true)
+                    NexNotifier.info("Obrolan dikunci", currentStrings().dmTitle)
+                }
+            },
+            onClearChat = { showContactProfile = false; confirmClearChat = true },
+            onToggleBlock = {
+                scope.launch {
+                    val ok = dms.setBlock(shownPeer.uid, !blocked)
+                    if (ok) NexNotifier.info(if (blocked) currentStrings().dmUnblockedDone else currentStrings().dmBlockedDone, currentStrings().dmTitle)
+                }
+            },
+            onReport = { showContactProfile = false; showReportDialog = true }
+        )
+    }
+
+    // ---- Sheet Media & Tautan ----
+    if (showMediaLinks) {
+        MediaAndLinksSheet(
+            messages = messages,
+            loadImage = { id -> dms.loadImage(id) },
+            onOpenImage = { viewerImage = it },
+            onDismiss = { showMediaLinks = false }
+        )
+    }
+
+    if (confirmClearChat) {
+        AlertDialog(
+            onDismissRequest = { confirmClearChat = false },
+            containerColor = colors.surface,
+            title = { Text("Bersihkan Obrolan", color = colors.textPrimary) },
+            text = { Text("Semua pesan di obrolan ini akan dibersihkan dari perangkatmu.", color = colors.textSecondary) },
+            confirmButton = {
+                TextButton(onClick = { confirmClearChat = false; clearAllLocalMessages() }) {
+                    Text("Bersihkan", color = RED)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmClearChat = false }) { Text(S.dmCancel, color = colors.textPrimary) }
+            }
+        )
+    }
+
+    if (showReportDialog && shownPeer != null) {
+        AlertDialog(
+            onDismissRequest = { showReportDialog = false },
+            containerColor = colors.surface,
+            title = { Text("Laporkan $displayNick", color = colors.textPrimary) },
+            text = {
+                Column {
+                    listOf("Spam atau penipuan", "Pelecehan atau kata kasar", "Akun palsu / lainnya").forEach { reason ->
+                        Text(
+                            reason,
+                            color = colors.textPrimary,
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {
+                                showReportDialog = false
+                                NexNotifier.success("Laporan terkirim ke tim Nexrify", currentStrings().dmTitle)
+                            }.padding(vertical = 12.dp, horizontal = 6.dp)
+                        )
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showReportDialog = false }) { Text(S.dmCancel, color = colors.textPrimary) }
+            }
+        )
+    }
+
     menuMsg?.let { m ->
         val mine = m.uid == myId
         DmMessageContextMenu(
@@ -1226,7 +1655,6 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
 
     onceId?.let { oid ->
         Dialog(onDismissRequest = { onceId = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-            // Foto sekali lihat: cegah tangkapan layar selama dibuka (hanya menghambat, tidak bisa menjamin).
             val view = LocalView.current
             DisposableEffect(view) {
                 (view.parent as? DialogWindowProvider)?.window?.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
@@ -1258,46 +1686,6 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
                 val b = full
                 if (b != null) Image(bitmap = b.asImageBitmap(), contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
                 else CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(28.dp))
-            }
-        }
-    }
-
-    if (showStars) {
-        var list by remember { mutableStateOf<List<DmMessage>?>(null) }
-        LaunchedEffect(Unit) { list = dms.starred() }
-        ModalBottomSheet(
-            onDismissRequest = { showStars = false },
-            containerColor = colors.background,
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 24.dp)) {
-                Text(S.dmStarred, color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                Spacer(Modifier.height(10.dp))
-                val l = list
-                when {
-                    l == null -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = colors.textPrimary, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
-                    }
-                    l.isEmpty() -> Text(S.dmNoStarred, color = colors.textMuted, modifier = Modifier.padding(vertical = 24.dp))
-                    else -> LazyColumn(Modifier.fillMaxWidth()) {
-                        items(l, key = { it.seq }) { sm ->
-                            Row(
-                                Modifier.fillMaxWidth().clickable {
-                                    showStars = false
-                                    val idx = messages.indexOfFirst { it.seq == sm.seq }
-                                    if (idx >= 0) flash(idx)
-                                }.padding(vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(if (sm.uid == myId) S.dmYou else shownPeer?.display.orEmpty(), color = colors.textMuted, fontSize = 11.sp)
-                                    Text(dmPreview(sm), color = colors.textPrimary, fontSize = 14.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                                }
-                                Text(chatTime(sm.ts), color = colors.textMuted, fontSize = 11.sp)
-                            }
-                        }
-                    }
-                }
             }
         }
     }
@@ -1335,80 +1723,6 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
         }
     }
 
-    if (showDisappear) {
-        AlertDialog(
-            onDismissRequest = { showDisappear = false },
-            containerColor = colors.surface,
-            title = { Text(S.dmDisappear, color = colors.textPrimary) },
-            text = {
-                Column {
-                    Text(S.dmDisappearBody, color = colors.textSecondary, fontSize = 13.sp)
-                    Spacer(Modifier.height(10.dp))
-                    listOf(0L to S.dmDisappearOff, 86_400L to S.dmDisappear24, 604_800L to S.dmDisappear7).forEach { (secs, label) ->
-                        Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable {
-                                showDisappear = false
-                                scope.launch { dms.setDisappear(secs) }
-                            }.padding(vertical = 12.dp, horizontal = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(label, color = colors.textPrimary, modifier = Modifier.weight(1f), fontWeight = if (disappear == secs) FontWeight.Bold else FontWeight.Normal)
-                            if (disappear == secs) Icon(NexIcons.Check, null, tint = colors.textPrimary, modifier = Modifier.size(20.dp))
-                        }
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = { TextButton(onClick = { showDisappear = false }) { Text(S.dmCancel, color = colors.textPrimary) } }
-        )
-    }
-
-    if (showNick) {
-        var nick by remember { mutableStateOf(shownPeer?.uid?.let { dms.nickname(it) }.orEmpty()) }
-        AlertDialog(
-            onDismissRequest = { showNick = false },
-            containerColor = colors.surface,
-            title = { Text(S.dmNickname, color = colors.textPrimary) },
-            text = {
-                Column {
-                    Text(S.dmNicknameHint, color = colors.textSecondary, fontSize = 13.sp)
-                    Spacer(Modifier.height(10.dp))
-                    Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(colors.card).border(1.dp, colors.border, RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 12.dp)) {
-                        BasicTextField(
-                            value = nick, onValueChange = { nick = it.take(24) }, singleLine = true,
-                            textStyle = TextStyle(color = colors.textPrimary, fontSize = 15.sp), cursorBrush = SolidColor(colors.textPrimary),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { shownPeer?.uid?.let { dms.setNickname(it, nick) }; showNick = false }) { Text(S.dmSave, color = colors.textPrimary) } },
-            dismissButton = { TextButton(onClick = { showNick = false }) { Text(S.dmCancel, color = colors.textPrimary) } }
-        )
-    }
-
-    if (showTheme) {
-        AlertDialog(
-            onDismissRequest = { showTheme = false },
-            containerColor = colors.surface,
-            title = { Text(S.dmTheme, color = colors.textPrimary) },
-            text = {
-                val current = shownPeer?.uid?.let { dms.theme(it) } ?: 0
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    BUBBLE_THEMES.forEachIndexed { idx, c ->
-                        Box(
-                            Modifier.size(38.dp).clip(CircleShape).background(c ?: colors.textPrimary)
-                                .border(if (idx == current) 3.dp else 1.dp, if (idx == current) colors.accent else colors.border, CircleShape)
-                                .clickable { shownPeer?.uid?.let { dms.setTheme(it, idx) }; showTheme = false }
-                        )
-                    }
-                }
-            },
-            confirmButton = {},
-            dismissButton = { TextButton(onClick = { showTheme = false }) { Text(S.dmCancel, color = colors.textPrimary) } }
-        )
-    }
-
     deleteMsg?.let { m ->
         DmDeleteDialog(
             canDeleteForAll = m.uid == myId && !m.deleted,
@@ -1423,7 +1737,245 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
     }
 }
 
-/* =============================== GELEMBUNG =============================== */
+/* =============================== PROFIL LENGKAP KONTAK =============================== */
+
+@Composable
+private fun ContactDetailScreen(
+    peer: DmPeer,
+    nickname: String,
+    isMuted: Boolean,
+    isBlocked: Boolean,
+    isChatLocked: Boolean,
+    onBack: () -> Unit,
+    onCall: () -> Unit,
+    onOpenMediaLinks: () -> Unit,
+    onToggleMute: () -> Unit,
+    onToggleLock: () -> Unit,
+    onClearChat: () -> Unit,
+    onToggleBlock: () -> Unit,
+    onReport: () -> Unit
+) {
+    val colors = NexrifyAppTheme.colors
+    val dms = remember { DmManager.getInstance() }
+    val localVer by dms.localVersion.collectAsState()
+    var showMenu by remember { mutableStateOf(false) }
+    var showSharePicker by remember { mutableStateOf(false) }
+    var showEditContact by remember { mutableStateOf(false) }
+
+    val saved = remember(peer.uid, localVer) { dms.getContact(peer.uid) }
+    val shownName = saved?.fullName?.ifBlank { null } ?: nickname
+
+    Dialog(onDismissRequest = onBack, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        Column(
+            Modifier.fillMaxSize().background(colors.background).statusBarsPadding().navigationBarsPadding()
+        ) {
+            // Header + titik 3 (Bagikan kontak & Edit)
+            Row(
+                Modifier.fillMaxWidth().background(colors.surface).padding(horizontal = 8.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TopIcon(NexIcons.ArrowBack, onBack)
+                Text("Info Kontak", style = Typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary, modifier = Modifier.weight(1f).padding(start = 6.dp))
+                Box {
+                    TopIcon(NexIcons.MoreVert) { showMenu = true }
+                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Bagikan kontak", color = colors.textPrimary) },
+                            onClick = { showMenu = false; showSharePicker = true }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Edit", color = colors.textPrimary) },
+                            onClick = { showMenu = false; showEditContact = true }
+                        )
+                    }
+                }
+            }
+            Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border))
+
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Spacer(Modifier.height(10.dp))
+                ChatAvatar(peer.uid, peer.av, shownName, 92.dp)
+                Spacer(Modifier.height(14.dp))
+                // Nickname & Username
+                Text(shownName, color = colors.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                Spacer(Modifier.height(4.dp))
+                Text("@${peer.username}", color = colors.textMuted, fontSize = 14.sp)
+
+                Spacer(Modifier.height(22.dp))
+                // Tombol Panggilan Suara
+                Row(
+                    Modifier.clip(RoundedCornerShape(16.dp)).background(colors.card).border(1.dp, colors.border, RoundedCornerShape(16.dp))
+                        .clickable(onClick = onCall).padding(horizontal = 24.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(NexIcons.Phone, null, tint = colors.textPrimary, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(10.dp))
+                    Text("Panggilan Suara", color = colors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                }
+
+                Spacer(Modifier.height(24.dp))
+                // Kartu menu utama
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(colors.card).border(1.dp, colors.border, RoundedCornerShape(18.dp))
+                ) {
+                    ContactDetailRow(NexIcons.ImagePick, "Media & tautan", onClick = onOpenMediaLinks)
+                    HorizontalDivider(color = colors.border.copy(alpha = 0.6f))
+                    ContactDetailRow(
+                        if (isMuted) NexIcons.BellOff else NexIcons.Bell,
+                        if (isMuted) "Notifikasi (Disenyapkan)" else "Notifikasi",
+                        onClick = onToggleMute
+                    )
+                    HorizontalDivider(color = colors.border.copy(alpha = 0.6f))
+                    ContactDetailRow(
+                        NexIcons.Lock,
+                        if (isChatLocked) "Kunci Obrolan (Aktif)" else "Kunci Obrolan",
+                        onClick = onToggleLock
+                    )
+                }
+
+                // ---- > batas
+                Spacer(Modifier.height(16.dp))
+                HorizontalDivider(color = colors.border)
+                Spacer(Modifier.height(16.dp))
+
+                // Kartu aksi bawah batas
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(colors.card).border(1.dp, colors.border, RoundedCornerShape(18.dp))
+                ) {
+                    ContactDetailRow(NexIcons.DeleteOutline, "Bersihkan Obrolan", danger = true, onClick = onClearChat)
+                    HorizontalDivider(color = colors.border.copy(alpha = 0.6f))
+                    ContactDetailRow(
+                        NexIcons.Block,
+                        if (isBlocked) "Buka Blokir $shownName" else "Blokir $shownName",
+                        danger = true,
+                        onClick = onToggleBlock
+                    )
+                    HorizontalDivider(color = colors.border.copy(alpha = 0.6f))
+                    ContactDetailRow(NexIcons.Flag, "Laporkan $shownName", danger = true, onClick = onReport)
+                }
+            }
+        }
+
+        if (showSharePicker) {
+            DmSharePicker(
+                onSend = { c -> dms.sendTo(c.uid, "👤 @${peer.username}") },
+                onDismiss = { showSharePicker = false }
+            )
+        }
+
+        if (showEditContact) {
+            var fn by remember { mutableStateOf(saved?.firstName ?: peer.display) }
+            var ln by remember { mutableStateOf(saved?.lastName ?: "") }
+            AlertDialog(
+                onDismissRequest = { showEditContact = false },
+                containerColor = colors.surface,
+                title = { Text("Edit Kontak", color = colors.textPrimary) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        ContactInputField(value = fn, hint = "Nama Depan", onValueChange = { fn = it.take(24) })
+                        ContactInputField(value = ln, hint = "Nama Belakang (Opsional)", onValueChange = { ln = it.take(24) })
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        dms.saveContact(peer.uid, peer.username, fn, ln, peer.av)
+                        showEditContact = false
+                        NexNotifier.success("Kontak diperbarui", "Kontak")
+                    }) { Text("Simpan", color = colors.textPrimary, fontWeight = FontWeight.Bold) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showEditContact = false }) { Text(S.dmCancel, color = colors.textSecondary) }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun ContactDetailRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, danger: Boolean = false, onClick: () -> Unit) {
+    val colors = NexrifyAppTheme.colors
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, null, tint = if (danger) RED else colors.textPrimary, modifier = Modifier.size(21.dp))
+        Spacer(Modifier.width(14.dp))
+        Text(label, color = if (danger) RED else colors.textPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MediaAndLinksSheet(
+    messages: List<DmMessage>,
+    loadImage: suspend (String) -> android.graphics.Bitmap?,
+    onOpenImage: (DmImage) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val colors = NexrifyAppTheme.colors
+    val context = LocalContext.current
+    val mediaMsgs = remember(messages) { messages.filter { !it.deleted && it.image != null && !it.image.once } }
+    val linkMsgs = remember(messages) { messages.filter { !it.deleted && URL_RE.containsMatchIn(it.text) } }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = colors.background,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 28.dp)) {
+            Text("Media & tautan", color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Spacer(Modifier.height(14.dp))
+            Text("Media (${mediaMsgs.size})", color = colors.textSecondary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            Spacer(Modifier.height(8.dp))
+            if (mediaMsgs.isEmpty()) {
+                Text("Belum ada media yang dikirim", color = colors.textMuted, fontSize = 13.sp)
+            } else {
+                Row(
+                    Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    mediaMsgs.take(12).forEach { m ->
+                        val im = m.image ?: return@forEach
+                        DmImageView(im, loadImage, { onDismiss(); onOpenImage(im) }, {}, 0.dp)
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+            Text("Tautan (${linkMsgs.size})", color = colors.textSecondary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            Spacer(Modifier.height(8.dp))
+            if (linkMsgs.isEmpty()) {
+                Text("Belum ada tautan yang dikirim", color = colors.textMuted, fontSize = 13.sp)
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    linkMsgs.take(15).forEach { m ->
+                        val url = URL_RE.find(m.text)?.value.orEmpty()
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(colors.card)
+                                .clickable {
+                                    runCatching {
+                                        context.startActivity(
+                                            android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        )
+                                    }
+                                }.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(NexIcons.LinkIcon, null, tint = colors.textPrimary, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Text(url, color = colors.textPrimary, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/* =============================== GELEMBUNG PESAN =============================== */
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1452,14 +2004,14 @@ private fun DmBubble(
     onPlay: (DmSong) -> Unit
 ) {
     val colors = NexrifyAppTheme.colors
-    val bg = if (mine) (mineColor ?: DM_OUT) else colors.card
-    val fg = if (mine) Color.White else colors.textPrimary
-    val sub = if (mine) Color.White.copy(alpha = 0.72f) else colors.textMuted
-    // Ala WhatsApp: sudut membulat sedang, dan "ekor" (sudut lancip) di atas gelembung pertama dari satu pengirim.
-    val big = 14.dp
-    val tail = 3.dp
-    val shape = if (mine) RoundedCornerShape(topStart = big, topEnd = if (firstInGroup) tail else big, bottomStart = big, bottomEnd = big)
-    else RoundedCornerShape(topStart = if (firstInGroup) tail else big, topEnd = big, bottomStart = big, bottomEnd = big)
+    // Tampilan gelembung seperti semula (tema bersih Nexrify), dan centang terbaca berwarna hijau
+    val bg = if (mine) (mineColor ?: colors.textPrimary) else colors.card
+    val fg = if (mine) (if (mineColor != null) Color.White else colors.background) else colors.textPrimary
+    val sub = if (mine) (if (mineColor != null) Color.White.copy(alpha = 0.72f) else colors.background.copy(alpha = 0.65f)) else colors.textMuted
+    val big = 18.dp
+    val tail = 4.dp
+    val shape = if (mine) RoundedCornerShape(topStart = big, topEnd = if (firstInGroup) big else tail, bottomStart = big, bottomEnd = if (lastInGroup) tail else tail)
+    else RoundedCornerShape(topStart = if (firstInGroup) big else tail, topEnd = big, bottomStart = if (lastInGroup) tail else tail, bottomEnd = big)
     var drag by remember { mutableStateOf(0f) }
     val trigger = with(LocalDensity.current) { 56.dp.toPx() }
     Row(
@@ -1486,7 +2038,7 @@ private fun DmBubble(
                         onClick = { if (m.status == SendStatus.FAILED) onRetry() },
                         onLongClick = onLong
                     )
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .padding(horizontal = 13.dp, vertical = 8.dp)
             ) {
                 if (m.deleted) {
                     Text(S.dmMessageDeleted, color = sub, fontStyle = FontStyle.Italic, fontSize = 14.sp)
@@ -1544,14 +2096,18 @@ private fun DmBubble(
                         when (m.status) {
                             SendStatus.SENDING -> Text("…", color = sub, fontSize = 11.sp)
                             SendStatus.FAILED -> Text("!", color = RED, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            SendStatus.SENT -> Text(if (read) "✓✓" else "✓", color = if (read) DM_TICK else sub, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            SendStatus.SENT -> Text(
+                                text = if (read) "✓✓" else "✓",
+                                color = if (read) READ_GREEN else sub,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                 }
             }
             if (m.status == SendStatus.FAILED) Text(S.dmFailedTap, color = RED, fontSize = 11.sp, modifier = Modifier.padding(top = 2.dp))
             if (m.reactions.isNotEmpty() && !m.deleted) {
-                // Satu pil reaksi yang menempel di sudut gelembung, seperti tapback iPhone.
                 Row(
                     Modifier.padding(bottom = 6.dp).offset(y = (-7).dp).zIndex(1f)
                         .clip(RoundedCornerShape(14.dp)).background(colors.surface)
@@ -1606,13 +2162,11 @@ private fun DmImageView(img: DmImage, load: suspend (String) -> android.graphics
 
 /* =============================== KUNCI PIN =============================== */
 
-/** Layar publik kotak masuk: dibungkus kunci PIN kalau pengguna mengaktifkannya. */
 @Composable
 fun DmInboxScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
     DmLockGate(onBack) { DmInboxContent(onBack, onOpenChat) }
 }
 
-/** Layar publik percakapan: dibungkus kunci PIN kalau pengguna mengaktifkannya. */
 @Composable
 fun DmThreadScreen(viewModel: MusicViewModel, username: String, onBack: () -> Unit) {
     val dms = remember { DmManager.getInstance() }
@@ -1643,7 +2197,7 @@ private fun DmLockGate(onBack: () -> Unit, forceUid: String? = null, content: @C
         Column(Modifier.fillMaxSize().background(colors.background)) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 TopIcon(NexIcons.ArrowBack, onBack)
-                Text(S.dmTitle, style = Typography.titleLarge.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary, modifier = Modifier.padding(start = 6.dp))
+                Text("Nexrify", style = Typography.titleLarge.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary, modifier = Modifier.padding(start = 6.dp))
             }
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1683,7 +2237,6 @@ private fun DmLockGate(onBack: () -> Unit, forceUid: String? = null, content: @C
     }
 }
 
-/** Papan angka 4 digit. Memanggil [onComplete] begitu digit keempat dimasukkan lalu mengosongkan isiannya. */
 @Composable
 private fun PinPad(title: String, error: String?, onComplete: (String) -> Unit) {
     val colors = NexrifyAppTheme.colors
@@ -1729,32 +2282,28 @@ private fun PinPad(title: String, error: String?, onComplete: (String) -> Unit) 
     }
 }
 
-/**
- * Catatan panggilan suara ala WhatsApp: gelembung dengan ikon, "Telepon suara", hasilnya, dan jam.
- * Panggilan keluar yang tak dijawab/ditolak punya tombol "Rekam pesan suara"; panggilan masuk yang terlewat punya "Telepon balik".
- */
 @Composable
 private fun DmCallRow(m: DmMessage, mine: Boolean, onRecordVoice: () -> Unit, onCallBack: () -> Unit) {
     val colors = NexrifyAppTheme.colors
     val c = m.call ?: return
     val missedIn = c.status == "missed" && !mine
-    val bg = if (mine) DM_OUT else colors.card
-    val fg = if (mine) Color.White else colors.textPrimary
-    val sub = if (mine) Color.White.copy(alpha = 0.72f) else colors.textMuted
+    val bg = if (mine) colors.textPrimary else colors.card
+    val fg = if (mine) colors.background else colors.textPrimary
+    val sub = if (mine) colors.background.copy(alpha = 0.68f) else colors.textMuted
     val result = when (c.status) {
         "ended" -> "%d:%02d".format(c.dur / 60, c.dur % 60)
         "declined" -> if (mine) S.callDeclinedLabel else S.callLogDeclinedIn
         else -> if (mine) S.callNotAnswered else S.callMissedLabel
     }
     val canAct = (!mine && c.status != "ended") || (mine && c.status != "ended")
-    val shape = RoundedCornerShape(topStart = if (mine) 14.dp else 3.dp, topEnd = if (mine) 3.dp else 14.dp, bottomStart = 14.dp, bottomEnd = 14.dp)
+    val shape = RoundedCornerShape(topStart = if (mine) 16.dp else 4.dp, topEnd = if (mine) 4.dp else 16.dp, bottomStart = 16.dp, bottomEnd = 16.dp)
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
         Column(Modifier.widthIn(min = 220.dp, max = 300.dp).clip(shape).background(bg).padding(6.dp)) {
             Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(alpha = 0.18f)).padding(horizontal = 10.dp, vertical = 10.dp),
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(fg.copy(alpha = 0.08f)).padding(horizontal = 10.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(Modifier.size(40.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(40.dp).clip(CircleShape).background(fg.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
                     Icon(NexIcons.Phone, null, tint = if (missedIn) RED else fg, modifier = Modifier.size(20.dp))
                 }
                 Spacer(Modifier.width(10.dp))
@@ -1766,19 +2315,18 @@ private fun DmCallRow(m: DmMessage, mine: Boolean, onRecordVoice: () -> Unit, on
                 Text(chatTime(m.ts), color = sub, fontSize = 10.sp)
             }
             if (canAct && c.status != "ended") {
-                Box(Modifier.fillMaxWidth().padding(top = 2.dp).height(1.dp).background(Color.White.copy(alpha = 0.10f)))
+                Box(Modifier.fillMaxWidth().padding(top = 2.dp).height(1.dp).background(fg.copy(alpha = 0.10f)))
                 Box(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { if (mine) onRecordVoice() else onCallBack() }.padding(vertical = 11.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(if (mine) S.callVoiceMessage else S.callCallBack, color = if (mine) Color.White else colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text(if (mine) S.callVoiceMessage else S.callCallBack, color = fg, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             }
         }
     }
 }
 
-/** Pengganti foto sekali lihat: isinya tidak pernah ikut terkirim ke daftar pesan, hanya status terbuka atau belum. */
 @Composable
 private fun DmOnceCard(img: DmImage, mine: Boolean, fg: Color, sub: Color, onOpen: () -> Unit) {
     val label = when {
@@ -1801,7 +2349,6 @@ private val URL_RE = Regex("""https://[^\s]+""")
 private val PROFILE_RE = Regex("""^👤 @([A-Za-z0-9_.]{2,30})$""")
 private val PREVIEW_HOSTS = listOf("youtube.com", "youtu.be", "open.spotify.com", "tiktok.com", "soundcloud.com")
 
-/** Kartu otomatis di bawah teks: playlist Nexrify, profil yang dibagikan, atau pratinjau tautan YouTube/Spotify/TikTok/SoundCloud. */
 @Composable
 private fun DmLinkCards(text: String, loadPreview: suspend (String) -> LinkPreview?, fg: Color, sub: Color) {
     val context = LocalContext.current
@@ -1852,7 +2399,6 @@ private fun SimpleLinkCard(emoji: String, title: String, sub: String, fg: Color,
     }
 }
 
-/** Pengganti pesan teks sekali lihat: isinya tidak ada di daftar pesan, hanya status terbuka atau belum. */
 @Composable
 private fun DmOnceTextCard(viewed: Boolean, mine: Boolean, fg: Color, sub: Color, onOpen: () -> Unit) {
     val label = when {
@@ -1871,13 +2417,6 @@ private fun DmOnceTextCard(viewed: Boolean, mine: Boolean, fg: Color, sub: Color
     }
 }
 
-
-/* =============================== KOMPONEN BARU =============================== */
-
-/**
- * Kartu kontak yang dibagikan. Isinya diambil langsung dari profil asli orangnya (foto, nama panggilan/display,
- * bio, title), jadi selalu terbaru. Diketuk membuka profil lengkap di tempat, tanpa pindah layar.
- */
 @Composable
 private fun DmProfileCard(username: String, fg: Color, sub: Color) {
     val profiles by rememberChatProfiles(listOf(username))
@@ -1933,7 +2472,6 @@ private fun DmProfileCard(username: String, fg: Color, sub: Color) {
     }
 }
 
-/** Menu tekan-lama ala iPhone: pil reaksi di atas, pratinjau pesan di tengah, daftar aksi di bawah, latar digelapkan. */
 @Composable
 private fun DmMessageContextMenu(
     m: DmMessage, mine: Boolean, myId: String, mineColor: Color?, starred: Boolean,
@@ -1949,7 +2487,6 @@ private fun DmMessageContextMenu(
     val bubbleBg = if (mine) (mineColor ?: colors.textPrimary) else colors.card
     val bubbleFg = if (mine) (if (mineColor != null) Color.White else colors.background) else colors.textPrimary
     val cardShape = RoundedCornerShape(18.dp)
-    // Urutan tapback ala iPhone: hati dulu.
     val emojis = remember { (listOf("❤️") + CHAT_EMOJIS_QUICK).distinct() }
 
     Dialog(
@@ -1967,7 +2504,6 @@ private fun DmMessageContextMenu(
                 horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // pil reaksi
                 if (m.seq > 0) Row(
                     Modifier.clip(RoundedCornerShape(28.dp)).background(colors.surface)
                         .border(1.dp, colors.border, RoundedCornerShape(28.dp)).padding(horizontal = 6.dp, vertical = 5.dp),
@@ -1982,7 +2518,6 @@ private fun DmMessageContextMenu(
                         ) { Text(e, fontSize = 24.sp) }
                     }
                 }
-                // pratinjau pesan
                 Box(
                     Modifier.widthIn(max = 300.dp)
                         .clip(RoundedCornerShape(20.dp)).background(bubbleBg)
@@ -1994,7 +2529,6 @@ private fun DmMessageContextMenu(
                         color = bubbleFg, fontSize = 15.sp, lineHeight = 21.sp, maxLines = 8, overflow = TextOverflow.Ellipsis
                     )
                 }
-                // daftar aksi
                 Column(
                     Modifier.widthIn(min = 230.dp, max = 270.dp).clip(cardShape).background(colors.surface).border(1.dp, colors.border, cardShape)
                 ) {
@@ -2030,7 +2564,6 @@ private fun CtxRow(label: String, icon: androidx.compose.ui.graphics.vector.Imag
     }
 }
 
-/** Pilihan hapus ala iPhone: "untuk saya" (hanya di perangkat ini) atau "untuk semua" (pesan sendiri). */
 @Composable
 private fun DmDeleteDialog(canDeleteForAll: Boolean, onDismiss: () -> Unit, onForMe: () -> Unit, onForAll: () -> Unit) {
     val colors = NexrifyAppTheme.colors
@@ -2040,7 +2573,7 @@ private fun DmDeleteDialog(canDeleteForAll: Boolean, onDismiss: () -> Unit, onFo
             Column(Modifier.fillMaxWidth().clip(shape).background(colors.surface).border(1.dp, colors.border, shape)) {
                 Text(
                     S.dmDeleteMsgTitle, color = colors.textSecondary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp)
+                    textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp)
                 )
                 CtxDivider()
                 Column(Modifier.fillMaxWidth().clickable(onClick = onForMe).padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
