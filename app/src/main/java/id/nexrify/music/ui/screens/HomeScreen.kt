@@ -209,12 +209,7 @@ fun HomeScreen(
             val wide = maxWidth >= 620.dp
             @Composable
             fun Buttons(mod: Modifier) {
-                // Rata kiri-kanan memenuhi lebar layar; di layar sangat sempit otomatis turun baris, tidak terpotong.
-                androidx.compose.foundation.layout.FlowRow(
-                    mod,
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    horizontalArrangement = if (wide) Arrangement.spacedBy(10.dp) else Arrangement.SpaceBetween
-                ) {
+                Row(mod, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     StreakChip(streak, onClick = { showStreak = true })
                     ChatTopButton(unread = chatUnread, onClick = onOpenChat)
                     NotifTopButton(unread = notifUnread, onClick = onOpenNotifications)
@@ -245,7 +240,7 @@ fun HomeScreen(
                 Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                     Greeting(Modifier.fillMaxWidth().padding(horizontal = 20.dp))
                     Spacer(Modifier.height(10.dp))
-                    Buttons(Modifier.fillMaxWidth().padding(horizontal = 20.dp))
+                    Buttons(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = 20.dp))
                 }
             }
         }
