@@ -9,6 +9,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
@@ -153,4 +155,28 @@ fun Modifier.nexGlassCard(
             )
         )
         .border(width = 1.dp, brush = borderBrush, shape = shape)
+}
+
+
+/**
+ * DropdownMenu tanpa background bawaan, supaya GlassDropdownContainer yang tampil.
+ * Material3 versi BOM 2024.05 belum punya parameter containerColor dan shadowElevation,
+ * jadi warna surface dibuat transparan lewat tema lokal.
+ */
+@Composable
+fun NexTransparentDropdownMenu(
+    expanded: Boolean,
+    onDismissRequest: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    MaterialTheme(
+        colorScheme = MaterialTheme.colorScheme.copy(surface = Color.Transparent),
+        shapes = MaterialTheme.shapes.copy(extraSmall = RoundedCornerShape(0.dp))
+    ) {
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = onDismissRequest,
+            content = content
+        )
+    }
 }
