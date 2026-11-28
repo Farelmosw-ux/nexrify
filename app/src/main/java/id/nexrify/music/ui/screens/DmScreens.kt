@@ -139,6 +139,10 @@ import kotlinx.coroutines.launch
 
 private const val EDIT_WINDOW = 3_600_000L
 private val RED = Color(0xFFE5484D)
+/** Warna khas Nexrify untuk percakapan: gelembung keluar biru-indigo, centang terbaca biru muda. */
+private val DM_OUT = Color(0xFF3B3FD9)
+private val DM_OUT_DEEP = Color(0xFF2B2EA8)
+private val DM_TICK = Color(0xFF8EC9FF)
 
 /** Pesan yang disembunyikan "untuk saya" saja: tersimpan di perangkat per percakapan, tidak menyentuh server. */
 private fun readHidden(c: android.content.Context, key: String): Set<Long> =
@@ -601,7 +605,13 @@ private fun NewDmSheet(onPick: (String) -> Unit, onDismiss: () -> Unit) {
         if (q.length < 2) { results = emptyList(); searched = false; loading = false; return@LaunchedEffect }
         loading = true
         delay(300)
-        results = runCatching { manager.searchUsers(q) }.getOrDefault(emptyList()).filter { !it.username.equals(myName, true) }
+        var found = runCatching { manager.searchUsers(q) }.getOrDefault(emptyList()).filter { !it.username.equals(myName, true) }
+        // Username lengkap yang diketik tepat: cari langsung ke profil, supaya tidak bergantung pada daftar awalan.
+        if (found.none { it.username.equals(q, true) } && q.length >= 3 && !q.equals(myName, true)) {
+            val prof = runCatching { manager.profile(q.lowercase()) }.getOrNull()
+            if (prof != null) found = listOf(ChatUserHit(prof.username, prof.uid, prof.display)) + found
+        }
+        results = found
         searched = true
         loading = false
     }
@@ -617,7 +627,7 @@ private fun NewDmSheet(onPick: (String) -> Unit, onDismiss: () -> Unit) {
             Box(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(colors.card).border(1.dp, colors.border, RoundedCornerShape(24.dp)).padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
-                if (query.isEmpty()) Text(S.dmSearchUsers, color = colors.textMuted, fontSize = 15.sp)
+                if (query.isEmpty()) Text(S.dmUsernameHint, color = colors.textMuted, fontSize = 15.sp)
                 BasicTextField(
                     value = query, onValueChange = { query = it.take(24) }, singleLine = true,
                     textStyle = TextStyle(color = colors.textPrimary, fontSize = 15.sp),
@@ -629,8 +639,8 @@ private fun NewDmSheet(onPick: (String) -> Unit, onDismiss: () -> Unit) {
                 loading -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = colors.textPrimary, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
                 }
-                searched && results.isEmpty() -> Text(S.dmNoResults, color = colors.textMuted, modifier = Modifier.padding(24.dp))
-                !searched -> Text(S.dmNewChatFirst, color = colors.textMuted, fontSize = 13.sp, modifier = Modifier.padding(8.dp))
+                searched && results.isEmpty() -> Text(S.dmUserNotFound, color = RED, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(24.dp))
+                !searched -> Text(S.dmAddByUsername, color = colors.textMuted, fontSize = 13.sp, modifier = Modifier.padding(8.dp))
                 else -> LazyColumn(Modifier.fillMaxWidth()) {
                     items(results, key = { it.uid }) { u ->
                         Row(
@@ -978,7 +988,7 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
                         val nextMsg = messages.getOrNull(i + 1)
                         val groupedPrev = prev != null && dmSameGroup(prev, m)
                         val groupedNext = dmSameGroup(m, nextMsg)
-                        if (m.call != null) DmCallRow(m, m.uid == myId) else DmBubble(
+                        if (m.call != null) DmCallRow(m, m.uid == myId, onRecordVoice = { if (!recording) startVoice() }, onCallBack = { placeCall() }) else DmBubble(
                             firstInGroup = !groupedPrev, lastInGroup = !groupedNext,
                             m = m, mine = m.uid == myId, read = m.uid == myId && m.seq > 0 && peerRead >= m.seq, myId = myId,
                             starred = m.seq in stars,
@@ -1083,44 +1093,46 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
                         }
                     }
                 )
-            } else Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.Bottom) {
-                if (editing == null) {
-                    Box(
-                        Modifier.size(46.dp).clip(CircleShape).background(colors.card).border(1.dp, colors.border, CircleShape).clickable(enabled = !sendingImage) { showAttach = true },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (sendingImage) CircularProgressIndicator(color = colors.textPrimary, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
-                        else Icon(NexIcons.Add, S.dmPhoto, tint = colors.textPrimary, modifier = Modifier.size(22.dp))
-                    }
-                    Spacer(Modifier.width(8.dp))
-                }
-                Box(
-                    Modifier.weight(1f).clip(RoundedCornerShape(26.dp)).background(colors.card).border(1.dp, colors.border, RoundedCornerShape(26.dp)).padding(horizontal = 16.dp, vertical = 11.dp)
+            } else Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
+                // Ala WhatsApp: satu pil berisi kolom ketik + tombol lampiran, dan tombol bulat kirim/mikrofon di kanan.
+                Row(
+                    Modifier.weight(1f).clip(RoundedCornerShape(26.dp)).background(colors.card).padding(start = 18.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (input.text.isEmpty()) Text(S.dmInputHint, color = colors.textMuted, fontSize = 15.sp)
-                    BasicTextField(
-                        value = input,
-                        onValueChange = { v ->
-                            val clipped = if (v.text.length > CHAT_MAX_LENGTH) v.copy(text = v.text.take(CHAT_MAX_LENGTH)) else v
-                            if (clipped.text.length > input.text.length && clipped.text.isNotBlank() && !isNote) dms.notifyTyping()
-                            input = clipped
-                        },
-                        maxLines = 5,
-                        textStyle = TextStyle(color = colors.textPrimary, fontSize = 15.sp, lineHeight = 20.sp),
-                        cursorBrush = SolidColor(colors.textPrimary),
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    Box(Modifier.weight(1f).padding(vertical = 9.dp)) {
+                        if (input.text.isEmpty()) Text(S.dmInputHint, color = colors.textMuted, fontSize = 15.sp)
+                        BasicTextField(
+                            value = input,
+                            onValueChange = { v ->
+                                val clipped = if (v.text.length > CHAT_MAX_LENGTH) v.copy(text = v.text.take(CHAT_MAX_LENGTH)) else v
+                                if (clipped.text.length > input.text.length && clipped.text.isNotBlank() && !isNote) dms.notifyTyping()
+                                input = clipped
+                            },
+                            maxLines = 5,
+                            textStyle = TextStyle(color = colors.textPrimary, fontSize = 15.sp, lineHeight = 20.sp),
+                            cursorBrush = SolidColor(colors.textPrimary),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    if (editing == null) {
+                        Box(
+                            Modifier.size(40.dp).clip(CircleShape).clickable(enabled = !sendingImage) { showAttach = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (sendingImage) CircularProgressIndicator(color = colors.textPrimary, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+                            else Icon(NexIcons.Add, S.dmPhoto, tint = colors.textSecondary, modifier = Modifier.size(24.dp))
+                        }
+                    }
                 }
                 Spacer(Modifier.width(8.dp))
                 val canSend = input.text.isNotBlank()
                 val micMode = !canSend && editing == null
                 Box(
-                    Modifier.size(46.dp).clip(CircleShape).background(if (canSend) colors.textPrimary else colors.card)
-                        .border(1.dp, if (canSend) colors.textPrimary else colors.border, CircleShape)
+                    Modifier.size(50.dp).clip(CircleShape).background(DM_OUT)
                         .clickable(enabled = canSend || micMode) { if (micMode) startVoice() else submit() },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(if (micMode) NexIcons.Mic else if (editing != null) NexIcons.Check else NexIcons.Send, null, tint = if (canSend) colors.background else colors.textPrimary, modifier = Modifier.size(22.dp))
+                    Icon(if (micMode) NexIcons.Mic else if (editing != null) NexIcons.Check else NexIcons.Send, null, tint = Color.White, modifier = Modifier.size(24.dp))
                 }
             }
         }
@@ -1440,24 +1452,18 @@ private fun DmBubble(
     onPlay: (DmSong) -> Unit
 ) {
     val colors = NexrifyAppTheme.colors
-    val bg = if (mine) (mineColor ?: colors.textPrimary) else colors.card
-    val fg = if (mine) (if (mineColor != null) Color.White else colors.background) else colors.textPrimary
-    val sub = if (mine) fg.copy(alpha = 0.65f) else colors.textMuted
-    // Gelembung berurutan dari pengirim yang sama menyatu: sudut yang saling berhadapan dikecilkan, ekor hanya di yang terakhir.
-    val big = 20.dp
-    val joined = 6.dp
-    val tail = 4.dp
-    val shape = if (mine) RoundedCornerShape(
-        topStart = big, topEnd = if (firstInGroup) big else joined,
-        bottomStart = big, bottomEnd = if (lastInGroup) tail else joined
-    ) else RoundedCornerShape(
-        topStart = if (firstInGroup) big else joined, topEnd = big,
-        bottomStart = if (lastInGroup) tail else joined, bottomEnd = big
-    )
+    val bg = if (mine) (mineColor ?: DM_OUT) else colors.card
+    val fg = if (mine) Color.White else colors.textPrimary
+    val sub = if (mine) Color.White.copy(alpha = 0.72f) else colors.textMuted
+    // Ala WhatsApp: sudut membulat sedang, dan "ekor" (sudut lancip) di atas gelembung pertama dari satu pengirim.
+    val big = 14.dp
+    val tail = 3.dp
+    val shape = if (mine) RoundedCornerShape(topStart = big, topEnd = if (firstInGroup) tail else big, bottomStart = big, bottomEnd = big)
+    else RoundedCornerShape(topStart = if (firstInGroup) tail else big, topEnd = big, bottomStart = big, bottomEnd = big)
     var drag by remember { mutableStateOf(0f) }
     val trigger = with(LocalDensity.current) { 56.dp.toPx() }
     Row(
-        Modifier.fillMaxWidth().padding(top = if (firstInGroup) 7.dp else 1.5.dp, bottom = 1.5.dp)
+        Modifier.fillMaxWidth().padding(top = if (firstInGroup) 8.dp else 2.dp, bottom = 1.dp)
             .offset { IntOffset(drag.roundToInt(), 0) }
             .clip(RoundedCornerShape(12.dp))
             .background(if (highlight) colors.accent.copy(alpha = 0.22f) else Color.Transparent)
@@ -1476,7 +1482,6 @@ private fun DmBubble(
         Column(horizontalAlignment = if (mine) Alignment.End else Alignment.Start, modifier = Modifier.widthIn(max = 300.dp)) {
             Column(
                 Modifier.clip(shape).background(bg)
-                    .then(if (!mine) Modifier.border(1.dp, colors.border, shape) else Modifier)
                     .combinedClickable(
                         onClick = { if (m.status == SendStatus.FAILED) onRetry() },
                         onLongClick = onLong
@@ -1529,7 +1534,7 @@ private fun DmBubble(
                     translation?.let { TranslationBlock(it, fg, sub, onHideTranslation) }
                     if (m.text.isNotBlank() && !m.deleted) DmLinkCards(m.text, loadPreview, fg, sub)
                 }
-                if (lastInGroup || starred || m.status != SendStatus.SENT || m.expires > 0) Row(Modifier.align(Alignment.End).padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.align(Alignment.End).padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (starred) Text("★  ", color = sub, fontSize = 10.sp)
                     if (m.expires > 0 && !m.deleted) Text("⏳  ", color = sub, fontSize = 10.sp)
                     if (m.edited > 0 && !m.deleted) Text("${S.dmEdited}  ", color = sub, fontSize = 10.sp)
@@ -1539,7 +1544,7 @@ private fun DmBubble(
                         when (m.status) {
                             SendStatus.SENDING -> Text("…", color = sub, fontSize = 11.sp)
                             SendStatus.FAILED -> Text("!", color = RED, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            SendStatus.SENT -> Text(if (read) "✓✓" else "✓", color = if (read) Color(0xFF3B82F6) else sub, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            SendStatus.SENT -> Text(if (read) "✓✓" else "✓", color = if (read) DM_TICK else sub, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -1724,27 +1729,51 @@ private fun PinPad(title: String, error: String?, onComplete: (String) -> Unit) 
     }
 }
 
-/** Catatan panggilan suara di tengah percakapan (selesai, tak terjawab, atau ditolak). */
+/**
+ * Catatan panggilan suara ala WhatsApp: gelembung dengan ikon, "Telepon suara", hasilnya, dan jam.
+ * Panggilan keluar yang tak dijawab/ditolak punya tombol "Rekam pesan suara"; panggilan masuk yang terlewat punya "Telepon balik".
+ */
 @Composable
-private fun DmCallRow(m: DmMessage, mine: Boolean) {
+private fun DmCallRow(m: DmMessage, mine: Boolean, onRecordVoice: () -> Unit, onCallBack: () -> Unit) {
     val colors = NexrifyAppTheme.colors
     val c = m.call ?: return
-    val missed = c.status == "missed" && !mine
-    val text = when (c.status) {
-        "ended" -> S.callLogEnded("%d:%02d".format(c.dur / 60, c.dur % 60))
-        "declined" -> if (mine) S.callLogDeclinedOut else S.callLogDeclinedIn
-        else -> if (mine) S.callLogMissedOut else S.callLogMissedIn
+    val missedIn = c.status == "missed" && !mine
+    val bg = if (mine) DM_OUT else colors.card
+    val fg = if (mine) Color.White else colors.textPrimary
+    val sub = if (mine) Color.White.copy(alpha = 0.72f) else colors.textMuted
+    val result = when (c.status) {
+        "ended" -> "%d:%02d".format(c.dur / 60, c.dur % 60)
+        "declined" -> if (mine) S.callDeclinedLabel else S.callLogDeclinedIn
+        else -> if (mine) S.callNotAnswered else S.callMissedLabel
     }
-    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalArrangement = Arrangement.Center) {
-        Row(
-            Modifier.clip(RoundedCornerShape(16.dp)).background(colors.card).border(1.dp, colors.border, RoundedCornerShape(16.dp)).padding(horizontal = 12.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(NexIcons.Phone, null, tint = if (missed) RED else colors.textMuted, modifier = Modifier.size(14.dp))
-            Spacer(Modifier.width(6.dp))
-            Text(text, color = if (missed) RED else colors.textSecondary, fontSize = 12.sp)
-            Spacer(Modifier.width(8.dp))
-            Text(chatTime(m.ts), color = colors.textMuted, fontSize = 10.sp)
+    val canAct = (!mine && c.status != "ended") || (mine && c.status != "ended")
+    val shape = RoundedCornerShape(topStart = if (mine) 14.dp else 3.dp, topEnd = if (mine) 3.dp else 14.dp, bottomStart = 14.dp, bottomEnd = 14.dp)
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start) {
+        Column(Modifier.widthIn(min = 220.dp, max = 300.dp).clip(shape).background(bg).padding(6.dp)) {
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color.Black.copy(alpha = 0.18f)).padding(horizontal = 10.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(Modifier.size(40.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.14f)), contentAlignment = Alignment.Center) {
+                    Icon(NexIcons.Phone, null, tint = if (missedIn) RED else fg, modifier = Modifier.size(20.dp))
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(S.callVoiceCall, color = fg, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                    Text(result, color = if (missedIn) RED else sub, fontSize = 13.sp)
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(chatTime(m.ts), color = sub, fontSize = 10.sp)
+            }
+            if (canAct && c.status != "ended") {
+                Box(Modifier.fillMaxWidth().padding(top = 2.dp).height(1.dp).background(Color.White.copy(alpha = 0.10f)))
+                Box(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).clickable { if (mine) onRecordVoice() else onCallBack() }.padding(vertical = 11.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(if (mine) S.callVoiceMessage else S.callCallBack, color = if (mine) Color.White else colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+            }
         }
     }
 }
