@@ -139,6 +139,7 @@ import id.nexrify.music.ui.components.chatTime
 import id.nexrify.music.ui.components.rememberChatProfiles
 import id.nexrify.music.ui.components.rememberMicPermission
 import id.nexrify.music.ui.components.rememberMyProfile
+import id.nexrify.music.ui.components.NexTransparentDropdownMenu
 import id.nexrify.music.ui.icons.NexIcons
 import id.nexrify.music.ui.theme.NexrifyAppTheme
 import id.nexrify.music.ui.theme.Typography
@@ -335,11 +336,9 @@ private fun DmInboxContent(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
                 )
                 Box {
                     TopIcon(NexIcons.MoreVert) { showMainMenu = true }
-                    DropdownMenu(
+                    NexTransparentDropdownMenu(
                         expanded = showMainMenu,
-                        onDismissRequest = { showMainMenu = false },
-                        containerColor = Color.Transparent,
-                        shadowElevation = 0.dp
+                        onDismissRequest = { showMainMenu = false }
                     ) {
                         GlassDropdownContainer(modifier = Modifier.width(215.dp)) {
                             PremiumMenuRow(
@@ -891,11 +890,9 @@ private fun ContactsScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
                     TopIcon(NexIcons.Search) { searching = true }
                     Box {
                         TopIcon(NexIcons.MoreVert) { showMenu = true }
-                        DropdownMenu(
+                        NexTransparentDropdownMenu(
                             expanded = showMenu,
-                            onDismissRequest = { showMenu = false },
-                            containerColor = Color.Transparent,
-                            shadowElevation = 0.dp
+                            onDismissRequest = { showMenu = false }
                         ) {
                             GlassDropdownContainer(modifier = Modifier.width(205.dp)) {
                                 PremiumMenuRow(
@@ -1588,11 +1585,9 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
             if (!isNote && !blocked && !requestIn && !pending && shownPeer != null) TopIcon(NexIcons.Phone) { placeCall() }
             Box {
                 TopIcon(NexIcons.MoreVert) { showMoreSub = false; showMore = true }
-                DropdownMenu(
+                NexTransparentDropdownMenu(
                     expanded = showMore,
-                    onDismissRequest = { showMore = false; showMoreSub = false },
-                    containerColor = Color.Transparent,
-                    shadowElevation = 0.dp
+                    onDismissRequest = { showMore = false; showMoreSub = false }
                 ) {
                     GlassDropdownContainer(modifier = Modifier.width(235.dp)) {
                         if (!showMoreSub) {
@@ -2314,11 +2309,9 @@ private fun ContactDetailScreen(
                     )
                     Box {
                         TopIcon(NexIcons.MoreVert) { showMenu = true }
-                        DropdownMenu(
+                        NexTransparentDropdownMenu(
                             expanded = showMenu,
-                            onDismissRequest = { showMenu = false },
-                            containerColor = Color.Transparent,
-                            shadowElevation = 0.dp
+                            onDismissRequest = { showMenu = false }
                         ) {
                             GlassDropdownContainer(modifier = Modifier.width(215.dp)) {
                                 PremiumMenuRow(
