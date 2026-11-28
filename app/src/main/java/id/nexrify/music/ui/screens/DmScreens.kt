@@ -727,6 +727,7 @@ private fun ContactsScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
     val scope = rememberCoroutineScope()
     val localVer by dms.localVersion.collectAsState()
     val myName = AccountManager.getInstance().user.value?.username.orEmpty()
+    val userNotFoundMsg = S.dmUserNotFound
 
     var searching by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
@@ -825,7 +826,7 @@ private fun ContactsScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
                                         val prof = runCatching { chat.profile(un) }.getOrNull()
                                         saving = false
                                         if (prof == null) {
-                                            NexNotifier.warning(S.dmUserNotFound, "Kontak")
+                                            NexNotifier.warning(userNotFoundMsg, "Kontak")
                                         } else {
                                             dms.saveContact(prof.uid, prof.username, fn, ln, prof.av)
                                             firstName = ""; lastName = ""; usernameInput = ""
