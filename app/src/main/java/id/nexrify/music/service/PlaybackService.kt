@@ -444,7 +444,13 @@ class PlaybackService : MediaSessionService() {
                 .setPriority(androidx.core.app.NotificationCompat.PRIORITY_LOW)
                 .setCategory(androidx.core.app.NotificationCompat.CATEGORY_TRANSPORT)
                 .build()
-            startForeground(NOTIFICATION_ID, n)
+            // Jangan menimpa notifikasi kontrol musik (judul, sampul, tombol) yang sudah dipasang Media3 dengan notifikasi polos ini.
+            // onStartCommand dipanggil lagi setiap Media3 memperbarui notifikasi, dan dulu itu membuat kontrolnya hilang
+            // di panel notifikasi (yang tersisa hanya tulisan "Nexrify"). Kalau sudah ada, pakai yang ada untuk startForeground.
+            val existing = runCatching {
+                getSystemService(NotificationManager::class.java)?.activeNotifications?.firstOrNull { it.id == NOTIFICATION_ID }?.notification
+            }.getOrNull()
+            startForeground(NOTIFICATION_ID, existing ?: n)
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                 val pl = player
                 // Jangan lepas status foreground kalau lagu baru masih disiapkan (cari URL bisa > 4 detik)
