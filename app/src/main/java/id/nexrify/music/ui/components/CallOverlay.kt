@@ -121,6 +121,7 @@ fun rememberMicPermission(onGranted: () -> Unit): () -> Unit {
 private fun clock(sec: Int): String =
     if (sec >= 3600) "%d:%02d:%02d".format(sec / 3600, (sec % 3600) / 60, sec % 60) else "%02d:%02d".format(sec / 60, sec % 60)
 
+@Composable
 private fun memberStatus(st: String): String = when (st) {
     "calling" -> S.callOutgoing
     "ringing" -> S.callRinging
