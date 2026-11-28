@@ -70,8 +70,11 @@ class DmManager private constructor(private val context: Context) {
         val t = token() ?: return
         try {
             val (unread, list) = ChatApi.dmInbox(t)
+            val before = _unread.value
             _inbox.value = list
             _unread.value = list.sumOf { if (it.muted || it.archived || it.request || isChatLocked(it.uid)) 0 else it.unread }
+            // Pesan baru masuk saat kotak masuk terbuka (tidak sedang di dalam percakapan): bunyikan nada pesan.
+            if (_inboxLoaded.value && openUid == null && _unread.value > before) id.nexrify.music.util.NexSounds.playMessage(context)
             _inboxLoaded.value = true
         } catch (e: CancellationException) {
             throw e
@@ -171,6 +174,7 @@ class DmManager private constructor(private val context: Context) {
         var idle = 0
         var failures = 0
         var first = true
+        var maxPeerSeq = 0L
         while (openUid == uid) {
             val t = token() ?: break
             var changed = false
@@ -182,6 +186,10 @@ class DmManager private constructor(private val context: Context) {
                     val me = myId()
                     server.update { old -> old + data.messages.associateBy { it.seq } }
                     incoming = data.messages.any { it.uid != me && !it.deleted }
+                    // Nada pesan hanya untuk pesan lawan bicara yang benar-benar baru (bukan riwayat awal, ubahan, atau reaksi).
+                    val newest = data.messages.filter { it.uid != me && !it.deleted && it.call == null }.maxOfOrNull { it.seq } ?: 0L
+                    if (!first && newest > maxPeerSeq) id.nexrify.music.util.NexSounds.playMessage(context)
+                    if (newest > maxPeerSeq) maxPeerSeq = newest
                     changed = true
                 }
                 ev = maxOf(ev, data.ev)
@@ -226,6 +234,7 @@ class DmManager private constructor(private val context: Context) {
         val now = System.currentTimeMillis()
         if (now - lastReadMarked < 2_000L) return
         lastReadMarked = now
+        runCatching { DmNotifier.cancel(context, uid) }
         _inbox.update { list -> list.map { if (it.uid == uid) it.copy(unread = 0) else it } }
         _unread.value = _inbox.value.sumOf { if (it.muted || it.archived || it.request || isChatLocked(it.uid)) 0 else it.unread }
         scope.launch { runCatching { token()?.let { ChatApi.post(it, JSONObject().put("action", "dm_read").put("to", uid)) } } }
