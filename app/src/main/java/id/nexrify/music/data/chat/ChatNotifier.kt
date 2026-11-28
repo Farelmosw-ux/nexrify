@@ -45,7 +45,7 @@ object ChatNotifier {
         Kind("r", "chat_reply", 4102, "nexrify_chat"),
         Kind("x", "chat_reaction", 4103, "nexrify_social"),
         Kind("a", "chat_announce", 4104, "nexrify_news"),
-        Kind("d", "chat_dm", 4105, "nexrify_chat"),
+        Kind("d", "chat_dm_v2", 4105, "nexrify_chat"),
         Kind("w", "chat_warn", 4106, "nexrify_news"),
         Kind("f", "chat_follow", 4107, "nexrify_social"),
         Kind("F", "chat_follow", 4108, "nexrify_social"),
@@ -65,7 +65,17 @@ object ChatNotifier {
         ch("chat_reply", s.chatNotifChannelReply, NotificationManager.IMPORTANCE_HIGH)
         ch("chat_reaction", s.chatNotifChannelReaction, NotificationManager.IMPORTANCE_LOW)
         ch("chat_announce", s.chatNotifChannelAnnounce, NotificationManager.IMPORTANCE_HIGH)
-        ch("chat_dm", s.chatNotifChannelDm, NotificationManager.IMPORTANCE_HIGH)
+        // Saluran DM memakai nada pesan Nexrify (id baru karena suara saluran lama tidak bisa diubah).
+        system.deleteNotificationChannel("chat_dm")
+        system.createNotificationChannel(NotificationChannel("chat_dm_v2", s.chatNotifChannelDm, NotificationManager.IMPORTANCE_HIGH).apply {
+            setSound(
+                android.net.Uri.parse("android.resource://" + context.packageName + "/" + id.nexrify.music.R.raw.pesan),
+                android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_COMMUNICATION_INSTANT)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
+            )
+        })
+        DmNotifier.ensureChannels(context)
         ch("chat_warn", s.chatNotifChannelWarn, NotificationManager.IMPORTANCE_HIGH)
         ch("chat_follow", s.notifChannelFollow, NotificationManager.IMPORTANCE_HIGH)
         ch("chat_role", s.notifChannelRole, NotificationManager.IMPORTANCE_HIGH)
@@ -82,6 +92,7 @@ object ChatNotifier {
         for (kind in KINDS) {
             val group = items.filter { it.kind == kind.code }
             if (group.isEmpty()) continue
+            if (kind.code == "d") { group.forEach { DmNotifier.show(context, it) }; continue }
             val last = group.last()
             val follow = kind.code == "f" || kind.code == "F"
             val channelName = when (kind.code) {
@@ -161,7 +172,7 @@ object ChatNotifier {
     }
 
     /** Foto profil dibulatkan untuk ikon besar. Null kalau tidak ada atau gagal diunduh (notifikasi tetap tampil). */
-    private suspend fun avatarBitmap(uid: String): Bitmap? = withContext(Dispatchers.IO) {
+    internal suspend fun avatarBitmap(uid: String): Bitmap? = withContext(Dispatchers.IO) {
         if (uid.length != 8) return@withContext null
         try {
             val client = HttpClientProvider.client.newBuilder().callTimeout(4, TimeUnit.SECONDS).build()
