@@ -145,7 +145,7 @@ data class ChatUserHit(val username: String, val uid: String, val display: Strin
 data class ChatEvent(val kind: String, val message: ChatMessage)
 
 /** Notifikasi dari server untuk notifikasi HP: k = m (mention), r (balasan), x (reaksi), a (pengumuman). */
-data class ChatNotif(val kind: String, val seq: Long, val from: String, val text: String, val ts: Long)
+data class ChatNotif(val kind: String, val seq: Long, val from: String, val text: String, val ts: Long, val uid: String = "", val display: String = "")
 
 data class ChatSeen(val uid: String, val seq: Long)
 
