@@ -1,27 +1,16 @@
 package id.nexrify.music.ui.screens
 
-import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.horizontalScroll
-
-import id.nexrify.music.ui.components.NexFooter
-import id.nexrify.music.ui.components.PullToRefreshBox
-
-import id.nexrify.music.ui.components.NexLoadingFill
-
-import id.nexrify.music.i18n.S
-
-import id.nexrify.music.ui.icons.NexIcons
-
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,18 +26,18 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,33 +46,49 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 import coil.compose.AsyncImage
 import id.nexrify.music.R
+import id.nexrify.music.data.account.AccountManager
 import id.nexrify.music.data.auth.UserAccount
+import id.nexrify.music.data.chat.ChatManager
+import id.nexrify.music.data.chat.DmManager
+import id.nexrify.music.data.mailbox.MailboxManager
 import id.nexrify.music.data.model.Track
-import id.nexrify.music.data.model.HomeSection
-import id.nexrify.music.ui.components.AddToPlaylistDialog
-import id.nexrify.music.ui.components.LoginWebViewDialog
-import id.nexrify.music.ui.components.ProfileMenuSheet
-import id.nexrify.music.ui.components.TrackItem
-import id.nexrify.music.ui.theme.DarkBorder
-import id.nexrify.music.ui.theme.DarkCard
-import id.nexrify.music.ui.theme.MutedText
-import id.nexrify.music.ui.theme.PureBlack
+import id.nexrify.music.data.notif.NotifCenter
+import id.nexrify.music.data.prayer.MaghribManager
+import id.nexrify.music.data.settings.TimeContext
 import id.nexrify.music.data.streak.StreakInfo
+import id.nexrify.music.i18n.S
+import id.nexrify.music.ui.components.AddToPlaylistDialog
+import id.nexrify.music.ui.components.GlassPillContainer
+import id.nexrify.music.ui.components.LoginWebViewDialog
+import id.nexrify.music.ui.components.NexAvatar
+import id.nexrify.music.ui.components.NexFooter
+import id.nexrify.music.ui.components.NexLoadingFill
+import id.nexrify.music.ui.components.ProfileMenuSheet
+import id.nexrify.music.ui.components.PullToRefreshBox
+import id.nexrify.music.ui.components.SettingsDialog
 import id.nexrify.music.ui.components.StreakChip
 import id.nexrify.music.ui.components.StreakDialog
+import id.nexrify.music.ui.components.TrackItem
+import id.nexrify.music.ui.icons.NexIcons
+import id.nexrify.music.ui.theme.NexrifyAppTheme
+import id.nexrify.music.ui.theme.PureBlack
 import id.nexrify.music.ui.theme.PureWhite
-import id.nexrify.music.ui.theme.SubtleGray
 import id.nexrify.music.ui.theme.Typography
 import id.nexrify.music.viewmodel.MusicViewModel
+import java.time.ZonedDateTime
+import kotlinx.coroutines.delay
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
@@ -105,7 +110,6 @@ fun HomeScreen(
     val isLoadingTrack by viewModel.isLoadingTrack.collectAsState()
     val currentTrack by viewModel.currentTrack.collectAsState()
     val currentAccount by viewModel.authState.collectAsState()
-    val currentLanguage by viewModel.settingsManager.language.collectAsState()
     val favorites by viewModel.favorites.collectAsState()
     val recentlyPlayed by viewModel.recentlyPlayed.collectAsState()
     val reactions by viewModel.reactions.collectAsState()
@@ -113,7 +117,7 @@ fun HomeScreen(
     var showStreak by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { viewModel.streakManager.refresh() }
     if (showStreak) StreakDialog(streak) { showStreak = false }
-    val favoriteIds by remember(favorites) { androidx.compose.runtime.derivedStateOf { favorites.mapTo(HashSet()) { it.id } } }
+    val favoriteIds by remember(favorites) { derivedStateOf { favorites.mapTo(HashSet()) { it.id } } }
 
     var showProfileMenu by remember { mutableStateOf(false) }
     var showLoginWebView by remember { mutableStateOf(false) }
@@ -123,11 +127,8 @@ fun HomeScreen(
     var selectedGenre by rememberSaveable { mutableStateOf("Semua") }
     val genres = listOf("Semua", "Pop", "Lo-Fi", "Rock", "Acoustic", "Anime", "Hip-Hop", "R&B", "Top Global")
 
-    val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
-    val isV2 = id.nexrify.music.ui.theme.NexrifyAppTheme.isV2
-    // Daftar Beranda memakai key tiap item. Saat gaya tema berpindah (V1 <-> V2) urutan rak berubah, dan Compose
-    // menjaga item yang tadinya paling atas tetap di posisinya, sehingga daftar terlihat "scroll sendiri".
-    // Karena itu posisi dikembalikan ke atas, hanya ketika gayanya benar-benar berganti (bukan tiap kembali ke Beranda).
+    val colors = NexrifyAppTheme.colors
+    val isV2 = NexrifyAppTheme.isV2
     val homeListState = rememberLazyListState()
     var lastIsV2 by rememberSaveable { mutableStateOf(isV2) }
     LaunchedEffect(isV2) {
@@ -136,16 +137,15 @@ fun HomeScreen(
             lastIsV2 = isV2
         }
     }
-    var localNow by remember { mutableStateOf(java.time.ZonedDateTime.now()) }
+    var localNow by remember { mutableStateOf(ZonedDateTime.now()) }
     LaunchedEffect(Unit) {
         while (true) {
-            localNow = java.time.ZonedDateTime.now()
+            localNow = ZonedDateTime.now()
             delay(10_000L)
         }
     }
 
-    // Maghrib dihitung dari lokasi pengguna dan zona waktu perangkat, tidak pernah dari jam tetap.
-    val maghribManager = remember { id.nexrify.music.data.prayer.MaghribManager.getInstance() }
+    val maghribManager = remember { MaghribManager.getInstance() }
     val maghribPlace by maghribManager.place.collectAsState()
     val maghribStatus by maghribManager.status.collectAsState()
     LaunchedEffect(Unit) {
@@ -166,326 +166,289 @@ fun HomeScreen(
         },
         modifier = modifier.fillMaxSize().background(colors.background)
     ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(top = if (isV2) 4.dp else 16.dp)
-    ) {
-        val timeContextV2 = id.nexrify.music.data.settings.TimeContext.resolve(localNow, maghribTime)
-        if (isV2) {
-            // V2: bar sendiri di atas untuk profil, chat, surat, dan pengaturan. Navigasi utama tetap di bawah.
-            val unreadMailV2 by id.nexrify.music.data.mailbox.MailboxManager.getInstance().unreadCount.collectAsState()
-            val chatUnreadV2 by id.nexrify.music.data.chat.ChatManager.getInstance().mentionUnread.collectAsState()
-            val notifUnreadV2 by id.nexrify.music.data.notif.NotifCenter.getInstance().unread.collectAsState()
-            V2UtilityBar(
-                account = currentAccount,
-                chatUnread = chatUnreadV2,
-                mailUnread = unreadMailV2,
-                notifUnread = notifUnreadV2,
-                onNotifs = onOpenNotifications,
-                onProfile = { showProfileMenu = true },
-                onChat = onOpenChat,
-                onMail = onOpenMailbox,
-                onSettings = { showSettingsDialog = true },
-                streak = streak,
-                onStreak = { showStreak = true }
-            )
-            V2HomeHeader(
-                greeting = S.period(timeContextV2.period),
-                description = if (S.english) timeContextV2.descriptionEn else timeContextV2.descriptionId,
-                hint = if (maghribStatus == id.nexrify.music.data.prayer.MaghribManager.Status.NO_PERMISSION && localNow.hour in 16..18) S.maghribHomeHint else null
-            )
-        } else {
-        // Greeting mengikuti jam lokal perangkat (zona waktu wilayah otomatis).
-        // Salam di baris sendiri (lebar penuh) dan tombol di baris di bawahnya yang bisa digeser, jadi
-        // di HP sempit / dpi tinggi / font besar teks tidak lagi terjepit menjadi satu huruf per baris.
-        val timeContext = id.nexrify.music.data.settings.TimeContext.resolve(localNow, maghribTime)
-        val greeting = S.period(timeContext.period)
-        val description = if (S.english) timeContext.descriptionEn else timeContext.descriptionId
-        val unreadMail by id.nexrify.music.data.mailbox.MailboxManager.getInstance().unreadCount.collectAsState()
-        val chatUnread by id.nexrify.music.data.chat.ChatManager.getInstance().mentionUnread.collectAsState()
-        val notifUnread by id.nexrify.music.data.notif.NotifCenter.getInstance().unread.collectAsState()
-        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val wide = maxWidth >= 620.dp
-            @Composable
-            fun Buttons(mod: Modifier) {
-                Row(mod, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StreakChip(streak, onClick = { showStreak = true })
-                    ChatTopButton(unread = chatUnread, onClick = onOpenChat)
-                    NotifTopButton(unread = notifUnread, onClick = onOpenNotifications)
-                    DmTopButton(onClick = onOpenDm)
-                    MailboxTopButton(unread = unreadMail, onClick = onOpenMailbox)
-                    AccountTopButton(account = currentAccount, onClick = { showProfileMenu = true })
-                }
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = if (isV2) 4.dp else 10.dp)
+        ) {
+            val timeContext = TimeContext.resolve(localNow, maghribTime)
+            val unreadMail by MailboxManager.getInstance().unreadCount.collectAsState()
+            val chatUnread by ChatManager.getInstance().mentionUnread.collectAsState()
+            val notifUnread by NotifCenter.getInstance().unread.collectAsState()
+            val dmUnread by DmManager.getInstance().unread.collectAsState()
+
+            if (isV2) {
+                V2UtilityBar(
+                    account = currentAccount,
+                    chatUnread = chatUnread,
+                    mailUnread = unreadMail,
+                    notifUnread = notifUnread,
+                    dmUnread = dmUnread,
+                    onNotifs = onOpenNotifications,
+                    onProfile = { showProfileMenu = true },
+                    onChat = onOpenChat,
+                    onDm = onOpenDm,
+                    onMail = onOpenMailbox,
+                    onSettings = { showSettingsDialog = true },
+                    streak = streak,
+                    onStreak = { showStreak = true }
+                )
+                V2HomeHeader(
+                    greeting = S.period(timeContext.period),
+                    description = if (S.english) timeContext.descriptionEn else timeContext.descriptionId,
+                    hint = if (maghribStatus == MaghribManager.Status.NO_PERMISSION && localNow.hour in 16..18) S.maghribHomeHint else null
+                )
+            } else {
+                // Header Modern Premium (Perbaikan Foto ke-1)
+                PremiumHomeHeader(
+                    greeting = S.period(timeContext.period),
+                    description = if (S.english) timeContext.descriptionEn else timeContext.descriptionId,
+                    maghribHint = if (maghribStatus == MaghribManager.Status.NO_PERMISSION && localNow.hour in 16..18) S.maghribHomeHint else null,
+                    streak = streak,
+                    account = currentAccount,
+                    chatUnread = chatUnread,
+                    notifUnread = notifUnread,
+                    dmUnread = dmUnread,
+                    mailUnread = unreadMail,
+                    onStreak = { showStreak = true },
+                    onChat = onOpenChat,
+                    onNotifs = onOpenNotifications,
+                    onDm = onOpenDm,
+                    onMail = onOpenMailbox,
+                    onProfile = { showProfileMenu = true }
+                )
             }
-            @Composable
-            fun Greeting(mod: Modifier) {
-                Column(mod) {
-                    Text(greeting, style = Typography.headlineLarge.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(description, style = Typography.bodyLarge, color = colors.textMuted)
-                    if (maghribStatus == id.nexrify.music.data.prayer.MaghribManager.Status.NO_PERMISSION && localNow.hour in 16..18) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(S.maghribHomeHint, style = Typography.bodySmall, color = colors.textSecondary)
+
+            if (!isV2) {
+                DonateEntryCard(onClick = onOpenDonate)
+                FeedbackEntryCard(onClick = onOpenFeedback)
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(genres) { genre ->
+                    val isSelected = selectedGenre == genre
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .then(
+                                if (isV2 && isSelected) Modifier.background(
+                                    Brush.horizontalGradient(listOf(colors.accent, colors.accentAlt))
+                                ) else Modifier.background(if (isSelected) colors.textPrimary else colors.card)
+                            )
+                            .border(
+                                1.dp,
+                                if (isSelected) (if (isV2) colors.accent else colors.textPrimary) else colors.border,
+                                RoundedCornerShape(20.dp)
+                            )
+                            .clickable {
+                                selectedGenre = genre
+                                if (genre == "Semua") viewModel.loadTrending() else viewModel.search("$genre music hits")
+                            }
+                            .padding(horizontal = 18.dp, vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = S.genreLabel(genre),
+                            style = Typography.labelMedium.copy(fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium),
+                            fontSize = 13.sp,
+                            color = if (isSelected) colors.background else colors.textPrimary
+                        )
                     }
                 }
             }
-            if (wide) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Greeting(Modifier.weight(1f))
-                    Spacer(Modifier.width(10.dp))
-                    Buttons(Modifier)
-                }
-            } else {
-                Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                    Greeting(Modifier.fillMaxWidth().padding(horizontal = 20.dp))
-                    Spacer(Modifier.height(10.dp))
-                    Buttons(Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = 20.dp))
-                }
-            }
-        }
+            Spacer(modifier = Modifier.height(14.dp))
 
-        }
-
-        if (!isV2) {
-            DonateEntryCard(onClick = onOpenDonate)
-            FeedbackEntryCard(onClick = onOpenFeedback)
-        }
-        Spacer(modifier = Modifier.height(12.dp))
-        LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            items(genres) { genre ->
-                val isSelected = selectedGenre == genre
-                Box(
-                    modifier = Modifier.clip(RoundedCornerShape(20.dp))
-                        .then(
-                            if (isV2 && isSelected) Modifier.background(
-                                androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(colors.accent, colors.accentAlt))
-                            ) else Modifier.background(if (isSelected) colors.textPrimary else colors.card)
+            if (selectedGenre != "Semua") {
+                if (isSearching) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        NexLoadingFill(active = true)
+                    }
+                } else if (searchResults.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = S.noSongsFor(S.genreLabel(selectedGenre)),
+                            style = Typography.bodyMedium,
+                            color = colors.textMuted
                         )
-                        .border(1.dp, if (isSelected) (if (isV2) colors.accent else colors.textPrimary) else colors.border, RoundedCornerShape(20.dp))
-                        .clickable {
-                            selectedGenre = genre
-                            if (genre == "Semua") viewModel.loadTrending() else viewModel.search("$genre music hits")
+                    }
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(searchResults, key = { it.id }, contentType = { "track" }) { track ->
+                            val isFav = track.id in favoriteIds
+                            TrackItem(
+                                track = track.copy(isFavorite = isFav),
+                                isPlaying = currentTrack?.id == track.id,
+                                isLoading = isLoadingTrack && currentTrack?.id == track.id,
+                                onClick = { viewModel.playTrackFromSearch(track) },
+                                onFavoriteClick = { viewModel.toggleFavorite(track) },
+                                onMoreClick = { trackForPlaylist = track }
+                            )
                         }
-                        .padding(horizontal = 18.dp, vertical = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(text = S.genreLabel(genre), style = Typography.labelMedium.copy(fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium),
-                        fontSize = 13.sp, color = if (isSelected) colors.background else colors.textPrimary)
+                        item { Spacer(modifier = Modifier.height(100.dp)) }
+                    }
                 }
-            }
-        }
-        Spacer(modifier = Modifier.height(14.dp))
+            } else if (isLoadingTrending) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    items(5) { SkeletonMusicRow() }
+                }
+            } else if (homeSections.isNotEmpty()) {
+                val playAgainSource = remember(recentlyPlayed, homeSections) {
+                    (if (recentlyPlayed.isNotEmpty()) recentlyPlayed else homeSections.firstOrNull()?.tracks.orEmpty())
+                        .distinctBy { it.id }
+                }
+                var playAgainExpanded by remember { mutableStateOf(false) }
+                val pickSection = remember(homeSections) { homeSections.firstOrNull { it.tracks.isNotEmpty() } }
+                val pickTrack = pickSection?.tracks?.firstOrNull()
 
-        if (selectedGenre != "Semua") {
-            if (isSearching) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    NexLoadingFill(active = true)
+                val playAgainBlock: LazyListScope.() -> Unit = {
+                    if (playAgainSource.isNotEmpty()) {
+                        item(key = "play_again_header") {
+                            HomeSectionHeader(
+                                title = S.playAgain,
+                                action = if (playAgainSource.size > 4) (if (playAgainExpanded) S.showLess else S.viewAll) else null,
+                                onAction = { playAgainExpanded = !playAgainExpanded }
+                            )
+                        }
+                        item(key = "play_again_grid") {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                playAgainSource.take(if (playAgainExpanded) 12 else 4).chunked(2).forEach { pair ->
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                        pair.forEach { track ->
+                                            PlayAgainTile(
+                                                track = track,
+                                                isPlaying = currentTrack?.id == track.id,
+                                                modifier = Modifier.weight(1f),
+                                                onClick = { viewModel.playTrack(track, playAgainSource) },
+                                                onLongClick = { trackForPlaylist = track }
+                                            )
+                                        }
+                                        if (pair.size == 1) Spacer(modifier = Modifier.weight(1f))
+                                    }
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(26.dp))
+                        }
+                    }
                 }
-            } else if (searchResults.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = S.noSongsFor(S.genreLabel(selectedGenre)),
-                        style = Typography.bodyMedium,
-                        color = colors.textMuted
-                    )
+                val picksBlock: LazyListScope.() -> Unit = {
+                    if (pickTrack != null && pickSection != null) {
+                        item(key = "picks_header") { HomeSectionHeader(title = S.picksForYou) }
+                        item(key = "picks_banner") {
+                            PickBanner(
+                                track = pickTrack,
+                                onPlay = { viewModel.playTrack(pickTrack, pickSection.tracks) },
+                                onLongClick = { trackForPlaylist = pickTrack }
+                            )
+                            Spacer(modifier = Modifier.height(26.dp))
+                        }
+                    }
+                }
+                val favoritesBlock: LazyListScope.() -> Unit = {
+                    if (favorites.isNotEmpty()) {
+                        item(key = "favorites_header") { HomeSectionHeader(title = S.favoriteSongs) }
+                        item(key = "favorites_tracks") {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                itemsIndexed(favorites.take(12), key = { index, track -> "favorite_${track.id}_$index" }) { _, track ->
+                                    YtmMusicCard(
+                                        track = track,
+                                        isPlaying = currentTrack?.id == track.id,
+                                        onClick = { viewModel.playTrack(track, favorites) },
+                                        onLongClick = { trackForPlaylist = track }
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(26.dp))
+                        }
+                    }
+                }
+
+                LazyColumn(modifier = Modifier.fillMaxSize(), state = homeListState) {
+                    if (isV2) {
+                        picksBlock(this)
+                        favoritesBlock(this)
+                        playAgainBlock(this)
+                    } else {
+                        playAgainBlock(this)
+                        picksBlock(this)
+                        favoritesBlock(this)
+                    }
+
+                    homeSections.forEachIndexed { sIndex, section ->
+                        item(key = "header_${sIndex}_${section.title}") {
+                            HomeSectionHeader(
+                                title = S.sectionTitle(section.title),
+                                subtitle = section.subtitle.takeIf { it.isNotBlank() }?.let { S.sectionSubtitle(it) }
+                            )
+                        }
+                        item(key = "shelf_${sIndex}_${section.title}") {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                itemsIndexed(section.tracks, key = { tIndex, track -> "shelf_${sIndex}_${track.id}_$tIndex" }) { _, track ->
+                                    YtmMusicCard(
+                                        track = track,
+                                        isPlaying = currentTrack?.id == track.id,
+                                        onClick = { viewModel.playTrack(track, section.tracks) },
+                                        onLongClick = { trackForPlaylist = track },
+                                        reaction = reactions[track.id] ?: 0,
+                                        onLike = { viewModel.reactToTrack(track, 1) },
+                                        onDislike = { viewModel.reactToTrack(track, -1) }
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(26.dp))
+                        }
+                    }
+
+                    if (isV2) {
+                        item(key = "v2_quick") {
+                            V2QuickRow(onDonate = onOpenDonate, onFeedback = onOpenFeedback)
+                        }
+                    }
+                    item {
+                        NexFooter()
+                        Spacer(modifier = Modifier.height(96.dp))
+                    }
                 }
             } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(searchResults, key = { it.id }, contentType = { "track" }) { track ->
+                LazyColumn(modifier = Modifier.fillMaxSize(), state = homeListState) {
+                    items(trendingTracks, key = { it.id }, contentType = { "track" }) { track ->
                         val isFav = track.id in favoriteIds
                         TrackItem(
                             track = track.copy(isFavorite = isFav),
                             isPlaying = currentTrack?.id == track.id,
                             isLoading = isLoadingTrack && currentTrack?.id == track.id,
-                            onClick = { viewModel.playTrackFromSearch(track) },
+                            onClick = { viewModel.playTrack(track, trendingTracks) },
                             onFavoriteClick = { viewModel.toggleFavorite(track) },
                             onMoreClick = { trackForPlaylist = track }
                         )
                     }
-                    item {
-                        Spacer(modifier = Modifier.height(100.dp))
-                    }
-                }
-            }
-        } else if (isLoadingTrending) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                items(5) { SkeletonMusicRow() }
-            }
-        } else if (homeSections.isNotEmpty()) {
-            // Putar lagi: dari riwayat, atau dari rak pertama kalau riwayat masih kosong.
-            val playAgainSource = remember(recentlyPlayed, homeSections) {
-                (if (recentlyPlayed.isNotEmpty()) recentlyPlayed else homeSections.firstOrNull()?.tracks.orEmpty())
-                    .distinctBy { it.id }
-            }
-            var playAgainExpanded by remember { mutableStateOf(false) }
-            val pickSection = remember(homeSections) { homeSections.firstOrNull { it.tracks.isNotEmpty() } }
-            val pickTrack = pickSection?.tracks?.firstOrNull()
-
-            val playAgainBlock: LazyListScope.() -> Unit = {
-                if (playAgainSource.isNotEmpty()) {
-                    item(key = "play_again_header") {
-                        HomeSectionHeader(
-                            title = S.playAgain,
-                            action = if (playAgainSource.size > 4) (if (playAgainExpanded) S.showLess else S.viewAll) else null,
-                            onAction = { playAgainExpanded = !playAgainExpanded }
-                        )
-                    }
-                    item(key = "play_again_grid") {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            playAgainSource.take(if (playAgainExpanded) 12 else 4).chunked(2).forEach { pair ->
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                    pair.forEach { track ->
-                                        PlayAgainTile(
-                                            track = track,
-                                            isPlaying = currentTrack?.id == track.id,
-                                            modifier = Modifier.weight(1f),
-                                            onClick = { viewModel.playTrack(track, playAgainSource) },
-                                            onLongClick = { trackForPlaylist = track }
-                                        )
-                                    }
-                                    if (pair.size == 1) Spacer(modifier = Modifier.weight(1f))
-                                }
-                            }
+                    if (isV2) {
+                        item(key = "v2_quick_fallback") {
+                            V2QuickRow(onDonate = onOpenDonate, onFeedback = onOpenFeedback)
                         }
-                        Spacer(modifier = Modifier.height(26.dp))
                     }
-                }
-
-            }
-            val picksBlock: LazyListScope.() -> Unit = {
-                if (pickTrack != null && pickSection != null) {
-                    item(key = "picks_header") { HomeSectionHeader(title = S.picksForYou) }
-                    item(key = "picks_banner") {
-                        PickBanner(
-                            track = pickTrack,
-                            onPlay = { viewModel.playTrack(pickTrack, pickSection.tracks) },
-                            onLongClick = { trackForPlaylist = pickTrack }
-                        )
-                        Spacer(modifier = Modifier.height(26.dp))
-                    }
-                }
-
-            }
-            val favoritesBlock: LazyListScope.() -> Unit = {
-                if (favorites.isNotEmpty()) {
-                    item(key = "favorites_header") { HomeSectionHeader(title = S.favoriteSongs) }
-                    item(key = "favorites_tracks") {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            itemsIndexed(favorites.take(12), key = { index, track -> "favorite_${track.id}_$index" }) { _, track ->
-                                YtmMusicCard(
-                                    track = track,
-                                    isPlaying = currentTrack?.id == track.id,
-                                    onClick = { viewModel.playTrack(track, favorites) },
-                                    onLongClick = { trackForPlaylist = track }
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(26.dp))
-                    }
-                }
-
-            }
-
-            LazyColumn(modifier = Modifier.fillMaxSize(), state = homeListState) {
-                if (isV2) {
-                    // V2: pilihan untukmu (hero) dulu, lalu favorit, lalu putar lagi (urutan dibalik).
-                    picksBlock(this)
-                    favoritesBlock(this)
-                    playAgainBlock(this)
-                } else {
-                    playAgainBlock(this)
-                    picksBlock(this)
-                    favoritesBlock(this)
-                }
-
-                homeSections.forEachIndexed { sIndex, section ->
-                    item(key = "header_${sIndex}_${section.title}") {
-                        HomeSectionHeader(
-                            title = S.sectionTitle(section.title),
-                            subtitle = section.subtitle.takeIf { it.isNotBlank() }?.let { S.sectionSubtitle(it) }
-                        )
-                    }
-                    item(key = "shelf_${sIndex}_${section.title}") {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            itemsIndexed(section.tracks, key = { tIndex, track -> "shelf_${sIndex}_${track.id}_$tIndex" }) { _, track ->
-                                YtmMusicCard(
-                                    track = track,
-                                    isPlaying = currentTrack?.id == track.id,
-                                    onClick = { viewModel.playTrack(track, section.tracks) },
-                                    onLongClick = { trackForPlaylist = track },
-                                    reaction = reactions[track.id] ?: 0,
-                                    onLike = { viewModel.reactToTrack(track, 1) },
-                                    onDislike = { viewModel.reactToTrack(track, -1) }
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(26.dp))
-                    }
-                }
-
-                if (isV2) {
-                    item(key = "v2_quick") {
-                        V2QuickRow(onDonate = onOpenDonate, onFeedback = onOpenFeedback)
-                    }
-                }
-                item {
-                    NexFooter()
-                    Spacer(modifier = Modifier.height(96.dp))
-                }
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                state = homeListState
-            ) {
-                items(trendingTracks, key = { it.id }, contentType = { "track" }) { track ->
-                    val isFav = track.id in favoriteIds
-                    TrackItem(
-                        track = track.copy(isFavorite = isFav),
-                        isPlaying = currentTrack?.id == track.id,
-                        isLoading = isLoadingTrack && currentTrack?.id == track.id,
-                        onClick = { viewModel.playTrack(track, trendingTracks) },
-                        onFavoriteClick = { viewModel.toggleFavorite(track) },
-                        onMoreClick = { trackForPlaylist = track }
-                    )
-                }
-                if (isV2) {
-                    item(key = "v2_quick_fallback") {
-                        V2QuickRow(onDonate = onOpenDonate, onFeedback = onOpenFeedback)
-                    }
-                }
-                item {
-                    Spacer(modifier = Modifier.height(100.dp))
+                    item { Spacer(modifier = Modifier.height(100.dp)) }
                 }
             }
         }
-    }
     }
 
     if (showProfileMenu) {
@@ -507,9 +470,7 @@ fun HomeScreen(
     }
 
     if (showSettingsDialog) {
-        id.nexrify.music.ui.components.SettingsDialog(
-            onDismiss = { showSettingsDialog = false }
-        )
+        SettingsDialog(onDismiss = { showSettingsDialog = false })
     }
 
     if (trackForPlaylist != null) {
@@ -521,32 +482,245 @@ fun HomeScreen(
     }
 }
 
+/* =============================== HEADER BERKELAS (FOTO KE-1) =============================== */
+
+@Composable
+private fun PremiumHomeHeader(
+    greeting: String,
+    description: String,
+    maghribHint: String?,
+    streak: StreakInfo,
+    account: UserAccount?,
+    chatUnread: Int,
+    notifUnread: Int,
+    dmUnread: Int,
+    mailUnread: Int,
+    onStreak: () -> Unit,
+    onChat: () -> Unit,
+    onNotifs: () -> Unit,
+    onDm: () -> Unit,
+    onMail: () -> Unit,
+    onProfile: () -> Unit
+) {
+    val colors = NexrifyAppTheme.colors
+    val nexUser by AccountManager.getInstance().user.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+    ) {
+        // Kartu Sapaan + Streak Badge di pojok kanan atas
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(24.dp))
+                .background(
+                    Brush.linearGradient(
+                        colors = if (colors.isDark) {
+                            listOf(
+                                Color(0xFF1A1D26),
+                                Color(0xFF111319)
+                            )
+                        } else {
+                            listOf(
+                                Color(0xFFF6F7FA),
+                                Color(0xFFECEEF3)
+                            )
+                        }
+                    )
+                )
+                .border(
+                    width = 1.dp,
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = if (colors.isDark) 0.14f else 0.6f),
+                            Color.Transparent
+                        )
+                    ),
+                    shape = RoundedCornerShape(24.dp)
+                )
+                .padding(horizontal = 18.dp, vertical = 16.dp)
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "NEXRIFY",
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 2.sp,
+                            color = colors.accent.copy(alpha = 0.85f)
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = greeting,
+                            style = Typography.headlineMedium.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = (-0.5).sp
+                            ),
+                            color = colors.textPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    StreakChip(streak, onClick = onStreak)
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = description,
+                    style = Typography.bodyMedium,
+                    color = colors.textSecondary,
+                    lineHeight = 19.sp
+                )
+                if (maghribHint != null) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = maghribHint,
+                        style = Typography.bodySmall,
+                        color = colors.accent,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Glass Action Dock terpadu (Room Chat, Notif, DM, Mailbox, Profil)
+                GlassPillContainer(
+                    modifier = Modifier.fillMaxWidth(),
+                    radius = 22.dp,
+                    elevated = false
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        DockActionIcon(
+                            icon = NexIcons.Group,
+                            cd = S.chatOpenChat,
+                            unread = chatUnread,
+                            onClick = onChat
+                        )
+                        DockActionIcon(
+                            icon = NexIcons.Bell,
+                            cd = S.notifCenterTitle,
+                            unread = notifUnread,
+                            onClick = onNotifs
+                        )
+                        DockActionIcon(
+                            icon = NexIcons.Send,
+                            cd = S.dmTitle,
+                            unread = dmUnread,
+                            onClick = onDm
+                        )
+                        DockActionIcon(
+                            icon = NexIcons.Mail,
+                            cd = S.mailboxTitle,
+                            unread = mailUnread,
+                            onClick = onMail
+                        )
+                        // Pemisah vertikal halus sebelum avatar profil
+                        Box(
+                            Modifier
+                                .width(1.dp)
+                                .height(24.dp)
+                                .background(colors.border.copy(alpha = 0.6f))
+                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .border(1.5.dp, colors.accent.copy(alpha = 0.65f), CircleShape)
+                                .clickable(onClick = onProfile)
+                                .padding(2.dp)
+                        ) {
+                            NexAvatar(user = nexUser, size = 36.dp)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DockActionIcon(
+    icon: ImageVector,
+    cd: String,
+    unread: Int,
+    onClick: () -> Unit
+) {
+    val colors = NexrifyAppTheme.colors
+    Box(modifier = Modifier.size(42.dp), contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(colors.textPrimary.copy(alpha = 0.05f))
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = cd,
+                tint = colors.textPrimary,
+                modifier = Modifier.size(19.dp)
+            )
+        }
+        if (unread > 0) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .clip(CircleShape)
+                    .background(Color(0xFFEF4444))
+                    .border(1.5.dp, colors.surface, CircleShape)
+                    .padding(horizontal = 5.dp, vertical = 1.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (unread > 9) "9+" else unread.toString(),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+        }
+    }
+}
+
 @Composable
 fun AccountTopButton(
     account: UserAccount?,
     onClick: () -> Unit
 ) {
-    val nexUser by id.nexrify.music.data.account.AccountManager.getInstance().user.collectAsState()
-    id.nexrify.music.ui.components.NexAvatar(
+    val nexUser by AccountManager.getInstance().user.collectAsState()
+    NexAvatar(
         user = nexUser,
         size = 40.dp,
         modifier = Modifier.clickable(onClick = onClick)
     )
 }
 
-/** Tombol jempol kecil di atas sampul kartu lagu. */
 @Composable
 private fun ReactionButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     active: Boolean,
     description: String,
     onClick: () -> Unit
 ) {
-    val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
+    val colors = NexrifyAppTheme.colors
     Box(
         modifier = Modifier
             .size(28.dp)
-            .clip(androidx.compose.foundation.shape.CircleShape)
+            .clip(CircleShape)
             .background(if (active) colors.accent.copy(alpha = 0.95f) else PureBlack.copy(alpha = 0.62f))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
@@ -572,8 +746,8 @@ fun YtmMusicCard(
     onLike: (() -> Unit)? = null,
     onDislike: (() -> Unit)? = null
 ) {
-    val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
-    val cardV2 = id.nexrify.music.ui.theme.NexrifyAppTheme.isV2
+    val colors = NexrifyAppTheme.colors
+    val cardV2 = NexrifyAppTheme.isV2
 
     Column(
         modifier = modifier
@@ -586,7 +760,7 @@ fun YtmMusicCard(
         Box(
             modifier = Modifier
                 .size(144.dp)
-                .clip(RoundedCornerShape(if (cardV2) 26.dp else 12.dp))
+                .clip(RoundedCornerShape(if (cardV2) 26.dp else 14.dp))
                 .background(colors.card)
         ) {
             AsyncImage(
@@ -655,7 +829,6 @@ fun YtmMusicCard(
         Spacer(modifier = Modifier.height(8.dp))
 
         if (cardV2) {
-            // V2: artis di atas judul.
             Text(
                 text = track.artist.uppercase(),
                 style = Typography.labelSmall,
@@ -682,9 +855,7 @@ fun YtmMusicCard(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-
             Spacer(modifier = Modifier.height(2.dp))
-
             Text(
                 text = track.artist,
                 style = Typography.bodySmall,
@@ -697,10 +868,9 @@ fun YtmMusicCard(
     }
 }
 
-
 @Composable
 private fun SkeletonMusicRow() {
-    val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
+    val colors = NexrifyAppTheme.colors
     val transition = rememberInfiniteTransition(label = "catalogSkeleton")
     val shimmerAlpha by transition.animateFloat(
         initialValue = 0.35f,
@@ -738,7 +908,6 @@ private fun SkeletonMusicRow() {
     }
 }
 
-
 @Composable
 private fun HomeSectionHeader(
     title: String,
@@ -746,20 +915,20 @@ private fun HomeSectionHeader(
     action: String? = null,
     onAction: () -> Unit = {}
 ) {
-    val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
+    val colors = NexrifyAppTheme.colors
     Row(
         modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 12.dp),
         verticalAlignment = Alignment.Bottom
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (id.nexrify.music.ui.theme.NexrifyAppTheme.isV2) {
+                if (NexrifyAppTheme.isV2) {
                     Box(
                         modifier = Modifier
                             .width(4.dp)
                             .height(22.dp)
                             .clip(RoundedCornerShape(2.dp))
-                            .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(colors.accent, colors.accentAlt)))
+                            .background(Brush.verticalGradient(listOf(colors.accent, colors.accentAlt)))
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                 }
@@ -796,16 +965,16 @@ private fun PlayAgainTile(
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
-    val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
+    val colors = NexrifyAppTheme.colors
     Row(
         modifier = modifier
             .height(58.dp)
-            .clip(RoundedCornerShape(if (id.nexrify.music.ui.theme.NexrifyAppTheme.isV2) 29.dp else 14.dp))
+            .clip(RoundedCornerShape(if (NexrifyAppTheme.isV2) 29.dp else 14.dp))
             .background(colors.card)
             .border(
                 1.dp,
-                if (isPlaying) (if (id.nexrify.music.ui.theme.NexrifyAppTheme.isV2) colors.accent else colors.textSecondary) else colors.border,
-                RoundedCornerShape(if (id.nexrify.music.ui.theme.NexrifyAppTheme.isV2) 29.dp else 14.dp)
+                if (isPlaying) (if (NexrifyAppTheme.isV2) colors.accent else colors.textSecondary) else colors.border,
+                RoundedCornerShape(if (NexrifyAppTheme.isV2) 29.dp else 14.dp)
             )
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
         verticalAlignment = Alignment.CenterVertically
@@ -847,13 +1016,13 @@ private fun PickBanner(
     onPlay: () -> Unit,
     onLongClick: () -> Unit
 ) {
-    val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
+    val colors = NexrifyAppTheme.colors
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
-            .height(if (id.nexrify.music.ui.theme.NexrifyAppTheme.isV2) 220.dp else 176.dp)
-            .clip(RoundedCornerShape(if (id.nexrify.music.ui.theme.NexrifyAppTheme.isV2) 32.dp else 22.dp))
+            .height(if (NexrifyAppTheme.isV2) 220.dp else 176.dp)
+            .clip(RoundedCornerShape(if (NexrifyAppTheme.isV2) 32.dp else 22.dp))
             .background(colors.card)
             .combinedClickable(onClick = onPlay, onLongClick = onLongClick)
     ) {
@@ -867,7 +1036,7 @@ private fun PickBanner(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    androidx.compose.ui.graphics.Brush.verticalGradient(
+                    Brush.verticalGradient(
                         colors = listOf(Color.Transparent, PureBlack.copy(alpha = 0.35f), PureBlack.copy(alpha = 0.88f))
                     )
                 )
@@ -878,7 +1047,7 @@ private fun PickBanner(
             Text(
                 text = S.personalMix,
                 style = Typography.labelSmall,
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                fontFamily = FontFamily.Monospace,
                 fontSize = 10.sp,
                 letterSpacing = 1.4.sp,
                 color = PureWhite.copy(alpha = 0.7f)
@@ -908,8 +1077,8 @@ private fun PickBanner(
                 .size(54.dp)
                 .clip(CircleShape)
                 .then(
-                    if (id.nexrify.music.ui.theme.NexrifyAppTheme.isV2) Modifier.background(
-                        androidx.compose.ui.graphics.Brush.linearGradient(listOf(colors.accent, colors.accentAlt))
+                    if (NexrifyAppTheme.isV2) Modifier.background(
+                        Brush.linearGradient(listOf(colors.accent, colors.accentAlt))
                     ) else Modifier.background(PureWhite)
                 )
                 .clickable(onClick = onPlay),
@@ -927,19 +1096,19 @@ private fun PickBanner(
 
 @Composable
 private fun DonateEntryCard(onClick: () -> Unit) {
-    val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
-    val shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)
+    val colors = NexrifyAppTheme.colors
+    val shape = RoundedCornerShape(18.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 6.dp)
+            .padding(horizontal = 16.dp, vertical = 5.dp)
             .clip(shape)
             .background(
-                androidx.compose.ui.graphics.Brush.horizontalGradient(
-                    listOf(androidx.compose.ui.graphics.Color(0x33F5C242), colors.card)
+                Brush.horizontalGradient(
+                    listOf(Color(0x33F5C242), colors.card)
                 )
             )
-            .border(1.dp, androidx.compose.ui.graphics.Color(0x55F5C242), shape)
+            .border(1.dp, Color(0x55F5C242), shape)
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -949,30 +1118,31 @@ private fun DonateEntryCard(onClick: () -> Unit) {
                 .size(38.dp)
                 .clip(CircleShape)
                 .background(
-                    androidx.compose.ui.graphics.Brush.linearGradient(
-                        listOf(androidx.compose.ui.graphics.Color(0xFFFFE9A0), androidx.compose.ui.graphics.Color(0xFFD9962B))
+                    Brush.linearGradient(
+                        listOf(Color(0xFFFFE9A0), Color(0xFFD9962B))
                     )
                 ),
             contentAlignment = Alignment.Center
         ) {
-            Icon(NexIcons.Crown, S.donateOpenCd, tint = androidx.compose.ui.graphics.Color(0xFF2A1B00), modifier = Modifier.size(20.dp))
+            Icon(NexIcons.Crown, S.donateOpenCd, tint = Color(0xFF2A1B00), modifier = Modifier.size(20.dp))
         }
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(S.donateTitle, style = Typography.titleSmall.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary)
             Text(S.donateEntrySub, style = Typography.bodySmall, color = colors.textMuted)
         }
+        Icon(NexIcons.ChevronRight, null, tint = Color(0xFFF5C242), modifier = Modifier.size(20.dp))
     }
 }
 
 @Composable
 private fun FeedbackEntryCard(onClick: () -> Unit) {
-    val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
-    val shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp)
+    val colors = NexrifyAppTheme.colors
+    val shape = RoundedCornerShape(18.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 6.dp)
+            .padding(horizontal = 16.dp, vertical = 5.dp)
             .clip(shape)
             .background(colors.card)
             .border(1.dp, colors.border, shape)
@@ -991,141 +1161,13 @@ private fun FeedbackEntryCard(onClick: () -> Unit) {
             Text(S.feedbackEntry, style = Typography.titleSmall.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary)
             Text(S.feedbackEntrySub, style = Typography.bodySmall, color = colors.textMuted)
         }
+        Icon(NexIcons.ChevronRight, null, tint = colors.textMuted, modifier = Modifier.size(20.dp))
     }
 }
 
-@Composable
-private fun ChatTopButton(unread: Int, onClick: () -> Unit) {
-    val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
-    Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(colors.card)
-                .border(1.dp, colors.border, CircleShape)
-                .clickable(onClick = onClick),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(NexIcons.Group, S.chatOpenChat, tint = colors.textPrimary, modifier = Modifier.size(20.dp))
-        }
-        if (unread > 0) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .clip(CircleShape)
-                    .background(colors.accent)
-                    .border(2.dp, colors.background, CircleShape)
-                    .padding(horizontal = 5.dp, vertical = 1.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = if (unread > 9) "9+" else unread.toString(),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = colors.background
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun NotifTopButton(unread: Int, onClick: () -> Unit) {
-    val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
-    Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
-        Box(
-            modifier = Modifier.size(40.dp).clip(CircleShape).background(colors.card).border(1.dp, colors.border, CircleShape).clickable(onClick = onClick),
-            contentAlignment = Alignment.Center
-        ) { Icon(NexIcons.Bell, S.notifCenterTitle, tint = colors.textPrimary, modifier = Modifier.size(20.dp)) }
-        if (unread > 0) {
-            Box(
-                modifier = Modifier.align(Alignment.TopEnd).clip(CircleShape).background(colors.accent).border(2.dp, colors.background, CircleShape).padding(horizontal = 5.dp, vertical = 1.dp),
-                contentAlignment = Alignment.Center
-            ) { Text(text = if (unread > 9) "9+" else unread.toString(), fontSize = 9.sp, fontWeight = FontWeight.Bold, color = colors.background) }
-        }
-    }
-}
-
-/** Tombol pesan pribadi dengan badge jumlah pesan belum dibaca. */
-@Composable
-private fun DmTopButton(onClick: () -> Unit) {
-    val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
-    val unread by id.nexrify.music.data.chat.DmManager.getInstance().unread.collectAsState()
-    Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(colors.card)
-                .border(1.dp, colors.border, CircleShape)
-                .clickable(onClick = onClick),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(NexIcons.Send, S.dmTitle, tint = colors.textPrimary, modifier = Modifier.size(19.dp))
-        }
-        if (unread > 0) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .clip(CircleShape)
-                    .background(colors.accent)
-                    .border(2.dp, colors.background, CircleShape)
-                    .padding(horizontal = 5.dp, vertical = 1.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = if (unread > 9) "9+" else unread.toString(),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = colors.background
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun MailboxTopButton(unread: Int, onClick: () -> Unit) {
-    val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
-    Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(colors.card)
-                .border(1.dp, colors.border, CircleShape)
-                .clickable(onClick = onClick),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(NexIcons.Mail, S.mailboxTitle, tint = colors.textPrimary, modifier = Modifier.size(20.dp))
-        }
-        if (unread > 0) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .clip(CircleShape)
-                    .background(colors.accent)
-                    .border(2.dp, colors.background, CircleShape)
-                    .padding(horizontal = 5.dp, vertical = 1.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = if (unread > 9) "9+" else unread.toString(),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = colors.background
-                )
-            }
-        }
-    }
-}
-
-
-/** Kartu sapaan Beranda V2. */
 @Composable
 private fun V2HomeHeader(greeting: String, description: String, hint: String?) {
-    val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
+    val colors = NexrifyAppTheme.colors
     val shape = RoundedCornerShape(30.dp)
     Column(
         modifier = Modifier
@@ -1146,75 +1188,56 @@ private fun V2HomeHeader(greeting: String, description: String, hint: String?) {
     }
 }
 
-/** Bar khusus V2: profil di kiri, chat, surat, dan pengaturan di kanan. */
 @Composable
 private fun V2UtilityBar(
     account: UserAccount?,
     chatUnread: Int,
     mailUnread: Int,
     notifUnread: Int,
+    dmUnread: Int,
     onNotifs: () -> Unit,
     onProfile: () -> Unit,
     onChat: () -> Unit,
+    onDm: () -> Unit,
     onMail: () -> Unit,
     onSettings: () -> Unit,
     streak: StreakInfo,
     onStreak: () -> Unit
 ) {
-    val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
+    val colors = NexrifyAppTheme.colors
     val shape = RoundedCornerShape(30.dp)
-    androidx.compose.foundation.layout.BoxWithConstraints(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 6.dp)
             .clip(shape)
             .background(colors.surface)
             .border(1.dp, colors.border, shape)
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        // 40 avatar + 60 chip + 4 tombol x 40 + 6 celah x 8 + padding 20 = sekitar 330dp; judul hanya muncul kalau muat.
-        val roomForTitle = maxWidth >= 400.dp
-        val items: @Composable () -> Unit = {
-            StreakChip(streak, onClick = onStreak)
-            Spacer(modifier = Modifier.width(8.dp))
-            ChatTopButton(unread = chatUnread, onClick = onChat)
-            Spacer(modifier = Modifier.width(8.dp))
-            NotifTopButton(unread = notifUnread, onClick = onNotifs)
-            Spacer(modifier = Modifier.width(8.dp))
-            MailboxTopButton(unread = mailUnread, onClick = onMail)
-            Spacer(modifier = Modifier.width(8.dp))
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(colors.card)
-                    .border(1.dp, colors.border, CircleShape)
-                    .clickable(onClick = onSettings),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(NexIcons.Settings, contentDescription = S.cd("Settings"), tint = colors.textPrimary, modifier = Modifier.size(20.dp))
-            }
-        }
-        if (roomForTitle) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                AccountTopButton(account = account, onClick = onProfile)
-                Spacer(modifier = Modifier.width(10.dp))
-                Text("Nexrify", style = Typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary, maxLines = 1, softWrap = false, modifier = Modifier.weight(1f))
-                items()
-            }
-        } else {
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = 10.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                AccountTopButton(account = account, onClick = onProfile)
-                Spacer(modifier = Modifier.width(10.dp))
-                items()
-            }
+        AccountTopButton(account = account, onClick = onProfile)
+        StreakChip(streak, onClick = onStreak)
+        DockActionIcon(icon = NexIcons.Group, cd = S.chatOpenChat, unread = chatUnread, onClick = onChat)
+        DockActionIcon(icon = NexIcons.Bell, cd = S.notifCenterTitle, unread = notifUnread, onClick = onNotifs)
+        DockActionIcon(icon = NexIcons.Send, cd = S.dmTitle, unread = dmUnread, onClick = onDm)
+        DockActionIcon(icon = NexIcons.Mail, cd = S.mailboxTitle, unread = mailUnread, onClick = onMail)
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(colors.card)
+                .border(1.dp, colors.border, CircleShape)
+                .clickable(onClick = onSettings),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(NexIcons.Settings, contentDescription = S.cd("Settings"), tint = colors.textPrimary, modifier = Modifier.size(20.dp))
         }
     }
 }
 
-/** Pintasan Donasi dan Masukan di bagian bawah Beranda V2, dua kartu bersebelahan. */
 @Composable
 private fun V2QuickRow(onDonate: () -> Unit, onFeedback: () -> Unit) {
     Row(
@@ -1244,20 +1267,20 @@ private fun V2QuickRow(onDonate: () -> Unit, onFeedback: () -> Unit) {
 private fun V2QuickTile(
     title: String,
     sub: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     gold: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val colors = id.nexrify.music.ui.theme.NexrifyAppTheme.colors
+    val colors = NexrifyAppTheme.colors
     val shape = RoundedCornerShape(26.dp)
-    val goldColor = androidx.compose.ui.graphics.Color(0xFFF5C242)
+    val goldColor = Color(0xFFF5C242)
     Column(
         modifier = modifier
             .clip(shape)
             .background(
-                if (gold) androidx.compose.ui.graphics.Brush.linearGradient(listOf(goldColor.copy(alpha = 0.26f), colors.card))
-                else androidx.compose.ui.graphics.Brush.linearGradient(listOf(colors.accent.copy(alpha = 0.20f), colors.card))
+                if (gold) Brush.linearGradient(listOf(goldColor.copy(alpha = 0.26f), colors.card))
+                else Brush.linearGradient(listOf(colors.accent.copy(alpha = 0.20f), colors.card))
             )
             .border(1.dp, if (gold) goldColor.copy(alpha = 0.45f) else colors.border, shape)
             .clickable(onClick = onClick)
@@ -1268,16 +1291,16 @@ private fun V2QuickTile(
                 .size(40.dp)
                 .clip(CircleShape)
                 .background(
-                    if (gold) androidx.compose.ui.graphics.Brush.linearGradient(
-                        listOf(androidx.compose.ui.graphics.Color(0xFFFFE9A0), androidx.compose.ui.graphics.Color(0xFFD9962B))
-                    ) else androidx.compose.ui.graphics.Brush.linearGradient(listOf(colors.accent, colors.accentAlt))
+                    if (gold) Brush.linearGradient(
+                        listOf(Color(0xFFFFE9A0), Color(0xFFD9962B))
+                    ) else Brush.linearGradient(listOf(colors.accent, colors.accentAlt))
                 ),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 icon,
                 contentDescription = title,
-                tint = if (gold) androidx.compose.ui.graphics.Color(0xFF2A1B00) else colors.background,
+                tint = if (gold) Color(0xFF2A1B00) else colors.background,
                 modifier = Modifier.size(20.dp)
             )
         }
