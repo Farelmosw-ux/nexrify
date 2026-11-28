@@ -55,6 +55,18 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.runtime.rememberCoroutineScope
+import id.nexrify.music.data.account.AccountManager
+import id.nexrify.music.data.call.CallMember
+import id.nexrify.music.data.call.CallPeer
+import id.nexrify.music.data.chat.ChatManager
 import id.nexrify.music.data.call.CallNav
 import id.nexrify.music.data.call.CallManager
 import id.nexrify.music.data.call.CallPhase
@@ -78,6 +90,9 @@ fun callErrText(code: String): String {
         "call_declined" -> s.callDeclined
         "call_unanswered" -> s.callUnanswered
         "call_failed" -> s.callErrFailed
+        "call_noaudio" -> s.callErrNoAudio
+        "call_add_wait" -> s.callAddWait
+        "call_full" -> s.callFull
         "call_server" -> s.callErrServer
         "network" -> s.dmNoNetworkErr
         "rate_limited" -> s.dmSlowDown
@@ -106,20 +121,30 @@ fun rememberMicPermission(onGranted: () -> Unit): () -> Unit {
 private fun clock(sec: Int): String =
     if (sec >= 3600) "%d:%02d:%02d".format(sec / 3600, (sec % 3600) / 60, sec % 60) else "%02d:%02d".format(sec / 60, sec % 60)
 
+private fun memberStatus(st: String): String = when (st) {
+    "calling" -> S.callOutgoing
+    "ringing" -> S.callRinging
+    "busy" -> S.callBusyStatus
+    "connecting" -> S.callConnecting
+    else -> ""
+}
+
 /** Tampilan panggilan: layar penuh (dialog) saat masuk, keluar, dan berlangsung; bisa diperkecil menjadi bilah hijau di atas. */
 @Composable
 fun CallOverlay() {
     val cm = remember { CallManager.getInstance() }
     val phase by cm.phase.collectAsState()
     val peer by cm.peer.collectAsState()
+    val members by cm.members.collectAsState()
     val muted by cm.muted.collectAsState()
     val speaker by cm.speaker.collectAsState()
     val seconds by cm.seconds.collectAsState()
     val answerReq by CallNav.answerRequested.collectAsState()
     var minimized by remember { mutableStateOf(false) }
+    var showAdd by remember { mutableStateOf(false) }
     val answer = rememberMicPermission { cm.accept() }
 
-    LaunchedEffect(phase) { if (phase == CallPhase.IDLE || phase == CallPhase.INCOMING) minimized = false }
+    LaunchedEffect(phase) { if (phase == CallPhase.IDLE || phase == CallPhase.INCOMING) minimized = false; if (phase == CallPhase.IDLE) showAdd = false }
     // Tombol Jawab di notifikasi: jawab otomatis begitu panggilan masuk sudah terbaca (atau batalkan permintaan kalau tak kunjung datang).
     LaunchedEffect(answerReq, phase) {
         if (!answerReq) return@LaunchedEffect
@@ -133,17 +158,18 @@ fun CallOverlay() {
     }
     LaunchedEffect(Unit) { cm.errors.collect { code ->
         val d = cm.lastDetail.take(120)
-        NexNotifier.warning(callErrText(code) + if (d.isNotBlank()) "\n($d)" else "", currentStrings().callTitle)
+        NexNotifier.warning(callErrText(code) + if (d.isNotBlank() && code != "call_busy" && code != "call_add_wait" && code != "call_full") "\n($d)" else "", currentStrings().callTitle)
     } }
 
     val p = peer
     if (phase == CallPhase.IDLE || p == null) return
-    val name = p.display.ifBlank { p.username }
+    val group = members.size > 1
+    val title = if (group) members.joinToString(", ") { it.peer.display.ifBlank { it.peer.username } } else p.display.ifBlank { p.username }
+    val primaryState = members.firstOrNull { it.peer.uid == p.uid }?.state ?: "calling"
     val status = when (phase) {
-        CallPhase.OUTGOING -> S.callOutgoing
         CallPhase.INCOMING -> S.callIncoming
-        CallPhase.CONNECTING -> S.callConnecting
-        else -> clock(seconds)
+        CallPhase.ACTIVE -> if (group) clock(seconds) + "  ·  " + S.callParticipants(members.size + 1) else clock(seconds)
+        else -> memberStatus(primaryState).ifBlank { S.callConnecting }
     }
 
     if (minimized && phase != CallPhase.INCOMING) {
@@ -154,7 +180,7 @@ fun CallOverlay() {
         ) {
             Icon(NexIcons.Phone, null, tint = Color.White, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(10.dp))
-            Text("$name  ·  $status", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text("$title  ·  $status", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             Box(Modifier.size(28.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.2f)).clickable { cm.hangup() }, contentAlignment = Alignment.Center) {
                 Icon(NexIcons.PhoneOff, S.callHangup, tint = Color.White, modifier = Modifier.size(16.dp))
             }
@@ -165,14 +191,20 @@ fun CallOverlay() {
             properties = DialogProperties(dismissOnBackPress = true, dismissOnClickOutside = false, usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
         ) {
             CallScreen(
-                phase = phase, name = name, status = status, uid = p.uid, av = p.av,
+                phase = phase, name = title, status = status, uid = p.uid, av = p.av, members = members,
                 muted = muted, speaker = speaker,
                 onMinimize = { minimized = true },
                 onMute = { cm.toggleMute() },
                 onSpeaker = { cm.toggleSpeaker() },
+                onAdd = { showAdd = true },
                 onHangup = { cm.hangup() },
                 onDecline = { cm.decline() },
                 onAnswer = { answer() }
+            )
+            if (showAdd) AddToCallDialog(
+                existing = members.map { it.peer.uid }.toSet(),
+                onPick = { picked -> showAdd = false; cm.addParticipant(picked) },
+                onDismiss = { showAdd = false }
             )
         }
     }
@@ -180,13 +212,14 @@ fun CallOverlay() {
 
 @Composable
 private fun CallScreen(
-    phase: CallPhase, name: String, status: String, uid: String, av: String,
+    phase: CallPhase, name: String, status: String, uid: String, av: String, members: List<CallMember>,
     muted: Boolean, speaker: Boolean,
-    onMinimize: () -> Unit, onMute: () -> Unit, onSpeaker: () -> Unit,
+    onMinimize: () -> Unit, onMute: () -> Unit, onSpeaker: () -> Unit, onAdd: () -> Unit,
     onHangup: () -> Unit, onDecline: () -> Unit, onAnswer: () -> Unit
 ) {
     val ringing = phase == CallPhase.OUTGOING || phase == CallPhase.INCOMING || phase == CallPhase.CONNECTING
     val incoming = phase == CallPhase.INCOMING
+    val group = members.size > 1
     val inf = rememberInfiniteTransition(label = "call")
     // Tiga cincin yang melebar bergantian di belakang foto; lebih lambat dan tipis saat sudah tersambung.
     val period = if (ringing) 2400 else 4200
@@ -202,11 +235,11 @@ private fun CallScreen(
         )
     ) {
         Column(
-            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 24.dp, vertical = 16.dp),
+            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // bar atas: perkecil + judul
-            Box(Modifier.fillMaxWidth().height(44.dp), contentAlignment = Alignment.Center) {
+            // bar atas ala WhatsApp: perkecil di kiri, tambah peserta di kanan
+            Box(Modifier.fillMaxWidth().height(48.dp), contentAlignment = Alignment.Center) {
                 if (!incoming) {
                     Box(
                         Modifier.align(Alignment.CenterStart).size(44.dp).clip(CircleShape).clickable(onClick = onMinimize),
@@ -214,41 +247,58 @@ private fun CallScreen(
                     ) { Icon(NexIcons.ArrowBack, S.callMinimize, tint = Color.White, modifier = Modifier.size(22.dp)) }
                 }
                 Text(
-                    "Nexrify · " + currentStrings().callTitle,
+                    "Nexrify · " + (if (group) currentStrings().callGroupTitle else currentStrings().callTitle),
                     color = Color.White.copy(alpha = 0.55f), fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1
                 )
-            }
-
-            Spacer(Modifier.weight(0.9f))
-
-            // foto dengan cincin denyut
-            Box(Modifier.size(260.dp), contentAlignment = Alignment.Center) {
-                listOf(r1, r2, r3).forEach { t ->
+                if (phase == CallPhase.ACTIVE) {
                     Box(
-                        Modifier.size(150.dp).scale(1f + t * 0.75f).alpha((1f - t) * (if (ringing) 0.40f else 0.16f))
-                            .border(2.dp, Color.White, CircleShape)
-                    )
+                        Modifier.align(Alignment.CenterEnd).size(44.dp).clip(CircleShape).clickable(onClick = onAdd),
+                        contentAlignment = Alignment.Center
+                    ) { Icon(NexIcons.Group, S.callAdd, tint = Color.White, modifier = Modifier.size(24.dp)) }
                 }
-                Box(
-                    Modifier.size(156.dp).scale(if (ringing) 1f else breathe).clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.08f)).border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape),
-                    contentAlignment = Alignment.Center
-                ) { ChatAvatar(uid, av, name, 148.dp) }
             }
 
-            Spacer(Modifier.height(20.dp))
-            Text(name, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(18.dp))
+            // nama dan status di atas, seperti WhatsApp
+            Text(name, color = Color.White, fontSize = if (group) 22.sp else 28.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+            Spacer(Modifier.height(6.dp))
             Text(
                 status,
                 color = Color.White.copy(alpha = 0.72f),
-                fontSize = if (phase == CallPhase.ACTIVE) 20.sp else 16.sp,
+                fontSize = if (phase == CallPhase.ACTIVE) 18.sp else 16.sp,
                 fontWeight = if (phase == CallPhase.ACTIVE) FontWeight.Medium else FontWeight.Normal,
-                letterSpacing = if (phase == CallPhase.ACTIVE) 1.sp else 0.sp,
+                textAlign = TextAlign.Center,
                 modifier = Modifier.alpha(if (phase == CallPhase.ACTIVE) 1f else blink)
             )
 
-            Spacer(Modifier.weight(1f))
+            if (group) {
+                Spacer(Modifier.height(20.dp))
+                Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+                    members.chunked(2).forEach { row ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                            row.forEach { m -> MemberTile(m, Modifier.weight(1f)) }
+                            if (row.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+                }
+            } else {
+                Spacer(Modifier.weight(0.6f))
+                // foto dengan cincin denyut
+                Box(Modifier.size(260.dp), contentAlignment = Alignment.Center) {
+                    listOf(r1, r2, r3).forEach { t ->
+                        Box(
+                            Modifier.size(150.dp).scale(1f + t * 0.75f).alpha((1f - t) * (if (ringing) 0.40f else 0.16f))
+                                .border(2.dp, Color.White, CircleShape)
+                        )
+                    }
+                    Box(
+                        Modifier.size(156.dp).scale(if (ringing) 1f else breathe).clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.08f)).border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) { ChatAvatar(uid, av, name, 148.dp) }
+                }
+                Spacer(Modifier.weight(1f))
+            }
 
             if (incoming) {
                 Row(Modifier.fillMaxWidth().padding(bottom = 24.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
@@ -260,13 +310,14 @@ private fun CallScreen(
                 val panel = RoundedCornerShape(36.dp)
                 Column(
                     Modifier.fillMaxWidth().clip(panel).background(Color.White.copy(alpha = 0.07f))
-                        .border(1.dp, Color.White.copy(alpha = 0.10f), panel).padding(horizontal = 20.dp, vertical = 22.dp),
+                        .border(1.dp, Color.White.copy(alpha = 0.10f), panel).padding(horizontal = 12.dp, vertical = 20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        RoundCallButton(NexIcons.Mic, if (muted) S.callUnmute else S.callMute, if (muted) Color.White else CALL_BTN, dark = muted) { onMute() }
-                        RoundCallButton(NexIcons.VolumeUp, S.callSpeaker, if (speaker) Color.White else CALL_BTN, dark = speaker) { onSpeaker() }
-                        RoundCallButton(NexIcons.PhoneOff, S.callHangup, CALL_RED) { onHangup() }
+                        RoundCallButton(NexIcons.VolumeUp, S.callSpeaker, if (speaker) Color.White else CALL_BTN, dark = speaker, size = 60.dp) { onSpeaker() }
+                        RoundCallButton(NexIcons.Group, S.callAdd, CALL_BTN, size = 60.dp, enabled = phase == CallPhase.ACTIVE) { onAdd() }
+                        RoundCallButton(NexIcons.Mic, if (muted) S.callUnmute else S.callMute, if (muted) Color.White else CALL_BTN, dark = muted, size = 60.dp) { onMute() }
+                        RoundCallButton(NexIcons.PhoneOff, S.callHangup, CALL_RED, size = 60.dp) { onHangup() }
                     }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -276,15 +327,93 @@ private fun CallScreen(
 }
 
 @Composable
+private fun MemberTile(m: CallMember, modifier: Modifier = Modifier) {
+    val name = m.peer.display.ifBlank { m.peer.username }
+    val st = memberStatus(m.state)
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier.size(84.dp).clip(CircleShape).border(2.dp, if (m.state == "connected") CALL_GREEN else Color.White.copy(alpha = 0.18f), CircleShape).padding(3.dp),
+            contentAlignment = Alignment.Center
+        ) { ChatAvatar(m.peer.uid, m.peer.av, name, 78.dp) }
+        Spacer(Modifier.height(6.dp))
+        Text(name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (st.isNotBlank()) Text(st, color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp, maxLines = 1)
+    }
+}
+
+/** Pilih teman atau cari lewat username untuk ditambahkan ke panggilan. Username tidak ada → "Pengguna tidak ditemukan". */
+@Composable
+private fun AddToCallDialog(existing: Set<String>, onPick: (CallPeer) -> Unit, onDismiss: () -> Unit) {
+    val chat = remember { ChatManager.getInstance() }
+    val me = AccountManager.getInstance().user.value
+    var query by remember { mutableStateOf("") }
+    var friends by remember { mutableStateOf<List<CallPeer>>(emptyList()) }
+    var results by remember { mutableStateOf<List<CallPeer>>(emptyList()) }
+    var searched by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        val page = runCatching { chat.followPage(me?.username.orEmpty(), "friends", 0) }.getOrNull()
+        friends = page?.items.orEmpty().map { CallPeer(it.uid, it.username, it.display, it.av) }
+    }
+    LaunchedEffect(query) {
+        val q = query.trim().removePrefix("@")
+        if (q.length < 2) { results = emptyList(); searched = false; loading = false; return@LaunchedEffect }
+        loading = true
+        kotlinx.coroutines.delay(300)
+        results = runCatching { chat.searchUsers(q) }.getOrDefault(emptyList())
+            .filter { !it.username.equals(me?.username, true) }
+            .map { CallPeer(it.uid, it.username, it.display, "") }
+        searched = true
+        loading = false
+    }
+    val list = (if (query.trim().length >= 2) results else friends).filter { it.uid !in existing && it.uid != me?.id }
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.fillMaxWidth().padding(16.dp).clip(RoundedCornerShape(24.dp)).background(Color(0xFF17171A))
+                .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(24.dp)).padding(18.dp)
+        ) {
+            Text(S.callAddTitle, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Spacer(Modifier.height(12.dp))
+            Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(Color.White.copy(alpha = 0.08f)).padding(horizontal = 16.dp, vertical = 12.dp)) {
+                if (query.isEmpty()) Text(S.dmUsernameHint, color = Color.White.copy(alpha = 0.45f), fontSize = 14.sp)
+                BasicTextField(
+                    value = query, onValueChange = { query = it.take(24) }, singleLine = true,
+                    textStyle = TextStyle(color = Color.White, fontSize = 15.sp), cursorBrush = SolidColor(Color.White), modifier = Modifier.fillMaxWidth()
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            when {
+                loading -> Text("…", color = Color.White.copy(alpha = 0.6f), modifier = Modifier.padding(12.dp))
+                searched && list.isEmpty() -> Text(S.dmUserNotFound, color = Color(0xFFFF8A8A), fontSize = 14.sp, modifier = Modifier.padding(12.dp))
+                else -> LazyColumn(Modifier.fillMaxWidth().height(300.dp)) {
+                    items(list, key = { it.uid }) { u ->
+                        Row(Modifier.fillMaxWidth().clickable { onPick(u) }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            ChatAvatar(u.uid, u.av, u.display.ifBlank { u.username }, 42.dp)
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text(u.display.ifBlank { u.username }, color = Color.White, fontWeight = FontWeight.SemiBold)
+                                Text("@${u.username}", color = Color.White.copy(alpha = 0.5f), fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun RoundCallButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, bg: Color,
-    dark: Boolean = false, size: androidx.compose.ui.unit.Dp = 68.dp, pulse: Float = 1f, onClick: () -> Unit
+    dark: Boolean = false, size: androidx.compose.ui.unit.Dp = 68.dp, pulse: Float = 1f, enabled: Boolean = true, onClick: () -> Unit
 ) {
     val color by animateColorAsState(bg, label = "btn")
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.alpha(if (enabled) 1f else 0.4f)) {
         Box(contentAlignment = Alignment.Center) {
             if (pulse < 1f) Box(Modifier.size(size + 14.dp).scale(1f + (1f - pulse) * 0.3f).alpha(pulse * 0.35f).clip(CircleShape).background(color))
-            Box(Modifier.size(size).clip(CircleShape).background(color).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(size).clip(CircleShape).background(color).clickable(enabled = enabled, onClick = onClick), contentAlignment = Alignment.Center) {
                 Icon(icon, label, tint = if (dark) Color.Black else Color.White, modifier = Modifier.size(size * 0.41f))
             }
         }
