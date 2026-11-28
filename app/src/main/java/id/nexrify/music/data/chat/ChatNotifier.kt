@@ -69,7 +69,7 @@ object ChatNotifier {
         system.deleteNotificationChannel("chat_dm")
         system.createNotificationChannel(NotificationChannel("chat_dm_v2", s.chatNotifChannelDm, NotificationManager.IMPORTANCE_HIGH).apply {
             setSound(
-                android.net.Uri.parse("android.resource://" + context.packageName + "/" + id.nexrify.music.R.raw.pesan),
+                android.net.Uri.parse("android.resource://" + context.packageName + "/" + R.raw.pesan),
                 android.media.AudioAttributes.Builder()
                     .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_COMMUNICATION_INSTANT)
                     .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION).build()
