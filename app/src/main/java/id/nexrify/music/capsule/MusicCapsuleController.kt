@@ -810,9 +810,17 @@ class MusicCapsuleController(
         if (expanded) setExpanded(false)
     }
 
-    private fun collapsedY(): Int =
-        if (savedY == Int.MIN_VALUE) dp(COLLAPSED_TOP_MARGIN_DP)
-        else savedY.coerceIn(0, (context.resources.displayMetrics.heightPixels - dp(COLLAPSED_HEIGHT_DP)).coerceAtLeast(0))
+    /**
+     * Batas atas kapsul kecil: tepat di bawah status bar. Jendela overlay digambar DI BAWAH status bar, jadi kapsul yang
+     * ditaruh di y = 0 tertutup status bar dan tidak kelihatan sama sekali (ini penyebab kapsul "tidak muncul").
+     */
+    private fun minCollapsedY(): Int = statusBarHeight().coerceAtLeast(dp(24))
+
+    private fun collapsedY(): Int {
+        val min = minCollapsedY()
+        if (savedY == Int.MIN_VALUE) return min + dp(COLLAPSED_TOP_MARGIN_DP)
+        return savedY.coerceIn(min, (context.resources.displayMetrics.heightPixels - dp(COLLAPSED_HEIGHT_DP)).coerceAtLeast(min))
+    }
 
     /** Geser jendela, tetap di dalam layar supaya selalu bisa diraih lagi. Panel penuh hanya bisa digeser vertikal. */
     private fun moveTo(lp: WindowManager.LayoutParams, x: Int, y: Int) {
@@ -822,7 +830,8 @@ class MusicCapsuleController(
         val h = view.height.takeIf { it > 0 } ?: dp(COLLAPSED_HEIGHT_DP)
         val maxX = ((m.widthPixels - w) / 2).coerceAtLeast(0)
         lp.x = if (expanded) 0 else x.coerceIn(-maxX, maxX)
-        lp.y = y.coerceIn(0, (m.heightPixels - h).coerceAtLeast(0))
+        val minY = if (expanded) 0 else minCollapsedY()
+        lp.y = y.coerceIn(minY, (m.heightPixels - h).coerceAtLeast(minY))
         try { windowManager.updateViewLayout(view, lp) } catch (_: Exception) {}
     }
 
