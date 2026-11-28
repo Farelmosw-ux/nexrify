@@ -1,70 +1,46 @@
 package id.nexrify.music.ui.screens
 
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.window.Dialog
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.zIndex
-import id.nexrify.music.ui.components.ChatProfileSheet
-import id.nexrify.music.ui.components.DmSharePicker
-import id.nexrify.music.ui.components.EditProfileDialog
-import id.nexrify.music.ui.components.NexAvatar
-import id.nexrify.music.ui.components.PersonTags
-import id.nexrify.music.ui.components.TitlePickerSheet
-import id.nexrify.music.ui.components.rememberChatProfiles
-import id.nexrify.music.ui.components.rememberMyProfile
-import androidx.compose.ui.window.DialogProperties
-import id.nexrify.music.data.chat.DmContact
-import id.nexrify.music.data.chat.DmImage
-import id.nexrify.music.util.DmImage as DmImageUtil
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.layout.offset
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalContext
-import id.nexrify.music.ui.components.VoiceBubble
-import id.nexrify.music.ui.components.VoiceRecordBar
-import id.nexrify.music.util.VoicePlayer
-import id.nexrify.music.util.VoiceRecorder
-import androidx.compose.ui.unit.IntOffset
-import kotlin.math.roundToInt
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -85,67 +61,97 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.compose.ui.zIndex
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import coil.compose.AsyncImage
+import id.nexrify.music.data.account.AccountError
 import id.nexrify.music.data.account.AccountManager
+import id.nexrify.music.data.call.CallManager
+import id.nexrify.music.data.call.CallPeer
+import id.nexrify.music.data.call.CallPhase
 import id.nexrify.music.data.chat.CHAT_EMOJIS_QUICK
 import id.nexrify.music.data.chat.CHAT_MAX_LENGTH
+import id.nexrify.music.data.chat.ChatManager
 import id.nexrify.music.data.chat.DmConversation
+import id.nexrify.music.data.chat.DmImage
 import id.nexrify.music.data.chat.DmManager
 import id.nexrify.music.data.chat.DmMessage
 import id.nexrify.music.data.chat.DmPeer
 import id.nexrify.music.data.chat.DmSong
-import id.nexrify.music.data.chat.ChatManager
+import id.nexrify.music.data.chat.LinkPreview
+import id.nexrify.music.data.chat.PeerExtra
 import id.nexrify.music.data.chat.SendStatus
 import id.nexrify.music.data.model.Track
+import id.nexrify.music.data.mubar.MubarManager
+import id.nexrify.music.data.playlist.PlaylistShareNav
 import id.nexrify.music.i18n.S
 import id.nexrify.music.i18n.currentStrings
 import id.nexrify.music.ui.components.ChatAvatar
 import id.nexrify.music.ui.components.ChatDateHeader
+import id.nexrify.music.ui.components.ChatProfileSheet
+import id.nexrify.music.ui.components.DmSharePicker
+import id.nexrify.music.ui.components.EditProfileDialog
+import id.nexrify.music.ui.components.GlassDropdownContainer
+import id.nexrify.music.ui.components.NexAvatar
 import id.nexrify.music.ui.components.NexNotifier
-import android.view.WindowManager
-import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.window.DialogWindowProvider
-import id.nexrify.music.data.account.AccountError
-import id.nexrify.music.data.chat.LinkPreview
-import id.nexrify.music.data.chat.PeerExtra
-import id.nexrify.music.data.mubar.MubarManager
-import id.nexrify.music.data.playlist.PlaylistShareNav
-import id.nexrify.music.data.call.CallManager
-import id.nexrify.music.data.call.CallPeer
-import id.nexrify.music.data.call.CallPhase
-import id.nexrify.music.ui.components.rememberMicPermission
+import id.nexrify.music.ui.components.PersonTags
+import id.nexrify.music.ui.components.TitlePickerSheet
 import id.nexrify.music.ui.components.TranslationBlock
+import id.nexrify.music.ui.components.VoiceBubble
+import id.nexrify.music.ui.components.VoiceRecordBar
 import id.nexrify.music.ui.components.chatAgo
 import id.nexrify.music.ui.components.chatDayKey
 import id.nexrify.music.ui.components.chatDayLabel
 import id.nexrify.music.ui.components.chatTime
+import id.nexrify.music.ui.components.rememberChatProfiles
+import id.nexrify.music.ui.components.rememberMicPermission
+import id.nexrify.music.ui.components.rememberMyProfile
 import id.nexrify.music.ui.icons.NexIcons
 import id.nexrify.music.ui.theme.NexrifyAppTheme
 import id.nexrify.music.ui.theme.Typography
+import id.nexrify.music.util.DmImage as DmImageUtil
+import id.nexrify.music.util.VoicePlayer
+import id.nexrify.music.util.VoiceRecorder
 import id.nexrify.music.viewmodel.MusicViewModel
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val EDIT_WINDOW = 3_600_000L
 private val RED = Color(0xFFE5484D)
-/** Centang terbaca hijau terang seperti semula agar jelas terlihat. */
 private val READ_GREEN = Color(0xFF22C55E)
 
 private fun readHidden(c: android.content.Context, key: String): Set<Long> =
@@ -202,10 +208,51 @@ private fun dmErrText(code: String): String {
 }
 
 @Composable
-private fun TopIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+private fun TopIcon(icon: ImageVector, onClick: () -> Unit) {
     val colors = NexrifyAppTheme.colors
     Box(Modifier.size(40.dp).clip(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
         Icon(icon, null, tint = colors.textPrimary, modifier = Modifier.size(22.dp))
+    }
+}
+
+@Composable
+private fun PremiumMenuRow(
+    icon: ImageVector,
+    label: String,
+    danger: Boolean = false,
+    trailing: (@Composable () -> Unit)? = null,
+    onClick: () -> Unit
+) {
+    val colors = NexrifyAppTheme.colors
+    val tint = if (danger) RED else colors.textPrimary
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(RoundedCornerShape(9.dp))
+                .background(if (danger) RED.copy(alpha = 0.14f) else colors.textPrimary.copy(alpha = 0.07f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, null, tint = tint, modifier = Modifier.size(16.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Text(
+            text = label,
+            color = tint,
+            fontSize = 14.5.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.weight(1f)
+        )
+        if (trailing != null) {
+            Spacer(Modifier.width(8.dp))
+            trailing()
+        }
     }
 }
 
@@ -268,8 +315,13 @@ private fun DmInboxContent(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
 
     Box(Modifier.fillMaxSize().background(colors.background)) {
         Column(Modifier.fillMaxSize()) {
-            // Header: Nexrify + titik 3 (Berbintang & Pengaturan), tanpa kunci pesan pribadi & pesan baru
-            Row(Modifier.fillMaxWidth().background(colors.surface).padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(colors.surface)
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 TopIcon(NexIcons.ArrowBack) {
                     if (showArchive || showRequests || showLocked) {
                         showArchive = false; showRequests = false; showLocked = false
@@ -283,15 +335,25 @@ private fun DmInboxContent(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
                 )
                 Box {
                     TopIcon(NexIcons.MoreVert) { showMainMenu = true }
-                    DropdownMenu(expanded = showMainMenu, onDismissRequest = { showMainMenu = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Berbintang", color = colors.textPrimary) },
-                            onClick = { showMainMenu = false; showAllStars = true }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Pengaturan", color = colors.textPrimary) },
-                            onClick = { showMainMenu = false; showSettingsSheet = true }
-                        )
+                    DropdownMenu(
+                        expanded = showMainMenu,
+                        onDismissRequest = { showMainMenu = false },
+                        containerColor = Color.Transparent,
+                        shadowElevation = 0.dp
+                    ) {
+                        GlassDropdownContainer(modifier = Modifier.width(215.dp)) {
+                            PremiumMenuRow(
+                                icon = NexIcons.Flag,
+                                label = "Berbintang",
+                                onClick = { showMainMenu = false; showAllStars = true }
+                            )
+                            HorizontalDivider(color = colors.border.copy(alpha = 0.4f))
+                            PremiumMenuRow(
+                                icon = NexIcons.Settings,
+                                label = "Pengaturan",
+                                onClick = { showMainMenu = false; showSettingsSheet = true }
+                            )
+                        }
                     }
                 }
             }
@@ -310,9 +372,9 @@ private fun DmInboxContent(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
                     Spacer(Modifier.height(18.dp))
                     Box(
                         Modifier.clip(RoundedCornerShape(24.dp)).background(colors.textPrimary).clickable { showContacts = true }.padding(horizontal = 22.dp, vertical = 12.dp)
-                    ) { Text("Pilih Kontak", color = colors.background, fontWeight = FontWeight.Bold) }
+                    ) { Text("Pilih kontak", color = colors.background, fontWeight = FontWeight.Bold) }
                 }
-                else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 88.dp)) {
+                else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 94.dp)) {
                     if (!showArchive && !showRequests && !showLocked && requestCount > 0) item(key = "request-row") {
                         Row(Modifier.fillMaxWidth().clickable { showRequests = true }.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(NexIcons.Mail, null, tint = colors.textSecondary, modifier = Modifier.size(22.dp))
@@ -324,7 +386,6 @@ private fun DmInboxContent(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
                         }
                         Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border.copy(alpha = 0.5f)))
                     }
-                    // Catatan pribadi default jika belum ada di inbox: <profil> nickname (Anda)
                     if (!showArchive && !showRequests && !showLocked && !hasNote && myName.isNotBlank()) item(key = "note-row") {
                         Row(Modifier.fillMaxWidth().clickable { onOpenChat(myName) }.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                             if (meUser != null) NexAvatar(meUser!!, 50.dp)
@@ -416,24 +477,22 @@ private fun DmInboxContent(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
             }
         }
 
-        // Tombol melayang di kanan bawah untuk masuk ke Daftar Kontak
-        Row(
-            Modifier.align(Alignment.BottomEnd)
+        Box(
+            Modifier
+                .align(Alignment.BottomEnd)
                 .navigationBarsPadding()
                 .padding(20.dp)
-                .clip(RoundedCornerShape(28.dp))
+                .size(58.dp)
+                .shadow(14.dp, RoundedCornerShape(18.dp))
+                .clip(RoundedCornerShape(18.dp))
                 .background(colors.textPrimary)
-                .clickable { showContacts = true }
-                .padding(horizontal = 18.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .clickable { showContacts = true },
+            contentAlignment = Alignment.Center
         ) {
-            Icon(NexIcons.Group, "Kontak", tint = colors.background, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(8.dp))
-            Text("Kontak", color = colors.background, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Icon(NexIcons.Edit, "Pilih kontak", tint = colors.background, modifier = Modifier.size(24.dp))
         }
     }
 
-    // Halaman Daftar Kontak (Pilih Kontak + Kontak Baru + Daftar Kontak Di Nexrify)
     if (showContacts) {
         ContactsScreen(
             onBack = { showContacts = false },
@@ -441,7 +500,6 @@ private fun DmInboxContent(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
         )
     }
 
-    // Sheet Berbintang (semua pesan berbintang dari seluruh obrolan)
     if (showAllStars) {
         var allList by remember { mutableStateOf<List<Pair<DmConversation, DmMessage>>?>(null) }
         LaunchedEffect(Unit) { allList = dms.allStarred() }
@@ -486,7 +544,6 @@ private fun DmInboxContent(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
         }
     }
 
-    // Sheet Pengaturan (Username, Profil, Title, Status, Kunci PIN, dll.)
     if (showSettingsSheet) {
         ModalBottomSheet(
             onDismissRequest = { showSettingsSheet = false },
@@ -496,7 +553,6 @@ private fun DmInboxContent(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 28.dp)) {
                 Text("Pengaturan", color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp, modifier = Modifier.padding(horizontal = 20.dp))
                 Spacer(Modifier.height(12.dp))
-                // Kartu info akun sendiri
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 20.dp).clip(RoundedCornerShape(16.dp)).background(colors.card)
                         .border(1.dp, colors.border, RoundedCornerShape(16.dp))
@@ -717,27 +773,25 @@ private fun DmInboxContent(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
     }
 }
 
-/* =============================== DAFTAR KONTAK & KONTAK BARU =============================== */
+/* =============================== PILIH KONTAK & PENCARIAN ALA WHATSAPP =============================== */
 
 @Composable
 private fun ContactsScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
     val colors = NexrifyAppTheme.colors
     val dms = remember { DmManager.getInstance() }
-    val chat = remember { ChatManager.getInstance() }
-    val scope = rememberCoroutineScope()
     val localVer by dms.localVersion.collectAsState()
-    val myName = AccountManager.getInstance().user.value?.username.orEmpty()
-    val userNotFoundMsg = S.dmUserNotFound
+    val meUser by AccountManager.getInstance().user.collectAsState()
+    val myName = meUser?.username.orEmpty()
+    val myDisplayNick = meUser?.display?.ifBlank { meUser?.username.orEmpty() }.orEmpty()
 
     var searching by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
-    var firstName by remember { mutableStateOf("") }
-    var lastName by remember { mutableStateOf("") }
-    var usernameInput by remember { mutableStateOf("") }
-    var saving by remember { mutableStateOf(false) }
+    var showMenu by remember { mutableStateOf(false) }
+    var showNewContactPage by remember { mutableStateOf(false) }
     var profilePreviewUser by remember { mutableStateOf<String?>(null) }
+    val focusRequester = remember { FocusRequester() }
 
-    val allContacts = remember(localVer) { dms.contacts() }
+    val allContacts = remember(localVer) { dms.contacts().sortedBy { it.fullName.lowercase() } }
     val filteredContacts = remember(allContacts, searchQuery) {
         val q = searchQuery.trim().removePrefix("@").lowercase()
         if (q.isEmpty()) allContacts
@@ -749,142 +803,269 @@ private fun ContactsScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
         }
     }
 
+    LaunchedEffect(searching) {
+        if (searching) {
+            delay(80)
+            runCatching { focusRequester.requestFocus() }
+        }
+    }
+
     Dialog(onDismissRequest = onBack, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Column(
-            Modifier.fillMaxSize().background(colors.background).statusBarsPadding().navigationBarsPadding()
+            Modifier
+                .fillMaxSize()
+                .background(colors.background)
+                .statusBarsPadding()
+                .navigationBarsPadding()
         ) {
-            // Header: Pilih Kontak + Tombol Cari + Jumlah Kontak
-            Row(
-                Modifier.fillMaxWidth().background(colors.surface).padding(horizontal = 8.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TopIcon(NexIcons.ArrowBack, onBack)
-                Column(Modifier.weight(1f).padding(start = 6.dp)) {
-                    Text("Pilih Kontak", style = Typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary)
-                    Text("${allContacts.size} Kontak", color = colors.textMuted, fontSize = 12.sp)
-                }
-                TopIcon(NexIcons.Search) {
-                    searching = !searching
-                    if (!searching) searchQuery = ""
-                }
-            }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border))
-
             if (searching) {
-                Box(Modifier.fillMaxWidth().background(colors.surface).padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    Box(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(colors.card)
-                            .border(1.dp, colors.border, RoundedCornerShape(20.dp)).padding(horizontal = 14.dp, vertical = 10.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(colors.background)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .clip(CircleShape)
+                            .background(colors.card)
+                            .padding(horizontal = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (searchQuery.isEmpty()) Text("Cari username / nama depan / belakang...", color = colors.textMuted, fontSize = 14.sp)
-                        BasicTextField(
-                            value = searchQuery,
-                            onValueChange = { searchQuery = it.take(32) },
-                            singleLine = true,
-                            textStyle = TextStyle(color = colors.textPrimary, fontSize = 14.sp),
-                            cursorBrush = SolidColor(colors.textPrimary),
-                            modifier = Modifier.fillMaxWidth()
+                        TopIcon(NexIcons.ArrowBack) {
+                            searching = false
+                            searchQuery = ""
+                        }
+                        Spacer(Modifier.width(4.dp))
+                        Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                            if (searchQuery.isEmpty()) {
+                                Text(
+                                    "Nama, @namapengguna",
+                                    color = colors.textMuted,
+                                    fontSize = 15.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it.take(36) },
+                                singleLine = true,
+                                textStyle = TextStyle(color = colors.textPrimary, fontSize = 15.sp),
+                                cursorBrush = SolidColor(colors.textPrimary),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(focusRequester)
+                            )
+                        }
+                        if (searchQuery.isNotEmpty()) {
+                            TopIcon(NexIcons.Close) { searchQuery = "" }
+                        }
+                    }
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(colors.background)
+                        .padding(horizontal = 8.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TopIcon(NexIcons.ArrowBack, onBack)
+                    Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                        Text(
+                            "Pilih kontak",
+                            style = Typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                            fontSize = 18.sp,
+                            color = colors.textPrimary
                         )
+                        Text(
+                            "${allContacts.size} kontak",
+                            color = colors.textMuted,
+                            fontSize = 12.sp
+                        )
+                    }
+                    TopIcon(NexIcons.Search) { searching = true }
+                    Box {
+                        TopIcon(NexIcons.MoreVert) { showMenu = true }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false },
+                            containerColor = Color.Transparent,
+                            shadowElevation = 0.dp
+                        ) {
+                            GlassDropdownContainer(modifier = Modifier.width(205.dp)) {
+                                PremiumMenuRow(
+                                    icon = NexIcons.PersonAdd,
+                                    label = "Kontak baru",
+                                    onClick = {
+                                        showMenu = false
+                                        showNewContactPage = true
+                                    }
+                                )
+                                HorizontalDivider(color = colors.border.copy(alpha = 0.4f))
+                                PremiumMenuRow(
+                                    icon = NexIcons.Refresh,
+                                    label = "Perbarui daftar",
+                                    onClick = {
+                                        showMenu = false
+                                        NexNotifier.info("Daftar kontak diperbarui", "Kontak")
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
 
             LazyColumn(
-                Modifier.fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 28.dp)
             ) {
-                // Form Kontak Baru
-                item(key = "new-contact-card") {
-                    Column(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(colors.card)
-                            .border(1.dp, colors.border, RoundedCornerShape(18.dp)).padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                item(key = "wa-new-contact-action") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showNewContactPage = true }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Kontak Baru", color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        ContactInputField(value = firstName, hint = "Nama Depan", onValueChange = { firstName = it.take(24) })
-                        ContactInputField(value = lastName, hint = "Nama Belakang (Opsional)", onValueChange = { lastName = it.take(24) })
-                        ContactInputField(value = usernameInput, hint = "Nama Pengguna / Username", onValueChange = { usernameInput = it.take(24) })
-                        Spacer(Modifier.height(2.dp))
                         Box(
-                            Modifier.fillMaxWidth().height(46.dp).clip(RoundedCornerShape(24.dp))
-                                .background(if (saving) colors.border else colors.textPrimary)
-                                .clickable(enabled = !saving) {
-                                    val un = usernameInput.trim().removePrefix("@").lowercase()
-                                    val fn = firstName.trim()
-                                    val ln = lastName.trim()
-                                    if (fn.isEmpty() || un.isEmpty()) {
-                                        NexNotifier.warning("Nama depan dan username wajib diisi", "Kontak")
-                                        return@clickable
-                                    }
-                                    if (un.equals(myName, true)) {
-                                        NexNotifier.warning("Tidak bisa menambahkan akun sendiri", "Kontak")
-                                        return@clickable
-                                    }
-                                    saving = true
-                                    scope.launch {
-                                        val prof = runCatching { chat.profile(un) }.getOrNull()
-                                        saving = false
-                                        if (prof == null) {
-                                            NexNotifier.warning(userNotFoundMsg, "Kontak")
-                                        } else {
-                                            dms.saveContact(prof.uid, prof.username, fn, ln, prof.av)
-                                            firstName = ""; lastName = ""; usernameInput = ""
-                                            NexNotifier.success("Kontak disimpan", "Kontak")
-                                        }
-                                    }
-                                },
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(colors.textPrimary),
                             contentAlignment = Alignment.Center
                         ) {
-                            if (saving) CircularProgressIndicator(color = colors.background, strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
-                            else Text("Simpan", color = colors.background, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Icon(
+                                NexIcons.PersonAdd,
+                                contentDescription = "Kontak baru",
+                                tint = colors.background,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Spacer(Modifier.width(16.dp))
+                        Text(
+                            "Kontak baru",
+                            color = colors.textPrimary,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 16.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                item(key = "wa-contact-header") {
+                    Text(
+                        text = "Daftar kontak di Nexrify",
+                        color = colors.textMuted,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 8.dp)
+                    )
+                }
+
+                if (myName.isNotBlank() && (searchQuery.isBlank() || myDisplayNick.lowercase().contains(searchQuery.trim().lowercase()) || myName.lowercase().contains(searchQuery.trim().lowercase()))) {
+                    item(key = "wa-self-contact") {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onOpenChat(myName) }
+                                .padding(horizontal = 16.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (meUser != null) {
+                                NexAvatar(meUser!!, 44.dp)
+                            } else {
+                                Box(
+                                    Modifier
+                                        .size(44.dp)
+                                        .clip(CircleShape)
+                                        .background(colors.card),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(NexIcons.Person, null, tint = colors.textPrimary, modifier = Modifier.size(22.dp))
+                                }
+                            }
+                            Spacer(Modifier.width(16.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    text = "${myDisplayNick.ifBlank { myName }} (Anda)",
+                                    color = colors.textPrimary,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 16.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = "Kirim pesan ke diri sendiri",
+                                    color = colors.textMuted,
+                                    fontSize = 13.sp
+                                )
+                            }
                         }
                     }
                 }
 
-                // Judul Daftar Kontak Di Nexrify
-                item(key = "contact-list-header") {
-                    Text(
-                        "Daftar Kontak Di Nexrify",
-                        color = colors.textSecondary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(top = 4.dp, start = 4.dp)
-                    )
-                }
-
                 if (filteredContacts.isEmpty()) {
-                    item(key = "contact-empty") {
+                    item(key = "wa-contact-empty") {
                         Text(
-                            if (allContacts.isEmpty()) "Belum ada kontak tersimpan" else "Kontak tidak ditemukan",
+                            text = if (allContacts.isEmpty()) "Belum ada kontak. Tekan Kontak baru untuk menambahkan." else "Tidak ada hasil untuk \"$searchQuery\"",
                             color = colors.textMuted,
                             fontSize = 13.sp,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp)
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 18.dp)
                         )
                     }
                 } else {
                     items(filteredContacts, key = { it.uid }) { contact ->
                         Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(colors.card)
-                                .border(1.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(14.dp))
+                            modifier = Modifier
+                                .fillMaxWidth()
                                 .clickable { onOpenChat(contact.username) }
-                                .padding(horizontal = 14.dp, vertical = 11.dp),
+                                .padding(horizontal = 16.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Tekan foto profil -> munculkan profil lengkap
-                            Box(Modifier.clip(CircleShape).clickable { profilePreviewUser = contact.username }) {
-                                ChatAvatar(contact.uid, contact.av, contact.fullName, 46.dp)
+                            Box(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .clickable { profilePreviewUser = contact.username }
+                            ) {
+                                ChatAvatar(contact.uid, contact.av, contact.fullName, 44.dp)
                             }
-                            Spacer(Modifier.width(12.dp))
-                            // Tekan nama/baris kontak -> masuk ke chat
+                            Spacer(Modifier.width(16.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(contact.fullName, color = colors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text("@${contact.username}", color = colors.textMuted, fontSize = 12.sp)
+                                Text(
+                                    text = contact.fullName,
+                                    color = colors.textPrimary,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 16.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = "@${contact.username}",
+                                    color = colors.textMuted,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
                             }
                         }
                     }
                 }
             }
+        }
+
+        if (showNewContactPage) {
+            NewContactScreen(
+                onBack = { showNewContactPage = false },
+                onSaved = { showNewContactPage = false }
+            )
         }
 
         profilePreviewUser?.let { u ->
@@ -901,19 +1082,225 @@ private fun ContactsScreen(onBack: () -> Unit, onOpenChat: (String) -> Unit) {
     }
 }
 
+/* =============================== HALAMAN KONTAK BARU ALA WHATSAPP =============================== */
+
 @Composable
-private fun ContactInputField(value: String, hint: String, onValueChange: (String) -> Unit) {
+private fun NewContactScreen(onBack: () -> Unit, onSaved: () -> Unit) {
+    val colors = NexrifyAppTheme.colors
+    val dms = remember { DmManager.getInstance() }
+    val chat = remember { ChatManager.getInstance() }
+    val scope = rememberCoroutineScope()
+    val meUser by AccountManager.getInstance().user.collectAsState()
+    val myName = meUser?.username.orEmpty()
+    val userNotFoundMsg = S.dmUserNotFound
+
+    var firstName by remember { mutableStateOf("") }
+    var lastName by remember { mutableStateOf("") }
+    var usernameInput by remember { mutableStateOf("") }
+    var saving by remember { mutableStateOf(false) }
+
+    val canSave = firstName.trim().isNotEmpty() && usernameInput.trim().removePrefix("@").isNotEmpty() && !saving
+
+    Dialog(onDismissRequest = onBack, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(colors.background)
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .imePadding()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(colors.background)
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TopIcon(NexIcons.ArrowBack, onBack)
+                Text(
+                    text = "Kontak baru",
+                    style = Typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    fontSize = 19.sp,
+                    color = colors.textPrimary,
+                    modifier = Modifier.weight(1f).padding(start = 10.dp)
+                )
+            }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = NexIcons.Person,
+                        contentDescription = null,
+                        tint = colors.textSecondary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(Modifier.width(16.dp))
+                    WhatsAppOutlinedInput(
+                        value = firstName,
+                        hint = "Nama depan",
+                        onValueChange = { firstName = it.take(24) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Spacer(Modifier.width(40.dp))
+                    WhatsAppOutlinedInput(
+                        value = lastName,
+                        hint = "Nama belakang",
+                        onValueChange = { lastName = it.take(24) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "@",
+                            color = colors.textSecondary,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    WhatsAppOutlinedInput(
+                        value = usernameInput,
+                        hint = "Nama pengguna",
+                        onValueChange = { usernameInput = it.take(24) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                if (myName.isNotBlank()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = NexIcons.AccountCircle,
+                            contentDescription = null,
+                            tint = colors.textSecondary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(Modifier.width(16.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = "Simpan kontak ke akun Nexrify",
+                                color = colors.textPrimary,
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = "@$myName",
+                                color = colors.textMuted,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 14.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .clip(CircleShape)
+                        .background(if (canSave) colors.textPrimary else colors.card)
+                        .clickable(enabled = canSave) {
+                            val un = usernameInput.trim().removePrefix("@").lowercase()
+                            val fn = firstName.trim()
+                            val ln = lastName.trim()
+                            if (un.equals(myName, true)) {
+                                NexNotifier.warning("Tidak bisa menambahkan akun sendiri", "Kontak")
+                                return@clickable
+                            }
+                            saving = true
+                            scope.launch {
+                                val prof = runCatching { chat.profile(un) }.getOrNull()
+                                saving = false
+                                if (prof == null) {
+                                    NexNotifier.warning(userNotFoundMsg, "Kontak")
+                                } else {
+                                    dms.saveContact(prof.uid, prof.username, fn, ln, prof.av)
+                                    NexNotifier.success("Kontak disimpan", "Kontak")
+                                    onSaved()
+                                }
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (saving) {
+                        CircularProgressIndicator(
+                            color = colors.background,
+                            strokeWidth = 2.dp,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    } else {
+                        Text(
+                            text = "Simpan",
+                            color = if (canSave) colors.background else colors.textMuted,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 15.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WhatsAppOutlinedInput(
+    value: String,
+    hint: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
     val colors = NexrifyAppTheme.colors
     Box(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(colors.background)
-            .border(1.dp, colors.border, RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 12.dp)
+        modifier = modifier
+            .height(52.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color.Transparent)
+            .border(1.dp, colors.border, RoundedCornerShape(10.dp))
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.CenterStart
     ) {
-        if (value.isEmpty()) Text(hint, color = colors.textMuted, fontSize = 14.sp)
+        if (value.isEmpty()) {
+            Text(
+                text = hint,
+                color = colors.textMuted,
+                fontSize = 15.sp
+            )
+        }
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
             singleLine = true,
-            textStyle = TextStyle(color = colors.textPrimary, fontSize = 14.sp),
+            textStyle = TextStyle(color = colors.textPrimary, fontSize = 15.sp),
             cursorBrush = SolidColor(colors.textPrimary),
             modifier = Modifier.fillMaxWidth()
         )
@@ -921,7 +1308,7 @@ private fun ContactInputField(value: String, hint: String, onValueChange: (Strin
 }
 
 @Composable
-private fun SheetRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, danger: Boolean = false, onClick: () -> Unit) {
+private fun SheetRow(icon: ImageVector, label: String, danger: Boolean = false, onClick: () -> Unit) {
     val colors = NexrifyAppTheme.colors
     Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = if (danger) RED else colors.textPrimary, modifier = Modifier.size(22.dp))
@@ -1085,7 +1472,7 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
     LaunchedEffect(shownPeer?.uid) {
         val uid = shownPeer?.uid ?: return@LaunchedEffect
         val d = dmDrafts[uid].orEmpty()
-        if (d.isNotEmpty() && input.text.isEmpty()) input = TextFieldValue(d, androidx.compose.ui.text.TextRange(d.length))
+        if (d.isNotEmpty() && input.text.isEmpty()) input = TextFieldValue(d, TextRange(d.length))
     }
     DisposableEffect(shownPeer?.uid) {
         onDispose {
@@ -1142,20 +1529,26 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
     }
 
     Column(Modifier.fillMaxSize().background(colors.background)) {
-        // ---- header ----
-        Row(Modifier.fillMaxWidth().background(colors.surface).padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .background(colors.surface)
+                .padding(horizontal = 8.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             TopIcon(NexIcons.ArrowBack, onBack)
-            // Profil/nickname ditekan -> otomatis masuk ke profil lengkap
             Row(
-                Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable(enabled = shownPeer != null && !isNote) {
-                    showContactProfile = true
-                }.padding(vertical = 2.dp, horizontal = 4.dp),
+                Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(14.dp))
+                    .clickable(enabled = shownPeer != null && !isNote) { showContactProfile = true }
+                    .padding(vertical = 2.dp, horizontal = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (isNote && meUser != null) {
-                    NexAvatar(meUser!!, 38.dp)
+                    NexAvatar(meUser!!, 40.dp)
                 } else if (shownPeer != null) {
-                    ChatAvatar(shownPeer.uid, shownPeer.av, displayNick, 38.dp)
+                    ChatAvatar(shownPeer.uid, shownPeer.av, displayNick, 40.dp)
                 }
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
@@ -1182,95 +1575,134 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
                             if (ex.npTitle.isNotBlank()) "🎧 " + ex.npTitle + (if (ex.npArtist.isNotBlank()) " – " + ex.npArtist else "") else ""
                         ).filter { it.isNotBlank() }.joinToString("  ·  ")
                     }
-                    Text(sub, fontSize = 12.sp, color = if (typing) colors.textPrimary else colors.textMuted, fontWeight = if (typing) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
+                    Text(
+                        sub,
+                        fontSize = 12.sp,
+                        color = if (!peerHidden && peerOnline) READ_GREEN else if (typing) colors.accent else colors.textMuted,
+                        fontWeight = if (typing || (!peerHidden && peerOnline)) FontWeight.SemiBold else FontWeight.Normal,
+                        maxLines = 1
+                    )
                     if (extraLine.isNotBlank() && !isNote) Text(extraLine, fontSize = 11.sp, color = colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             if (!isNote && !blocked && !requestIn && !pending && shownPeer != null) TopIcon(NexIcons.Phone) { placeCall() }
             Box {
                 TopIcon(NexIcons.MoreVert) { showMoreSub = false; showMore = true }
-                DropdownMenu(expanded = showMore, onDismissRequest = { showMore = false; showMoreSub = false }) {
-                    if (!showMoreSub) {
-                        if (!isNote && shownPeer != null) {
-                            DropdownMenuItem(
-                                text = { Text("Lihat Kontak", color = colors.textPrimary) },
-                                onClick = { showMore = false; showContactProfile = true }
+                DropdownMenu(
+                    expanded = showMore,
+                    onDismissRequest = { showMore = false; showMoreSub = false },
+                    containerColor = Color.Transparent,
+                    shadowElevation = 0.dp
+                ) {
+                    GlassDropdownContainer(modifier = Modifier.width(235.dp)) {
+                        if (!showMoreSub) {
+                            if (!isNote && shownPeer != null) {
+                                PremiumMenuRow(
+                                    icon = NexIcons.Person,
+                                    label = "Lihat Kontak",
+                                    onClick = { showMore = false; showContactProfile = true }
+                                )
+                                HorizontalDivider(color = colors.border.copy(alpha = 0.35f))
+                            }
+                            PremiumMenuRow(
+                                icon = NexIcons.Search,
+                                label = "Cari",
+                                onClick = { showMore = false; searching = !searching; if (!searching) { searchQ = ""; searchRes = emptyList() } }
                             )
-                        }
-                        DropdownMenuItem(
-                            text = { Text("Cari", color = colors.textPrimary) },
-                            onClick = { showMore = false; searching = !searching; if (!searching) { searchQ = ""; searchRes = emptyList() } }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Media & tautan", color = colors.textPrimary) },
-                            onClick = { showMore = false; showMediaLinks = true }
-                        )
-                        if (!isNote && shownPeer != null) {
-                            DropdownMenuItem(
-                                text = { Text(if (convMuted) "Bunyikan Notifikasi" else "Senyapkan Notifikasi", color = colors.textPrimary) },
-                                onClick = {
-                                    showMore = false
-                                    scope.launch {
-                                        dms.inboxAction("dm_mute", shownPeer.uid, !convMuted)
-                                        NexNotifier.info(if (convMuted) "Notifikasi dibunyikan" else "Notifikasi disenyapkan", currentStrings().dmTitle)
-                                    }
-                                }
+                            HorizontalDivider(color = colors.border.copy(alpha = 0.35f))
+                            PremiumMenuRow(
+                                icon = NexIcons.ImagePick,
+                                label = "Media & tautan",
+                                onClick = { showMore = false; showMediaLinks = true }
                             )
-                        }
-                        DropdownMenuItem(
-                            text = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Lainnya", color = colors.textPrimary, modifier = Modifier.weight(1f))
-                                    Icon(NexIcons.ChevronRight, null, tint = colors.textMuted, modifier = Modifier.size(18.dp))
-                                }
-                            },
-                            onClick = { showMoreSub = true }
-                        )
-                    } else {
-                        if (!isNote && shownPeer != null) {
-                            DropdownMenuItem(
-                                text = { Text("Laporkan", color = RED) },
-                                onClick = { showMore = false; showMoreSub = false; showReportDialog = true }
-                            )
-                            DropdownMenuItem(
-                                text = { Text(if (blocked) "Buka Blokir" else "Blokir", color = RED) },
-                                onClick = {
-                                    showMore = false; showMoreSub = false
-                                    scope.launch {
-                                        val ok = dms.setBlock(shownPeer.uid, !blocked)
-                                        if (ok) NexNotifier.info(if (blocked) currentStrings().dmUnblockedDone else currentStrings().dmBlockedDone, currentStrings().dmTitle)
-                                    }
-                                }
-                            )
-                        }
-                        DropdownMenuItem(
-                            text = { Text("Bersihkan Obrolan", color = colors.textPrimary) },
-                            onClick = { showMore = false; showMoreSub = false; confirmClearChat = true }
-                        )
-                        if (!isNote && shownPeer != null) {
-                            DropdownMenuItem(
-                                text = { Text("Musik Bareng", color = colors.textPrimary) },
-                                onClick = {
-                                    showMore = false; showMoreSub = false
-                                    scope.launch {
-                                        val mb = MubarManager.getInstance()
-                                        try {
-                                            if (mb.room.value == null) mb.create(viewModel.currentTrack.value)
-                                            if (mb.room.value == null) {
-                                                NexNotifier.warning(currentStrings().dmGenericErr, currentStrings().dmTitle)
-                                            } else {
-                                                mb.invite(shownPeer.username)
-                                                NexNotifier.success(currentStrings().dmMubarSent(displayNick), currentStrings().dmTitle)
-                                                mb.openSheet()
-                                            }
-                                        } catch (e: AccountError) {
-                                            NexNotifier.warning(dmErrText(e.code), currentStrings().dmTitle)
-                                        } catch (_: Throwable) {
-                                            NexNotifier.warning(currentStrings().dmNoNetworkErr, currentStrings().dmTitle)
+                            if (!isNote && shownPeer != null) {
+                                HorizontalDivider(color = colors.border.copy(alpha = 0.35f))
+                                PremiumMenuRow(
+                                    icon = if (convMuted) NexIcons.Bell else NexIcons.BellOff,
+                                    label = if (convMuted) "Bunyikan Notifikasi" else "Senyapkan Notifikasi",
+                                    onClick = {
+                                        showMore = false
+                                        scope.launch {
+                                            dms.inboxAction("dm_mute", shownPeer.uid, !convMuted)
+                                            NexNotifier.info(if (convMuted) "Notifikasi dibunyikan" else "Notifikasi disenyapkan", currentStrings().dmTitle)
                                         }
                                     }
-                                }
+                                )
+                            }
+                            HorizontalDivider(color = colors.border.copy(alpha = 0.35f))
+                            PremiumMenuRow(
+                                icon = NexIcons.MoreHoriz,
+                                label = "Lainnya",
+                                trailing = { Icon(NexIcons.ChevronRight, null, tint = colors.textMuted, modifier = Modifier.size(18.dp)) },
+                                onClick = { showMoreSub = true }
                             )
+                        } else {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { showMoreSub = false }
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(NexIcons.ArrowBack, null, tint = colors.textMuted, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Kembali", color = colors.textMuted, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                            HorizontalDivider(color = colors.border.copy(alpha = 0.45f))
+                            if (!isNote && shownPeer != null) {
+                                PremiumMenuRow(
+                                    icon = NexIcons.Flag,
+                                    label = "Laporkan",
+                                    danger = true,
+                                    onClick = { showMore = false; showMoreSub = false; showReportDialog = true }
+                                )
+                                HorizontalDivider(color = colors.border.copy(alpha = 0.35f))
+                                PremiumMenuRow(
+                                    icon = NexIcons.Block,
+                                    label = if (blocked) "Buka Blokir" else "Blokir",
+                                    danger = true,
+                                    onClick = {
+                                        showMore = false; showMoreSub = false
+                                        scope.launch {
+                                            val ok = dms.setBlock(shownPeer.uid, !blocked)
+                                            if (ok) NexNotifier.info(if (blocked) currentStrings().dmUnblockedDone else currentStrings().dmBlockedDone, currentStrings().dmTitle)
+                                        }
+                                    }
+                                )
+                                HorizontalDivider(color = colors.border.copy(alpha = 0.35f))
+                            }
+                            PremiumMenuRow(
+                                icon = NexIcons.DeleteOutline,
+                                label = "Bersihkan Obrolan",
+                                onClick = { showMore = false; showMoreSub = false; confirmClearChat = true }
+                            )
+                            if (!isNote && shownPeer != null) {
+                                HorizontalDivider(color = colors.border.copy(alpha = 0.35f))
+                                PremiumMenuRow(
+                                    icon = NexIcons.Headphones,
+                                    label = "Musik Bareng",
+                                    onClick = {
+                                        showMore = false; showMoreSub = false
+                                        scope.launch {
+                                            val mb = MubarManager.getInstance()
+                                            try {
+                                                if (mb.room.value == null) mb.create(viewModel.currentTrack.value)
+                                                if (mb.room.value == null) {
+                                                    NexNotifier.warning(currentStrings().dmGenericErr, currentStrings().dmTitle)
+                                                } else {
+                                                    mb.invite(shownPeer.username)
+                                                    NexNotifier.success(currentStrings().dmMubarSent(displayNick), currentStrings().dmTitle)
+                                                    mb.openSheet()
+                                                }
+                                            } catch (e: AccountError) {
+                                                NexNotifier.warning(dmErrText(e.code), currentStrings().dmTitle)
+                                            } catch (_: Throwable) {
+                                                NexNotifier.warning(currentStrings().dmNoNetworkErr, currentStrings().dmTitle)
+                                            }
+                                        }
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -1315,13 +1747,12 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
             }
         }
 
-        // ---- isi ----
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when {
                 peerFailed -> Text(S.dmLoadFailed, color = colors.textMuted, modifier = Modifier.align(Alignment.Center).padding(24.dp))
                 !loaded || shownPeer == null -> CircularProgressIndicator(color = colors.textPrimary, strokeWidth = 2.dp, modifier = Modifier.align(Alignment.Center).size(28.dp))
                 messages.isEmpty() -> Text(S.dmStartHint, color = colors.textMuted, fontSize = 13.sp, modifier = Modifier.align(Alignment.Center).padding(32.dp))
-                else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
+                else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
                     itemsIndexed(messages, key = { _, m -> m.localId ?: "s${m.seq}" }) { i, m ->
                         val prev = messages.getOrNull(i - 1)
                         if (prev == null || chatDayKey(prev.ts) != chatDayKey(m.ts)) ChatDateHeader(chatDayLabel(chatDayKey(m.ts), S))
@@ -1363,7 +1794,6 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
             }
         }
 
-        // ---- kolom ketik ----
         if (requestIn && !isNote) {
             Column(Modifier.fillMaxWidth().background(colors.surface).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(S.dmRequestBanner(displayNick), color = colors.textSecondary, fontSize = 13.sp, lineHeight = 18.sp)
@@ -1435,7 +1865,12 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
                 )
             } else Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.Bottom) {
                 Row(
-                    Modifier.weight(1f).clip(RoundedCornerShape(26.dp)).background(colors.card).padding(start = 18.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+                    Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(26.dp))
+                        .background(colors.card)
+                        .border(1.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(26.dp))
+                        .padding(start = 18.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(Modifier.weight(1f).padding(vertical = 9.dp)) {
@@ -1477,7 +1912,6 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
         }
     }
 
-    // ---- Profil Lengkap Kontak (saat nickname/profil header atau Lihat Kontak ditekan) ----
     if (showContactProfile && shownPeer != null && !isNote) {
         ContactDetailScreen(
             peer = shownPeer,
@@ -1516,7 +1950,6 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
         )
     }
 
-    // ---- Sheet Media & Tautan ----
     if (showMediaLinks) {
         MediaAndLinksSheet(
             messages = messages,
@@ -1594,7 +2027,7 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
             },
             onEdit = {
                 editing = m; replyTo = null
-                input = TextFieldValue(m.text, androidx.compose.ui.text.TextRange(m.text.length))
+                input = TextFieldValue(m.text, TextRange(m.text.length))
                 menuMsg = null
             },
             onDelete = { deleteMsg = m; menuMsg = null }
@@ -1602,29 +2035,68 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
     }
 
     if (showAttach) {
+        val currentSong = viewModel.currentTrack.value
         ModalBottomSheet(
             onDismissRequest = { showAttach = false },
-            containerColor = colors.background,
+            containerColor = colors.surface,
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ) {
-            Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
-                SheetRow(NexIcons.ImagePick, S.dmPhoto) { showAttach = false; pendingOnce = false; pickImage.launch("image/*") }
-                SheetRow(NexIcons.Lock, S.dmTextOnce) {
-                    showAttach = false
-                    val txt = input.text.trim()
-                    if (txt.isEmpty()) {
-                        NexNotifier.info(currentStrings().dmTextOnceHint, currentStrings().dmTitle)
-                    } else {
-                        input = TextFieldValue("")
-                        scope.launch { dms.sendOnceText(txt)?.let { NexNotifier.warning(dmErrText(it), currentStrings().dmTitle) } }
-                    }
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("Bagikan Konten", color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    AttachGridTile(
+                        icon = NexIcons.ImagePick,
+                        title = S.dmPhoto,
+                        subtitle = "Galeri foto",
+                        accent = Color(0xFF38BDF8),
+                        modifier = Modifier.weight(1f),
+                        onClick = { showAttach = false; pendingOnce = false; pickImage.launch("image/*") }
+                    )
+                    AttachGridTile(
+                        icon = NexIcons.Lock,
+                        title = S.dmPhotoOnce,
+                        subtitle = "Sekali lihat",
+                        accent = Color(0xFFA78BFA),
+                        modifier = Modifier.weight(1f),
+                        onClick = { showAttach = false; pendingOnce = true; pickImage.launch("image/*") }
+                    )
                 }
-                SheetRow(NexIcons.Lock, S.dmPhotoOnce) { showAttach = false; pendingOnce = true; pickImage.launch("image/*") }
-                SheetRow(NexIcons.Headphones, S.dmSongNow) {
-                    showAttach = false
-                    val t = viewModel.currentTrack.value
-                    if (t == null) NexNotifier.info(currentStrings().dmNoSong, currentStrings().dmTitle)
-                    else dms.sendSong(DmSong(t.id, t.title, t.artist, t.thumbnailUrl, t.url, t.durationSeconds))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    AttachGridTile(
+                        icon = NexIcons.Lock,
+                        title = S.dmTextOnce,
+                        subtitle = "Pesan rahasia",
+                        accent = Color(0xFFF472B6),
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            showAttach = false
+                            val txt = input.text.trim()
+                            if (txt.isEmpty()) {
+                                NexNotifier.info(currentStrings().dmTextOnceHint, currentStrings().dmTitle)
+                            } else {
+                                input = TextFieldValue("")
+                                scope.launch { dms.sendOnceText(txt)?.let { NexNotifier.warning(dmErrText(it), currentStrings().dmTitle) } }
+                            }
+                        }
+                    )
+                    AttachGridTile(
+                        icon = NexIcons.Headphones,
+                        title = S.dmSongNow,
+                        subtitle = currentSong?.title ?: "Putar lagu dulu",
+                        accent = Color(0xFF34D399),
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            showAttach = false
+                            if (currentSong == null) NexNotifier.info(currentStrings().dmNoSong, currentStrings().dmTitle)
+                            else dms.sendSong(DmSong(currentSong.id, currentSong.title, currentSong.artist, currentSong.thumbnailUrl, currentSong.url, currentSong.durationSeconds))
+                        }
+                    )
                 }
             }
         }
@@ -1738,7 +2210,42 @@ private fun DmThreadContent(viewModel: MusicViewModel, username: String, onBack:
     }
 }
 
-/* =============================== PROFIL LENGKAP KONTAK =============================== */
+@Composable
+private fun AttachGridTile(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    accent: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val colors = NexrifyAppTheme.colors
+    val shape = RoundedCornerShape(18.dp)
+    Column(
+        modifier = modifier
+            .clip(shape)
+            .background(colors.card)
+            .border(1.dp, colors.border.copy(alpha = 0.65f), shape)
+            .clickable(onClick = onClick)
+            .padding(14.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(accent.copy(alpha = 0.16f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, null, tint = accent, modifier = Modifier.size(20.dp))
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(title, color = colors.textPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(2.dp))
+        Text(subtitle, color = colors.textMuted, fontSize = 11.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/* =============================== PROFIL LENGKAP KONTAK + HALAMAN EDIT KONTAK =============================== */
 
 @Composable
 private fun ContactDetailScreen(
@@ -1761,101 +2268,145 @@ private fun ContactDetailScreen(
     val localVer by dms.localVersion.collectAsState()
     var showMenu by remember { mutableStateOf(false) }
     var showSharePicker by remember { mutableStateOf(false) }
-    var showEditContact by remember { mutableStateOf(false) }
+    var showEditContactPage by remember { mutableStateOf(false) }
 
     val saved = remember(peer.uid, localVer) { dms.getContact(peer.uid) }
     val shownName = saved?.fullName?.ifBlank { null } ?: nickname
 
     Dialog(onDismissRequest = onBack, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Column(
-            Modifier.fillMaxSize().background(colors.background).statusBarsPadding().navigationBarsPadding()
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(colors.background)
         ) {
-            // Header + titik 3 (Bagikan kontak & Edit)
-            Row(
-                Modifier.fillMaxWidth().background(colors.surface).padding(horizontal = 8.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TopIcon(NexIcons.ArrowBack, onBack)
-                Text("Info Kontak", style = Typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = colors.textPrimary, modifier = Modifier.weight(1f).padding(start = 6.dp))
-                Box {
-                    TopIcon(NexIcons.MoreVert) { showMenu = true }
-                    DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Bagikan kontak", color = colors.textPrimary) },
-                            onClick = { showMenu = false; showSharePicker = true }
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(260.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                colors.accent.copy(alpha = if (colors.isDark) 0.15f else 0.10f),
+                                Color.Transparent
+                            )
                         )
-                        DropdownMenuItem(
-                            text = { Text("Edit", color = colors.textPrimary) },
-                            onClick = { showMenu = false; showEditContact = true }
-                        )
-                    }
-                }
-            }
-            Box(Modifier.fillMaxWidth().height(1.dp).background(colors.border))
+                    )
+            )
 
             Column(
-                Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
             ) {
-                Spacer(Modifier.height(10.dp))
-                ChatAvatar(peer.uid, peer.av, shownName, 92.dp)
-                Spacer(Modifier.height(14.dp))
-                // Nickname & Username
-                Text(shownName, color = colors.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                Spacer(Modifier.height(4.dp))
-                Text("@${peer.username}", color = colors.textMuted, fontSize = 14.sp)
-
-                Spacer(Modifier.height(22.dp))
-                // Tombol Panggilan Suara
                 Row(
-                    Modifier.clip(RoundedCornerShape(16.dp)).background(colors.card).border(1.dp, colors.border, RoundedCornerShape(16.dp))
-                        .clickable(onClick = onCall).padding(horizontal = 24.dp, vertical = 12.dp),
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(NexIcons.Phone, null, tint = colors.textPrimary, modifier = Modifier.size(20.dp))
-                    Spacer(Modifier.width(10.dp))
-                    Text("Panggilan Suara", color = colors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    TopIcon(NexIcons.ArrowBack, onBack)
+                    Text(
+                        "Info Kontak",
+                        style = Typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = colors.textPrimary,
+                        modifier = Modifier.weight(1f).padding(start = 6.dp)
+                    )
+                    Box {
+                        TopIcon(NexIcons.MoreVert) { showMenu = true }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false },
+                            containerColor = Color.Transparent,
+                            shadowElevation = 0.dp
+                        ) {
+                            GlassDropdownContainer(modifier = Modifier.width(215.dp)) {
+                                PremiumMenuRow(
+                                    icon = NexIcons.Send,
+                                    label = "Bagikan kontak",
+                                    onClick = { showMenu = false; showSharePicker = true }
+                                )
+                                HorizontalDivider(color = colors.border.copy(alpha = 0.35f))
+                                PremiumMenuRow(
+                                    icon = NexIcons.Edit,
+                                    label = "Edit kontak",
+                                    onClick = { showMenu = false; showEditContactPage = true }
+                                )
+                            }
+                        }
+                    }
                 }
 
-                Spacer(Modifier.height(24.dp))
-                // Kartu menu utama
                 Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(colors.card).border(1.dp, colors.border, RoundedCornerShape(18.dp))
+                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    ContactDetailRow(NexIcons.ImagePick, "Media & tautan", onClick = onOpenMediaLinks)
-                    HorizontalDivider(color = colors.border.copy(alpha = 0.6f))
-                    ContactDetailRow(
-                        if (isMuted) NexIcons.BellOff else NexIcons.Bell,
-                        if (isMuted) "Notifikasi (Disenyapkan)" else "Notifikasi",
-                        onClick = onToggleMute
-                    )
-                    HorizontalDivider(color = colors.border.copy(alpha = 0.6f))
-                    ContactDetailRow(
-                        NexIcons.Lock,
-                        if (isChatLocked) "Kunci Obrolan (Aktif)" else "Kunci Obrolan",
-                        onClick = onToggleLock
-                    )
-                }
+                    Spacer(Modifier.height(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .border(2.dp, colors.accent.copy(alpha = 0.55f), CircleShape)
+                            .padding(4.dp)
+                    ) {
+                        ChatAvatar(peer.uid, peer.av, shownName, 94.dp)
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    Text(shownName, color = colors.textPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                    Spacer(Modifier.height(4.dp))
+                    Text("@${peer.username}", color = colors.textMuted, fontSize = 14.sp)
 
-                // ---- > batas
-                Spacer(Modifier.height(16.dp))
-                HorizontalDivider(color = colors.border)
-                Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(22.dp))
+                    Row(
+                        Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(colors.card)
+                            .border(1.dp, colors.border, RoundedCornerShape(16.dp))
+                            .clickable(onClick = onCall)
+                            .padding(horizontal = 24.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(NexIcons.Phone, null, tint = colors.textPrimary, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(10.dp))
+                        Text("Panggilan Suara", color = colors.textPrimary, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    }
 
-                // Kartu aksi bawah batas
-                Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(colors.card).border(1.dp, colors.border, RoundedCornerShape(18.dp))
-                ) {
-                    ContactDetailRow(NexIcons.DeleteOutline, "Bersihkan Obrolan", danger = true, onClick = onClearChat)
-                    HorizontalDivider(color = colors.border.copy(alpha = 0.6f))
-                    ContactDetailRow(
-                        NexIcons.Block,
-                        if (isBlocked) "Buka Blokir $shownName" else "Blokir $shownName",
-                        danger = true,
-                        onClick = onToggleBlock
-                    )
-                    HorizontalDivider(color = colors.border.copy(alpha = 0.6f))
-                    ContactDetailRow(NexIcons.Flag, "Laporkan $shownName", danger = true, onClick = onReport)
+                    Spacer(Modifier.height(24.dp))
+                    Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(colors.card).border(1.dp, colors.border, RoundedCornerShape(18.dp))
+                    ) {
+                        ContactDetailRow(NexIcons.ImagePick, "Media & tautan", onClick = onOpenMediaLinks)
+                        HorizontalDivider(color = colors.border.copy(alpha = 0.6f))
+                        ContactDetailRow(
+                            if (isMuted) NexIcons.BellOff else NexIcons.Bell,
+                            if (isMuted) "Notifikasi (Disenyapkan)" else "Notifikasi",
+                            onClick = onToggleMute
+                        )
+                        HorizontalDivider(color = colors.border.copy(alpha = 0.6f))
+                        ContactDetailRow(
+                            NexIcons.Lock,
+                            if (isChatLocked) "Kunci Obrolan (Aktif)" else "Kunci Obrolan",
+                            onClick = onToggleLock
+                        )
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+                    HorizontalDivider(color = colors.border)
+                    Spacer(Modifier.height(16.dp))
+
+                    Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(colors.card).border(1.dp, colors.border, RoundedCornerShape(18.dp))
+                    ) {
+                        ContactDetailRow(NexIcons.DeleteOutline, "Bersihkan Obrolan", danger = true, onClick = onClearChat)
+                        HorizontalDivider(color = colors.border.copy(alpha = 0.6f))
+                        ContactDetailRow(
+                            NexIcons.Block,
+                            if (isBlocked) "Buka Blokir $shownName" else "Blokir $shownName",
+                            danger = true,
+                            onClick = onToggleBlock
+                        )
+                        HorizontalDivider(color = colors.border.copy(alpha = 0.6f))
+                        ContactDetailRow(NexIcons.Flag, "Laporkan $shownName", danger = true, onClick = onReport)
+                    }
                 }
             }
         }
@@ -1867,36 +2418,171 @@ private fun ContactDetailScreen(
             )
         }
 
-        if (showEditContact) {
-            var fn by remember { mutableStateOf(saved?.firstName ?: peer.display) }
-            var ln by remember { mutableStateOf(saved?.lastName ?: "") }
-            AlertDialog(
-                onDismissRequest = { showEditContact = false },
-                containerColor = colors.surface,
-                title = { Text("Edit Kontak", color = colors.textPrimary) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        ContactInputField(value = fn, hint = "Nama Depan", onValueChange = { fn = it.take(24) })
-                        ContactInputField(value = ln, hint = "Nama Belakang (Opsional)", onValueChange = { ln = it.take(24) })
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        dms.saveContact(peer.uid, peer.username, fn, ln, peer.av)
-                        showEditContact = false
-                        NexNotifier.success("Kontak diperbarui", "Kontak")
-                    }) { Text("Simpan", color = colors.textPrimary, fontWeight = FontWeight.Bold) }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showEditContact = false }) { Text(S.dmCancel, color = colors.textSecondary) }
-                }
+        if (showEditContactPage) {
+            EditContactScreen(
+                peer = peer,
+                initialFirst = saved?.firstName ?: peer.display,
+                initialLast = saved?.lastName ?: "",
+                onBack = { showEditContactPage = false }
             )
         }
     }
 }
 
 @Composable
-private fun ContactDetailRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, danger: Boolean = false, onClick: () -> Unit) {
+private fun EditContactScreen(
+    peer: DmPeer,
+    initialFirst: String,
+    initialLast: String,
+    onBack: () -> Unit
+) {
+    val colors = NexrifyAppTheme.colors
+    val dms = remember { DmManager.getInstance() }
+    val meUser by AccountManager.getInstance().user.collectAsState()
+    val myName = meUser?.username.orEmpty()
+    var firstName by remember { mutableStateOf(initialFirst) }
+    var lastName by remember { mutableStateOf(initialLast) }
+    val canSave = firstName.trim().isNotEmpty()
+
+    Dialog(onDismissRequest = onBack, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(colors.background)
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .imePadding()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(colors.background)
+                    .padding(horizontal = 8.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TopIcon(NexIcons.ArrowBack, onBack)
+                Text(
+                    "Edit kontak",
+                    style = Typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                    fontSize = 19.sp,
+                    color = colors.textPrimary,
+                    modifier = Modifier.weight(1f).padding(start = 10.dp)
+                )
+            }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp)
+            ) {
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(NexIcons.Person, null, tint = colors.textSecondary, modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(16.dp))
+                    WhatsAppOutlinedInput(
+                        value = firstName,
+                        hint = "Nama depan",
+                        onValueChange = { firstName = it.take(24) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Spacer(Modifier.width(40.dp))
+                    WhatsAppOutlinedInput(
+                        value = lastName,
+                        hint = "Nama belakang",
+                        onValueChange = { lastName = it.take(24) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                        Text("@", color = colors.textSecondary, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(52.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .border(1.dp, colors.border.copy(alpha = 0.55f), RoundedCornerShape(10.dp))
+                            .padding(horizontal = 14.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Text(
+                            text = peer.username,
+                            color = colors.textMuted,
+                            fontSize = 15.sp
+                        )
+                    }
+                }
+
+                if (myName.isNotBlank()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = NexIcons.AccountCircle,
+                            contentDescription = null,
+                            tint = colors.textSecondary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(Modifier.width(16.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = "Simpan kontak ke akun Nexrify",
+                                color = colors.textPrimary,
+                                fontSize = 14.5.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = "@$myName",
+                                color = colors.textMuted,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 14.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .clip(CircleShape)
+                        .background(if (canSave) colors.textPrimary else colors.card)
+                        .clickable(enabled = canSave) {
+                            dms.saveContact(peer.uid, peer.username, firstName.trim(), lastName.trim(), peer.av)
+                            NexNotifier.success("Kontak diperbarui", "Kontak")
+                            onBack()
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "Simpan",
+                        color = if (canSave) colors.background else colors.textMuted,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 15.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContactDetailRow(icon: ImageVector, label: String, danger: Boolean = false, onClick: () -> Unit) {
     val colors = NexrifyAppTheme.colors
     Row(
         Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
@@ -2005,7 +2691,6 @@ private fun DmBubble(
     onPlay: (DmSong) -> Unit
 ) {
     val colors = NexrifyAppTheme.colors
-    // Tampilan gelembung seperti semula (tema bersih Nexrify), dan centang terbaca berwarna hijau
     val bg = if (mine) (mineColor ?: colors.textPrimary) else colors.card
     val fg = if (mine) (if (mineColor != null) Color.White else colors.background) else colors.textPrimary
     val sub = if (mine) (if (mineColor != null) Color.White.copy(alpha = 0.72f) else colors.background.copy(alpha = 0.65f)) else colors.textMuted
@@ -2424,7 +3109,7 @@ private fun DmProfileCard(username: String, fg: Color, sub: Color) {
     val p = profiles[username.lowercase()]
     var open by remember { mutableStateOf(false) }
     val myName = AccountManager.getInstance().user.value?.username.orEmpty()
-    val settings = remember { id.nexrify.music.data.chat.ChatManager.getInstance().settings }
+    val settings = remember { ChatManager.getInstance().settings }
     val muted by settings.muted.collectAsState()
 
     Column(
@@ -2553,7 +3238,7 @@ private fun CtxDivider() {
 }
 
 @Composable
-private fun CtxRow(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, danger: Boolean, onClick: () -> Unit) {
+private fun CtxRow(label: String, icon: ImageVector, danger: Boolean, onClick: () -> Unit) {
     val colors = NexrifyAppTheme.colors
     val c = if (danger) RED else colors.textPrimary
     Row(
